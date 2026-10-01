@@ -30,11 +30,11 @@ interface Destination {
   median30: number | null;
   currentLow: Low | null;
   history: { date: string; low: number }[];
-  monthly: { month: string; low: number }[];
+  monthly: { month: string; low: number | null }[];
 }
 
 interface Deal {
-  id: string;
+  id: string | number;
   code: string;
   name: string | null;
   origin: string | null;
@@ -60,7 +60,8 @@ interface Summary {
   lastRun: {
     startedAt: string | null;
     finishedAt: string | null;
-    ok: boolean;
+    /** Null until the first run of the version that records runs. */
+    ok: boolean | null;
     error: string | null;
     faresFetched: number | null;
     dealsFound: number | null;
@@ -275,14 +276,15 @@ function openDetail(dest: Destination, d: Summary) {
   if (dest.history.length > 1) {
     content.push(h('h3', {}, 'Price history'), historyChart(dest.history, dest.target, money));
   }
-  if (dest.monthly.length) {
-    const max = Math.max(...dest.monthly.map((m) => m.low));
+  const months = dest.monthly.filter((m): m is { month: string; low: number } => m.low !== null);
+  if (months.length) {
+    const max = Math.max(...months.map((m) => m.low));
     content.push(
       h('h3', {}, 'Cheapest by month'),
       h(
         'div',
         { class: 'fares-months' },
-        ...dest.monthly.map((m) =>
+        ...months.map((m) =>
           h(
             'div',
             { class: `fares-month${dest.target && m.low <= dest.target ? ' deal' : ''}` },
@@ -325,7 +327,7 @@ function openDetail(dest: Destination, d: Summary) {
 function status(d: Summary, failed: string) {
   const run = d.lastRun;
   const when = run?.finishedAt ?? d.generatedAt;
-  const bad = failed || (run && !run.ok ? `Last run failed${run.error ? `: ${run.error}` : ''}` : '');
+  const bad = failed || (run?.ok === false ? `Last run failed${run.error ? `: ${run.error}` : ''}` : '');
   return h('div', { class: `fares-status${bad ? ' bad' : ''}` }, bad || `Checked ${ago(when)}`);
 }
 
@@ -410,8 +412,10 @@ function best(x: { price: number; livePrice: number | null }) {
   return x.livePrice ?? x.price;
 }
 
+/** "Tokyo, Japan" + "TYO" -> "Tokyo (TYO)". */
 function place(name: string | null, code: string) {
-  return name ? `${name} (${code})` : code;
+  const city = name?.split(',')[0].trim();
+  return city ? `${city} (${code})` : code;
 }
 
 /** Lower is better: how the current low compares with the target. */

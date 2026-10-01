@@ -126,11 +126,11 @@
 .fares-grid { stroke: var(--border); stroke-width: 1; }
 .fares-axis { fill: var(--text-dim); font-size: 14px; }
 
-.fares-months { display: flex; gap: 8px; height: 160px; }
+.fares-months { display: flex; gap: 6px; height: 160px; }
 .fares-month { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
 .fares-month-bar { width: 70%; border-radius: 6px 6px 0 0; background: var(--surface-2); border: 1px solid var(--border); }
 .fares-month.deal .fares-month-bar { background: var(--success); border-color: var(--success); }
-.fares-month-price { font-size: 15px; font-variant-numeric: tabular-nums; }
+.fares-month-price { font-size: 14px; font-variant-numeric: tabular-nums; }
 .fares-month-label { font-size: 13px; color: var(--text-dim); }
 
 .fares-deal { padding: 12px 16px; border-radius: 14px; background: var(--surface-2); margin-bottom: 8px; font-size: 18px; }
