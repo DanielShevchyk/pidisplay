@@ -16,7 +16,13 @@
         }
       }
     ],
-    "right": []
+    "right": [
+      {
+        "id": "bar-weather",
+        "widget": "weather",
+        "config": {}
+      }
+    ]
   },
   "pages": [
     {
@@ -38,6 +44,12 @@
           "config": {
             "style": "analog"
           }
+        },
+        {
+          "id": "home-weather",
+          "widget": "weather",
+          "size": "large",
+          "config": {}
         },
         {
           "id": "home-utc",
@@ -65,6 +77,18 @@
             "timeZone": "Europe/London",
             "label": "London"
           }
+        }
+      ]
+    },
+    {
+      "id": "weather",
+      "name": "Weather",
+      "tiles": [
+        {
+          "id": "weather-full",
+          "widget": "weather",
+          "size": "full",
+          "config": {}
         }
       ]
     },

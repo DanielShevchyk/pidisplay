@@ -1,0 +1,141 @@
+.wx { height: 100%; }
+.wx.size-bar { height: auto; }
+
+.wx-message {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: clamp(14px, 9cqh, 28px);
+}
+.wx-message-icon { font-size: min(30cqw, 40cqh); }
+
+.wx-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3cqh;
+}
+
+/* ---- Current conditions ---- */
+
+.wx-now {
+  display: flex;
+  align-items: center;
+  gap: 4cqw;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.wx-now-icon { font-size: min(20cqw, 22cqh); line-height: 1; }
+.wx-now-temp {
+  font-size: min(22cqw, 26cqh);
+  font-weight: 300;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.wx-now-text { min-width: 0; display: flex; flex-direction: column; gap: 0.25em; font-size: clamp(14px, 6cqh, 30px); }
+.wx-place {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wx-offline { color: var(--warning); }
+.wx-cond { font-weight: 500; }
+.wx-hilo { color: var(--text-dim); white-space: pre; }
+
+/* ---- Details row ---- */
+
+.wx-details {
+  display: flex;
+  justify-content: space-between;
+  gap: 2cqw;
+  font-size: clamp(14px, 4.5cqh, 26px);
+}
+.wx-detail { display: flex; flex-direction: column; gap: 0.2em; }
+.wx-detail-label { color: var(--text-dim); font-size: 0.75em; }
+
+/* ---- Hourly and daily strips ---- */
+
+.wx-hours,
+.wx-days {
+  display: flex;
+  gap: 1.5cqw;
+  flex: 0 0 auto;
+}
+.wx-hour,
+.wx-day {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2em;
+  padding: 0.5em 0;
+  border-radius: 14px;
+  background: var(--surface-2);
+  font-size: clamp(13px, 4.2cqh, 26px);
+  white-space: nowrap;
+}
+.wx-small-label { color: var(--text-dim); font-size: 0.85em; }
+.wx-small-icon { font-size: 1.6em; line-height: 1.1; }
+.wx-small-temp { font-variant-numeric: tabular-nums; }
+.wx-low { color: var(--text-dim); }
+.wx-pop { color: var(--accent); font-size: 0.75em; min-height: 1.2em; }
+
+/* ---- Per size ---- */
+
+.size-small .wx-now { flex-direction: column; justify-content: center; gap: 1cqh; }
+.size-small .wx-now-icon { font-size: 30cqh; }
+.size-small .wx-now-temp { font-size: min(30cqw, 30cqh); }
+.size-small .wx-now-text { align-items: center; font-size: clamp(12px, 10cqh, 22px); }
+.size-small .wx-place,
+.size-small .wx-cond { display: none; }
+
+.size-medium .wx-body { flex-direction: row; align-items: stretch; gap: 3cqw; }
+.size-medium .wx-now { flex: 0 1 auto; gap: 3cqw; }
+.size-medium .wx-now-icon { font-size: min(13cqw, 40cqh); }
+.size-medium .wx-now-temp { font-size: min(14cqw, 48cqh); }
+.size-medium .wx-now-text { font-size: clamp(12px, 11cqh, 24px); }
+.size-medium .wx-days { flex: 1 1 auto; min-width: 0; }
+.size-medium .wx-day { justify-content: center; font-size: clamp(12px, 10cqh, 20px); }
+.size-medium .wx-low { display: block; text-align: center; }
+
+.size-tall .wx-now { flex: 0 0 auto; flex-direction: column; gap: 1cqh; }
+.size-tall .wx-now-icon { font-size: 16cqh; }
+.size-tall .wx-now-temp { font-size: min(36cqw, 16cqh); }
+.size-tall .wx-now-text { align-items: center; text-align: center; font-size: clamp(12px, 4cqh, 22px); }
+.size-tall .wx-days { flex: 1 1 auto; flex-direction: column; gap: 1.5cqh; }
+.size-tall .wx-day {
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0 0.6em;
+  font-size: clamp(12px, 3.8cqh, 22px);
+}
+.size-tall .wx-day .wx-small-label { width: 3.2em; text-align: left; }
+.size-tall .wx-day .wx-pop { display: none; }
+
+.size-large .wx-now-icon { font-size: 22cqh; }
+.size-large .wx-now-temp { font-size: 24cqh; }
+.size-large .wx-hour,
+.size-large .wx-day { font-size: clamp(12px, 3.6cqh, 22px); padding: 0.3em 0; }
+
+.size-full .wx-body { gap: 4cqh; }
+.size-full .wx-now { justify-content: center; }
+.size-full .wx-now-text { font-size: clamp(16px, 4cqh, 40px); }
+.size-full .wx-details { justify-content: space-around; font-size: clamp(16px, 3cqh, 32px); }
+.size-full .wx-hour,
+.size-full .wx-day { font-size: clamp(14px, 3cqh, 30px); }
+
+/* ---- Top bar ---- */
+
+.wx-bar { display: flex; align-items: center; gap: 8px; }
+.wx-bar-icon { font-size: 30px; line-height: 1; }
+.wx-bar-temp { font-size: 30px; font-variant-numeric: tabular-nums; }

@@ -9,7 +9,11 @@ let server, base, dataDir;
 
 before(async () => {
   dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-'));
-  server = createServer({ dataDir, distDir: path.join(dataDir, 'dist') });
+  server = createServer({
+    dataDir,
+    distDir: path.join(dataDir, 'dist'),
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ results: [] }) }),
+  });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -58,4 +62,11 @@ test('posts, lists and clears notifications', async () => {
   await fetch(`${base}/api/notifications/${n.id}`, { method: 'DELETE' });
   assert.deepEqual(await (await fetch(`${base}/api/notifications`)).json(), []);
   assert.equal((await fetch(`${base}/api/notifications`, json('POST', {}))).status, 400);
+});
+
+test('weather route validates input and reports unknown places', async () => {
+  assert.equal((await fetch(`${base}/api/weather`)).status, 400);
+  const res = await fetch(`${base}/api/weather?location=Nowhere`);
+  assert.equal(res.status, 404);
+  assert.match((await res.json()).error, /Nowhere/);
 });

@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createWeather, WeatherError } from './weather.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -45,7 +46,8 @@ async function readJson(file, fallback) {
 // Write to a temp file then rename, so a power cut never leaves half a file.
 async function writeJson(file, value) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  // Unique per write: two saves of the same key can overlap.
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(value, null, 2));
   await fs.rename(tmp, file);
 }
@@ -89,11 +91,13 @@ export function createServer({
   dataDir = process.env.PIDISPLAY_DATA || path.join(ROOT, 'data'),
   distDir = path.join(ROOT, 'dist'),
   defaultLayoutFile = path.join(ROOT, 'server', 'default-layout.json'),
+  fetchImpl = globalThis.fetch,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
   const storeDir = path.join(dataDir, 'store');
   const clients = new Set();
+  const weather = createWeather({ fetchImpl });
 
   function broadcast(event, data) {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -151,6 +155,16 @@ export function createServer({
         await writeJson(file, await readBody(req));
         broadcast('store', { key, clientId });
         return send(res, 204);
+      }
+    }
+
+    if (resource === 'weather' && !key && req.method === 'GET') {
+      try {
+        const data = await weather.get(url.searchParams.get('location'), url.searchParams.get('units') ?? undefined);
+        return send(res, 200, data);
+      } catch (err) {
+        if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
       }
     }
 
