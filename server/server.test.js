@@ -70,3 +70,11 @@ test('weather route validates input and reports unknown places', async () => {
   assert.equal(res.status, 404);
   assert.match((await res.json()).error, /Nowhere/);
 });
+
+test('serves the Farewatcher summary once it has been written', async () => {
+  assert.deepEqual(await (await fetch(`${base}/api/fares`)).json(), { available: false });
+  await fs.writeFile(path.join(dataDir, 'farewatcher.json'), JSON.stringify({ currency: 'USD', deals: [] }));
+  const body = await (await fetch(`${base}/api/fares`)).json();
+  assert.equal(body.available, true);
+  assert.equal(body.currency, 'USD');
+});

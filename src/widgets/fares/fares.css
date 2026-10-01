@@ -1,0 +1,138 @@
+.fares { height: 100%; }
+
+.fares button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fares-message {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: clamp(14px, 9cqh, 26px);
+}
+.fares-message-icon { font-size: min(26cqw, 36cqh); }
+
+.fares-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2cqh;
+  min-height: 0;
+}
+
+/* ---- Hero: best deal ---- */
+
+.fares-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  min-height: 0;
+  flex: 1 1 auto;
+  font-size: clamp(14px, 7cqh, 28px);
+}
+.size-large .fares-hero,
+.size-xlarge .fares-hero,
+.size-full .fares-hero { flex: 0 0 auto; font-size: clamp(14px, 5cqh, 28px); }
+.fares-hero-top { display: flex; align-items: center; gap: 0.5em; min-width: 0; }
+.fares-place {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fares-price {
+  font-size: 2.6em;
+  font-weight: 300;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--success);
+}
+.fares-price.dim { color: var(--text); }
+.fares-meta { color: var(--text-dim); font-size: 0.85em; }
+.fares-under { color: var(--success); font-size: 0.85em; font-weight: 500; }
+.fares-none { color: var(--text-dim); font-size: clamp(14px, 5cqh, 22px); }
+
+.fares-badge {
+  flex: none;
+  font-size: 0.65em;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  border: 1px solid var(--warning);
+  color: var(--warning);
+}
+.fares-badge.live { border-color: var(--success); color: var(--success); }
+
+/* ---- Destination list ---- */
+
+.fares-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+.fares .fares-row {
+  flex: 1 1 0;
+  max-height: 64px;
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: clamp(14px, 3.4cqw, 22px);
+}
+.fares-row.deal { box-shadow: inset 4px 0 0 var(--success); }
+.fares-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fares-row-price { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
+.fares-row.deal .fares-row-price { color: var(--success); }
+.fares-row-target { color: var(--text-dim); font-weight: 400; font-size: 0.8em; }
+
+.size-tall .fares-row { grid-template-columns: minmax(0, 1fr) auto; }
+.size-tall .fares-spark { display: none; }
+.fares-spark { display: block; height: 60%; min-height: 20px; }
+.fares-spark svg { width: 100%; height: 100%; overflow: visible; }
+.fares-spark-line,
+.fares-chart-line { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.fares-target-line { stroke: var(--success); stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; opacity: 0.7; }
+
+.fares-status { color: var(--text-dim); font-size: clamp(12px, 4cqh, 16px); flex: none; }
+.fares-status.bad { color: var(--warning); }
+
+/* ---- Detail sheet ---- */
+
+.fares-sheet-summary { display: flex; flex-wrap: wrap; gap: 12px 32px; margin-bottom: 8px; }
+.fares-detail { display: flex; flex-direction: column; font-size: 26px; font-variant-numeric: tabular-nums; }
+.fares-detail-label { font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.fares-chart { width: 100%; height: auto; display: block; }
+.fares-grid { stroke: var(--border); stroke-width: 1; }
+.fares-axis { fill: var(--text-dim); font-size: 14px; }
+
+.fares-months { display: flex; gap: 8px; height: 160px; }
+.fares-month { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.fares-month-bar { width: 70%; border-radius: 6px 6px 0 0; background: var(--surface-2); border: 1px solid var(--border); }
+.fares-month.deal .fares-month-bar { background: var(--success); border-color: var(--success); }
+.fares-month-price { font-size: 15px; font-variant-numeric: tabular-nums; }
+.fares-month-label { font-size: 13px; color: var(--text-dim); }
+
+.fares-deal { padding: 12px 16px; border-radius: 14px; background: var(--surface-2); margin-bottom: 8px; font-size: 18px; }
+.fares-deal-top { display: flex; align-items: center; gap: 12px; font-size: 24px; }
+.sheet-body .fares-status { margin-top: 16px; font-size: 15px; }

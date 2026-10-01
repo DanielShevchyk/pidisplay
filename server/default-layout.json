@@ -118,6 +118,26 @@
           "config": {}
         }
       ]
+    },
+    {
+      "id": "travel",
+      "name": "Travel",
+      "tiles": [
+        {
+          "id": "travel-deal",
+          "widget": "fares",
+          "size": "large",
+          "config": {}
+        },
+        {
+          "id": "travel-list",
+          "widget": "fares",
+          "size": "xlarge",
+          "config": {
+            "showUnverified": true
+          }
+        }
+      ]
     }
   ]
 }

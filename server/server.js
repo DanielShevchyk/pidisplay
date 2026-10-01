@@ -98,6 +98,8 @@ export function createServer({
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
   const storeDir = path.join(dataDir, 'store');
+  // Written by Farewatcher (Python, systemd timer) after each run; read-only here.
+  const faresFile = path.join(dataDir, 'farewatcher.json');
   const clients = new Set();
   const weather = createWeather({ fetchImpl });
 
@@ -161,6 +163,11 @@ export function createServer({
     }
 
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
+
+    if (resource === 'fares' && !key && req.method === 'GET') {
+      const summary = await readJson(faresFile, null).catch(() => null);
+      return send(res, 200, summary ? { available: true, ...summary } : { available: false });
+    }
 
     if (resource === 'weather' && !key && req.method === 'GET') {
       try {
