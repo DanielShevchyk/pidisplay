@@ -1,0 +1,19 @@
+[Unit]
+Description=PiDisplay dashboard server
+After=network.target
+
+[Service]
+Type=simple
+User=dan
+WorkingDirectory=/home/dan/pidisplay
+Environment=NODE_ENV=production
+Environment=PORT=8080
+Environment=HOST=127.0.0.1
+# Data lives outside the app folder so redeploys never touch it.
+Environment=PIDISPLAY_DATA=/home/dan/pidisplay-data
+ExecStart=/usr/bin/node server/server.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
