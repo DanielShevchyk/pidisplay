@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createWeather, WeatherError } from './weather.js';
 import { createSystem } from './system.js';
+import { createCalendar, CalendarError } from './calendar.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -102,6 +103,8 @@ export function createServer({
   const faresFile = path.join(dataDir, 'farewatcher.json');
   const clients = new Set();
   const weather = createWeather({ fetchImpl });
+  // Secret iCal feed URLs, edited by hand on the Pi; see docs/CALENDAR.md.
+  const calendar = createCalendar({ configFile: path.join(dataDir, 'calendars.json'), fetchImpl });
 
   function broadcast(event, data) {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -175,6 +178,16 @@ export function createServer({
         return send(res, 200, data);
       } catch (err) {
         if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'calendar' && !key && req.method === 'GET') {
+      try {
+        const q = url.searchParams;
+        return send(res, 200, await calendar.get({ from: q.get('from'), to: q.get('to'), tz: q.get('tz') }));
+      } catch (err) {
+        if (err instanceof CalendarError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }

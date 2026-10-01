@@ -18,6 +18,11 @@
     ],
     "right": [
       {
+        "id": "bar-calendar",
+        "widget": "calendar",
+        "config": {}
+      },
+      {
         "id": "bar-weather",
         "widget": "weather",
         "config": {}
@@ -48,6 +53,12 @@
         {
           "id": "home-weather",
           "widget": "weather",
+          "size": "large",
+          "config": {}
+        },
+        {
+          "id": "home-calendar",
+          "widget": "calendar",
           "size": "large",
           "config": {}
         },
@@ -87,6 +98,18 @@
         {
           "id": "weather-full",
           "widget": "weather",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
+      "id": "calendar",
+      "name": "Calendar",
+      "tiles": [
+        {
+          "id": "calendar-full",
+          "widget": "calendar",
           "size": "full",
           "config": {}
         }
