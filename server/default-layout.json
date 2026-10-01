@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "settings": {
+    "columns": 6,
+    "rows": 4,
+    "rotateSeconds": 30,
+    "resumeAfterSeconds": 60
+  },
+  "topBar": {
+    "left": [
+      {
+        "id": "bar-clock",
+        "widget": "clock",
+        "config": {
+          "showSeconds": false
+        }
+      }
+    ],
+    "right": []
+  },
+  "pages": [
+    {
+      "id": "home",
+      "name": "Home",
+      "tiles": [
+        {
+          "id": "home-clock",
+          "widget": "clock",
+          "size": "large",
+          "config": {
+            "style": "digital"
+          }
+        },
+        {
+          "id": "home-analog",
+          "widget": "clock",
+          "size": "large",
+          "config": {
+            "style": "analog"
+          }
+        },
+        {
+          "id": "home-utc",
+          "widget": "clock",
+          "size": "medium",
+          "config": {
+            "timeZone": "UTC",
+            "label": "UTC"
+          }
+        },
+        {
+          "id": "home-tokyo",
+          "widget": "clock",
+          "size": "small",
+          "config": {
+            "timeZone": "Asia/Tokyo",
+            "label": "Tokyo"
+          }
+        },
+        {
+          "id": "home-london",
+          "widget": "clock",
+          "size": "small",
+          "config": {
+            "timeZone": "Europe/London",
+            "label": "London"
+          }
+        }
+      ]
+    },
+    {
+      "id": "clock",
+      "name": "Clock",
+      "tiles": [
+        {
+          "id": "clock-full",
+          "widget": "clock",
+          "size": "full",
+          "config": {
+            "style": "digital",
+            "showSeconds": true
+          }
+        }
+      ]
+    }
+  ]
+}

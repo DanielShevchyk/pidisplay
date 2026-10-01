@@ -1,0 +1,66 @@
+.clock {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2cqh;
+  text-align: center;
+}
+
+.clock-label {
+  font-size: clamp(14px, 9cqh, 36px);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.clock-time {
+  font-weight: 300;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: min(26cqw, 48cqh);
+}
+.size-small .clock-time { font-size: min(30cqw, 40cqh); }
+.size-tall .clock-time { font-size: min(26cqw, 24cqh); }
+.size-full .clock-time { font-size: min(24cqw, 40cqh); }
+
+.clock-secs,
+.clock-period {
+  font-size: 0.4em;
+  color: var(--text-dim);
+  margin-left: 0.1em;
+}
+
+.clock-date {
+  font-size: clamp(14px, 9cqh, 44px);
+  color: var(--text-dim);
+}
+
+.clock-face {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-height: 100%;
+}
+.clock-dial { fill: var(--surface-2); stroke: var(--border); stroke-width: 2; }
+.clock-tick { stroke: var(--text-dim); stroke-width: 1.5; stroke-linecap: round; }
+.clock-tick.major { stroke: var(--text); stroke-width: 3; }
+.clock-hand { stroke: var(--text); stroke-linecap: round; }
+.clock-hand.hour { stroke-width: 7; }
+.clock-hand.minute { stroke-width: 4.5; }
+.clock-hand.second { stroke: var(--accent); stroke-width: 2; }
+.clock-pin { fill: var(--accent); }
+
+.clock-bar {
+  height: auto;
+  flex-direction: row;
+  gap: 14px;
+  align-items: baseline;
+}
+.clock-bar-time {
+  font-size: 34px;
+  font-variant-numeric: tabular-nums;
+}
+.clock-bar .clock-date { font-size: 20px; }
