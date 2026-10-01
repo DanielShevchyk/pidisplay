@@ -15,9 +15,13 @@ if [ -f "$PREFS" ]; then
   sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' "$PREFS"
 fi
 
+# The two IME flags let Chromium tell squeekboard (the Pi's on-screen
+# keyboard) when a text field is focused, so it pops up on its own.
 exec chromium \
   --kiosk "$URL" \
   --ozone-platform=wayland \
+  --enable-wayland-ime \
+  --wayland-text-input-version=3 \
   --noerrdialogs \
   --disable-infobars \
   --no-first-run \
