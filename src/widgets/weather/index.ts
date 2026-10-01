@@ -49,6 +49,8 @@ interface Cached {
   data: Forecast;
 }
 
+/** Used until a location is set on any weather tile. */
+const DEFAULT_LOCATION = 'Citrus Heights, CA';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 
@@ -73,7 +75,7 @@ export default defineWidget<WeatherConfig>({
   supportsBar: true,
   defaultConfig: { location: '', units: 'imperial', label: '' },
   settings: [
-    { key: 'location', label: 'Location (blank = same as other weather tiles)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
+    { key: 'location', label: 'Location (blank = same as other weather tiles, or Citrus Heights)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
     {
       key: 'units',
       label: 'Units',
@@ -143,7 +145,7 @@ export default defineWidget<WeatherConfig>({
     const followShared = () =>
       sharedStorage
         .load<SharedDefault | null>(null)
-        .then((d) => alive && !own && use(d?.location ?? ''))
+        .then((d) => alive && !own && use(d?.location || DEFAULT_LOCATION))
         .catch(() => {});
 
     // Show this tile's last forecast right away (e.g. after a reboot), then refresh.
@@ -157,7 +159,7 @@ export default defineWidget<WeatherConfig>({
           sharedStorage.save({ location: own } satisfies SharedDefault).catch(() => {});
         }
         const shared = own ? null : await sharedStorage.load<SharedDefault | null>(null).catch(() => null);
-        const loc = own || shared?.location || '';
+        const loc = own || shared?.location || DEFAULT_LOCATION;
         if (loc && cached?.query === queryFor(loc)) data = cached.data;
         location = loc;
         paint();
