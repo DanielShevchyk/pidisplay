@@ -106,6 +106,18 @@
           }
         }
       ]
+    },
+    {
+      "id": "system",
+      "name": "System",
+      "tiles": [
+        {
+          "id": "system-full",
+          "widget": "system",
+          "size": "full",
+          "config": {}
+        }
+      ]
     }
   ]
 }

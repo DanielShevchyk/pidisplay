@@ -7,6 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createWeather, WeatherError } from './weather.js';
+import { createSystem } from './system.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -92,6 +93,7 @@ export function createServer({
   distDir = path.join(ROOT, 'dist'),
   defaultLayoutFile = path.join(ROOT, 'server', 'default-layout.json'),
   fetchImpl = globalThis.fetch,
+  system = createSystem(),
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -157,6 +159,8 @@ export function createServer({
         return send(res, 204);
       }
     }
+
+    if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
 
     if (resource === 'weather' && !key && req.method === 'GET') {
       try {

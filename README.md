@@ -52,6 +52,7 @@ Tests: `npm test` (server API).
 | POST | `/api/notifications` | `{ "title": "...", "body": "...", "source": "Farewatcher", "level": "info" \| "success" \| "warning" \| "alert" }` |
 | DELETE | `/api/notifications[/:id]` | Dismiss one, or all. |
 | GET | `/api/weather?location=Austin, TX&units=imperial` | Forecast from Open-Meteo (no API key) for a city or `lat,lon`; `units` is `imperial` or `metric`. Cached 10 minutes. Used by the weather widget. |
+| GET | `/api/system` | Pi health for the System widget: CPU, memory, disk, temperature, clock, throttle/undervoltage flags, network. Unavailable readings are `null`. |
 | GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`. |
 
 Example, from the Pi itself:
