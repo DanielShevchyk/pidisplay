@@ -109,7 +109,7 @@ export function createNetwork({ run = defaultRun, platform = process.platform, r
         const bySsid = new Map();
         for (const [inUse, ssid, signal, security] of lines(out).map(splitTerse)) {
           if (!ssid) continue; // hidden networks
-          const n = { ssid, signal: Number(signal) || 0, secure: Boolean(security && security !== '--'), security, inUse: inUse === '*' };
+          const n = { ssid, signal: Number(signal) || 0, secure: Boolean(security && security !== '--'), enterprise: /802\.1X/i.test(security), security, inUse: inUse === '*' };
           const prev = bySsid.get(ssid);
           if (!prev || n.inUse || (!prev.inUse && n.signal > prev.signal)) bySsid.set(ssid, n);
         }

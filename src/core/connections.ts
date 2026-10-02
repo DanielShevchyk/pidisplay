@@ -7,6 +7,7 @@ interface WifiNetwork {
   ssid: string;
   signal: number;
   secure: boolean;
+  enterprise: boolean;
   saved: boolean;
   inUse: boolean;
 }
@@ -155,6 +156,10 @@ export function showWifi(body: HTMLElement, back: () => void) {
           forget,
         ),
       );
+    }
+
+    if (n.enterprise) {
+      return h('div', { class: 'conn-detail' }, h('p', { class: 'conn-hint' }, 'This is an enterprise (802.1X) network, which needs a username and certificate setup that this screen does not support.'));
     }
 
     const input = h('input', {

@@ -12,7 +12,11 @@ dpkg -s rfkill >/dev/null 2>&1 || sudo apt-get install -y rfkill
 
 # Narrow permissions for the gear menu's Wi-Fi and Bluetooth screens (see the files).
 sudo install -m 644 -o root -g root deploy/pidisplay-network.rules /etc/polkit-1/rules.d/50-pidisplay-network.rules
-sudo visudo -cqf deploy/pidisplay-sudoers && sudo install -m 440 -o root -g root deploy/pidisplay-sudoers /etc/sudoers.d/pidisplay
+# Strip Windows line endings (sudo rejects them) and only install a file visudo accepts.
+tr -d '\r' < deploy/pidisplay-sudoers > /tmp/pidisplay-sudoers
+sudo visudo -cqf /tmp/pidisplay-sudoers
+sudo install -m 440 -o root -g root /tmp/pidisplay-sudoers /etc/sudoers.d/pidisplay
+rm -f /tmp/pidisplay-sudoers
 
 npm ci --no-audit --no-fund
 npm run build
