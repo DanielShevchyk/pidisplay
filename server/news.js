@@ -1,6 +1,6 @@
 // News proxy for the news widget. Reads Google News RSS (free, no API key),
 // which already ranks and de-duplicates stories across thousands of outlets:
-// the World and U.S. topic feeds, and the local feed for a place name. Each
+// the World and U.S. topic feeds, and the state and city feeds for a place. Each
 // feed is cached in memory so any number of tiles cost one upstream call per
 // feed every few minutes, and the last good copy is kept through outages.
 
@@ -24,7 +24,10 @@ export class NewsError extends Error {
   }
 }
 
-/** "Citrus Heights, CA" -> { label: 'Citrus Heights', geo: 'Citrus Heights, California' }. */
+/**
+ * "Sacramento, CA" -> { label: 'Sacramento', geo: 'Sacramento, California', city: 'Sacramento',
+ * state: 'California' }. state is set only for a recognized US state or name.
+ */
 export function localPlace(location) {
   const parts = String(location ?? '')
     .split(',')
@@ -35,11 +38,16 @@ export function localPlace(location) {
     throw new NewsError(400, 'Local news needs a city name, not coordinates');
   }
   const [city, ...rest] = parts;
+  const titled = (name) => name.replace(/\b\w/g, (c) => c.toUpperCase());
+  let state = null;
   const expanded = rest.map((p) => {
-    const state = US_STATES[p.toLowerCase()];
-    return state ? state.replace(/\b\w/g, (c) => c.toUpperCase()) : p;
+    const lower = p.toLowerCase();
+    const name = US_STATES[lower] ?? (Object.values(US_STATES).includes(lower) ? lower : null);
+    if (!name) return p;
+    state ??= titled(name);
+    return titled(name);
   });
-  return { label: city, geo: [city, ...expanded].join(', '), city };
+  return { label: city, geo: [city, ...expanded].join(', '), city, state };
 }
 
 export function createNews({ fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
@@ -92,27 +100,44 @@ export function createNews({ fetchImpl = globalThis.fetch, now = () => Date.now(
     return { label: place.label, ...(await feed(`${BASE}/search?q=${q}&${LOCALE}`)) };
   }
 
+  async function state(location) {
+    const place = localPlace(location);
+    if (!place?.state) throw new NewsError(400, 'Add a US state to the location, e.g. Sacramento, CA');
+    return { label: place.state, ...(await feed(`${BASE}/headlines/section/geo/${encodeURIComponent(place.state)}?${LOCALE}`)) };
+  }
+
+  /** Label for a section that failed, so its column still says what it is. */
+  function fallbackLabel(id, location) {
+    if (SECTIONS[id]) return SECTIONS[id].label;
+    try {
+      const place = localPlace(location);
+      return (id === 'state' ? place?.state : place?.label) ?? (id === 'state' ? 'State' : 'Local');
+    } catch {
+      return id === 'state' ? 'State' : 'Local';
+    }
+  }
+
   /**
    * Returns { sections: [{ id, label, items, updated, stale?, error? }] } for the
    * requested section ids. One failing feed doesn't hide the others.
    */
-  async function get({ sections = 'world,us,local', location = '' } = {}) {
+  async function get({ sections = 'world,us,state,local', location = '' } = {}) {
     const ids = String(sections)
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (!ids.length || ids.some((id) => id !== 'local' && !SECTIONS[id])) {
-      throw new NewsError(400, 'sections must be a list of world, us, local');
+    if (!ids.length || ids.some((id) => id !== 'local' && id !== 'state' && !SECTIONS[id])) {
+      throw new NewsError(400, 'sections must be a list of world, us, state, local');
     }
     if (String(location).length > 120) throw new NewsError(400, 'location is too long');
     const out = await Promise.all(
       [...new Set(ids)].map(async (id) => {
-        const label = SECTIONS[id]?.label ?? 'Local';
         try {
-          const result = id === 'local' ? await local(location) : { label, ...(await feed(SECTIONS[id].url())) };
-          return { id, ...result };
+          if (id === 'local') return { id, ...(await local(location)) };
+          if (id === 'state') return { id, ...(await state(location)) };
+          return { id, label: SECTIONS[id].label, ...(await feed(SECTIONS[id].url())) };
         } catch (err) {
-          return { id, label: id === 'local' ? localPlace(location)?.label ?? label : label, items: [], error: err.message };
+          return { id, label: fallbackLabel(id, location), items: [], error: err.message };
         }
       }),
     );

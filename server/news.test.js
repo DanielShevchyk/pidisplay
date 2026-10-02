@@ -42,8 +42,9 @@ test('parseFeed strips the outlet suffix, decodes entities and reads related cov
 });
 
 test('localPlace expands US state codes for the geo feed', () => {
-  assert.deepEqual(localPlace('Citrus Heights, CA'), { label: 'Citrus Heights', geo: 'Citrus Heights, California', city: 'Citrus Heights' });
-  assert.equal(localPlace('Paris, France').geo, 'Paris, France');
+  assert.deepEqual(localPlace('Sacramento, CA'), { label: 'Sacramento', geo: 'Sacramento, California', city: 'Sacramento', state: 'California' });
+  assert.equal(localPlace('Austin, texas').state, 'Texas');
+  assert.deepEqual(localPlace('Paris, France'), { label: 'Paris', geo: 'Paris, France', city: 'Paris', state: null });
   assert.equal(localPlace('  '), null);
   assert.throws(() => localPlace('38.7,-121.3'), /city name/);
 });
@@ -60,28 +61,30 @@ function fakeFetch(routes) {
   return { fetchImpl, calls };
 }
 
-test('get returns world, U.S. and local sections, and caches feeds', async () => {
+test('get returns world, U.S., state and local sections, and caches feeds', async () => {
   const { fetchImpl, calls } = fakeFetch({
     'topic/WORLD': rss(item({ title: 'World story', source: 'BBC' })),
     'topic/NATION': rss(item({ title: 'US story', source: 'NPR' })),
-    'geo/Citrus%20Heights%2C%20California': rss(item({ title: 'Local story', source: 'Sacramento Bee' })),
+    'geo/California?': rss(item({ title: 'State story', source: 'LA Times' })),
+    'geo/Sacramento%2C%20California': rss(item({ title: 'Local story', source: 'Sacramento Bee' })),
   });
   let t = 0;
   const news = createNews({ fetchImpl, now: () => t });
-  const out = await news.get({ location: 'Citrus Heights, CA' });
+  const out = await news.get({ location: 'Sacramento, CA' });
   assert.deepEqual(
     out.sections.map((s) => [s.id, s.label, s.items[0]?.title, s.error]),
     [
       ['world', 'World', 'World story', undefined],
       ['us', 'U.S.', 'US story', undefined],
-      ['local', 'Citrus Heights', 'Local story', undefined],
+      ['state', 'California', 'State story', undefined],
+      ['local', 'Sacramento', 'Local story', undefined],
     ],
   );
-  await news.get({ location: 'Citrus Heights, CA' });
-  assert.equal(calls.length, 3);
+  await news.get({ location: 'Sacramento, CA' });
+  assert.equal(calls.length, 4);
   t = 11 * 60 * 1000;
   await news.get({ sections: 'world' });
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
 });
 
 test('an empty geo feed falls back to a search, and failures stay per section', async () => {
@@ -98,6 +101,10 @@ test('an empty geo feed falls back to a search, and failures stay per section', 
 
   const noPlace = await news.get({ sections: 'local' });
   assert.match(noPlace.sections[0].error, /Set a location/);
+
+  const noState = await news.get({ sections: 'state', location: 'Paris, France' });
+  assert.deepEqual([noState.sections[0].label, noState.sections[0].items], ['State', []]);
+  assert.match(noState.sections[0].error, /Add a US state/);
 });
 
 test('a failed refresh keeps the last good copy, marked stale', async () => {

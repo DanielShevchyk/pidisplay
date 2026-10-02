@@ -15,6 +15,7 @@
 .news-message-icon { font-size: min(26cqw, 34cqh); }
 
 .news-label {
+  flex: 0 0 auto;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.08em;

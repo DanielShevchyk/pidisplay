@@ -1,15 +1,14 @@
-import { createStorage } from '../../core/api';
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import './news.css';
 
-type SectionId = 'world' | 'us' | 'local';
+type SectionId = 'world' | 'us' | 'state' | 'local';
 
 interface NewsConfig {
   /** 'all' or a single section id. */
   section: 'all' | SectionId;
-  /** Place for local news; blank follows the weather widget's location. */
+  /** "City, ST" for the state and city sections; blank = DEFAULT_LOCATION. */
   location: string;
   /** Seconds between switching sections (lists) or headlines (small tile, top bar); 0 = off. */
   rotateSeconds: number;
@@ -40,18 +39,18 @@ interface Cached {
   sections: Section[];
 }
 
-/** The weather widget's fallback, so local news matches the forecast out of the box. */
-const DEFAULT_LOCATION = 'Citrus Heights, CA';
+/** Dan picked Sacramento + California news over the weather's Citrus Heights. */
+const DEFAULT_LOCATION = 'Sacramento, CA';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 /** After a tap, hold the chosen section this long before rotating again. */
 const HOLD_MS = 2 * 60 * 1000;
-const ICONS: Record<SectionId, string> = { world: '🌍', us: '🇺🇸', local: '📍' };
+const ICONS: Record<SectionId, string> = { world: '🌍', us: '🇺🇸', state: '🗺️', local: '📍' };
 
 export default defineWidget<NewsConfig>({
   type: 'news',
   name: 'News',
-  description: 'Top world, U.S. and local headlines',
+  description: 'Top world, U.S., state and local headlines',
   icon: '📰',
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
@@ -63,24 +62,23 @@ export default defineWidget<NewsConfig>({
       label: 'Show',
       type: 'select',
       options: [
-        { value: 'all', label: 'World, U.S. and local' },
+        { value: 'all', label: 'World, U.S., state and local' },
         { value: 'world', label: 'World only' },
         { value: 'us', label: 'U.S. only' },
-        { value: 'local', label: 'Local only' },
+        { value: 'state', label: 'State only' },
+        { value: 'local', label: 'City only' },
       ],
     },
-    { key: 'location', label: 'Local news for (blank = weather location)', type: 'text', placeholder: 'e.g. Sacramento, CA' },
+    { key: 'location', label: 'State and city news for (blank = Sacramento, CA)', type: 'text', placeholder: 'City, ST' },
     { key: 'rotateSeconds', label: 'Rotate every (seconds, 0 = off)', type: 'number', min: 0, max: 600, step: 5 },
   ],
 
   mount(el, { config, placement, storage }) {
-    const ids: SectionId[] = config.section === 'all' ? ['world', 'us', 'local'] : [config.section];
-    const own = config.location.trim();
-    const weatherShared = createStorage('weather');
+    const location = config.location.trim() || DEFAULT_LOCATION;
+    const ids: SectionId[] = config.section === 'all' ? ['world', 'us', 'state', 'local'] : [config.section];
     const root = h('div', { class: `news size-${placement}` });
     el.append(root);
 
-    let location = '';
     let sections: Section[] = [];
     let failed = '';
     let active = 0; // section index (lists) or headline index (small, bar)
@@ -88,7 +86,7 @@ export default defineWidget<NewsConfig>({
     let refreshTimer = 0;
     let rotateTimer = 0;
     let alive = true;
-    const query = () => `${ids.join(',')}|${ids.includes('local') ? location : ''}`;
+    const query = () => `${ids.join(',')}|${location}`;
 
     const paint = () => {
       if (!sections.length) {
@@ -177,43 +175,23 @@ export default defineWidget<NewsConfig>({
       refreshTimer = window.setTimeout(refresh, next);
     };
 
-    const use = (loc: string) => {
-      if (loc === location) return;
-      location = loc;
-      refresh();
-    };
-
     // Show the last headlines right away (e.g. after a reboot), then refresh.
     storage
       .load<Cached | null>(null)
       .catch(() => null)
-      .then(async (cached) => {
+      .then((cached) => {
         if (!alive) return;
-        const shared = own ? null : await weatherShared.load<{ location?: string } | null>(null).catch(() => null);
-        location = own || shared?.location || DEFAULT_LOCATION;
         if (cached?.query === query()) sections = cached.sections;
         paint();
         rotate();
         refresh();
       });
 
-    // Follow the weather location when it changes, unless this tile has its own.
-    const unsubscribe =
-      own || !ids.includes('local')
-        ? () => {}
-        : weatherShared.onChange(() =>
-            weatherShared
-              .load<{ location?: string } | null>(null)
-              .then((d) => alive && use(d?.location || DEFAULT_LOCATION))
-              .catch(() => {}),
-          );
-
     return {
       destroy() {
         alive = false;
         clearTimeout(refreshTimer);
         clearInterval(rotateTimer);
-        unsubscribe();
       },
     };
   },
