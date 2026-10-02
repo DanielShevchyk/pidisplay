@@ -20,23 +20,23 @@
 /* Light mode, picked in the gear menu (src/core/theme.ts). Widgets only use the
    variables above, so they follow along; status colors are darker for contrast. */
 :root[data-theme='light'] {
-  --bg: #cdd4de;
-  --surface: #ffffff;
-  --surface-2: #e2e7ee;
-  --border: #a9b4c2;
-  --text: #121820;
-  --text-dim: #4d5868;
+  --bg: #b4bdc9;
+  --surface: #eceff3;
+  --surface-2: #d6dce4;
+  --border: #8b97a7;
+  --text: #0f141b;
+  --text-dim: #414c5b;
   --accent: #1a6fd6;
   --danger: #d32f2f;
   --warning: #b86a00;
   --success: #12804f;
   --shadow: rgba(20, 30, 45, 0.18);
   /* Light enough that the dashboard keeps its colors behind an open sheet. */
-  --scrim: rgba(20, 30, 45, 0.12);
+  --scrim: rgba(20, 30, 45, 0.2);
   color-scheme: light;
 }
-/* White tiles on a pale page wash out on the panel; a soft shadow keeps their edges. */
-:root[data-theme='light'] .tile { box-shadow: 0 1px 4px rgba(20, 30, 45, 0.16); }
+/* Pale tiles on a pale page wash out on the panel; a soft shadow keeps their edges. */
+:root[data-theme='light'] .tile { box-shadow: 0 2px 6px rgba(20, 30, 45, 0.22); }
 :root[data-theme='light'] .topbar { box-shadow: 0 1px 4px rgba(20, 30, 45, 0.12); }
 :root[data-theme='light'] .sheet { box-shadow: 0 -8px 30px rgba(20, 30, 45, 0.25); }
 
