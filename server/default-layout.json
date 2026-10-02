@@ -134,6 +134,18 @@
       ]
     },
     {
+      "id": "music",
+      "name": "Music",
+      "tiles": [
+        {
+          "id": "music-full",
+          "widget": "spotify",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "clock",
       "name": "Clock",
       "tiles": [

@@ -46,6 +46,36 @@ for _ in $(seq 1 30); do
 done
 curl -fs http://127.0.0.1:8080/api/health >/dev/null || { echo "Server did not come up"; exit 1; }
 
+# Spotify Connect receiver for the Spotify widget (docs/SPOTIFY.md). A failure here
+# (say, no internet for apt) warns but doesn't undo the dashboard update above.
+setup_spotify() {
+  if ! dpkg -s raspotify >/dev/null 2>&1; then
+    # raspotify packages librespot for Raspberry Pi OS: https://github.com/dtcooper/raspotify
+    sudo curl -sSfL https://dtcooper.github.io/raspotify/key.asc -o /usr/share/keyrings/raspotify_key.asc || return 1
+    sudo chmod 644 /usr/share/keyrings/raspotify_key.asc
+    echo 'deb [signed-by=/usr/share/keyrings/raspotify_key.asc] https://dtcooper.github.io/raspotify raspotify main' \
+      | sudo tee /etc/apt/sources.list.d/raspotify.list >/dev/null
+    sudo apt-get update -qq || return 1
+    sudo apt-get install -y raspotify || return 1
+  fi
+  # raspotify's own system service would appear as a second speaker that can't reach
+  # dan's PipeWire; librespot runs as dan's user service below instead.
+  sudo systemctl disable --now raspotify >/dev/null 2>&1 || true
+  # pactl lets the server list and switch speakers; pipewire-alsa routes librespot's ALSA output into PipeWire.
+  for pkg in pulseaudio-utils pipewire-alsa; do
+    dpkg -s "$pkg" >/dev/null 2>&1 || sudo apt-get install -y "$pkg" || return 1
+  done
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  mkdir -p "$HOME/.config/systemd/user"
+  tr -d '\r' < deploy/pidisplay-spotify.service > "$HOME/.config/systemd/user/pidisplay-spotify.service"
+  systemctl --user daemon-reload || return 1
+  systemctl --user enable pidisplay-spotify || return 1
+  systemctl --user restart pidisplay-spotify || return 1
+}
+if ! setup_spotify; then
+  echo "WARNING: Spotify receiver setup failed (see above). The dashboard itself is updated; rerun the deploy to retry."
+fi
+
 # PiDisplay launcher for getting back from "Exit to desktop": app menu + desktop icon.
 install -D -m 644 deploy/pidisplay.desktop "$HOME/.local/share/applications/pidisplay.desktop"
 if [ -d "$HOME/Desktop" ]; then

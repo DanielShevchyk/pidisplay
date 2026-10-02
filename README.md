@@ -64,7 +64,14 @@ Tests: `npm test` (server API).
 | POST | `/api/timers` · `/api/timers/:id/pause` · `resume` · `add` · `restart` · `snooze` · `dismiss` | `{ "durationMs", "label"? }` to start one · `{}` · `{}` · `{ "ms" }` · `{}` · `{}` · `{}`. DELETE `/api/timers/:id` cancels. |
 | PUT | `/api/timers/settings` | `{ "snoozeMinutes", "sound", "volume" (0-100), "ringMinutes" (stop ringing after), "fadeIn" }` |
 | POST / PUT / DELETE | `/api/alarms[/:id]` | `{ "hour", "minute", "days": [0-6, 0 = Sunday; empty = once], "label", "sound", "enabled" }`, in the Pi's time zone. POST `/api/alarms/:id/snooze` · `dismiss`. |
-| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`. |
+| GET | `/api/spotify` | Spotify widget status: Client ID saved, signed in, and whether the PiDisplay receiver (librespot) has been linked. Setup in [docs/SPOTIFY.md](docs/SPOTIFY.md). |
+| GET | `/api/spotify/login[?return=/path]` · `/api/spotify/callback` | Spotify sign-in (OAuth with PKCE). Redirect URI is `http://127.0.0.1:8080/api/spotify/callback`; tokens stay in `$PIDISPLAY_DATA/spotify.json`. |
+| PUT / POST | `/api/spotify/client` | `{ "clientId" }` (or `?clientId=`) saves the Spotify app's Client ID; empty clears it. POST `/api/spotify/logout` signs out. |
+| GET | `/api/spotify/player` · `playlists` · `search?q=` | Now playing plus Spotify Connect devices · your playlists · songs, artists, albums and playlists (10 each). |
+| POST | `/api/spotify/player/play` · `pause` · `next` · `previous` · `seek` · `volume` · `shuffle` · `repeat` · `transfer` | `{ "contextUri"?, "offsetUri"?, "uris"?, "deviceId"? }` (no device: the active one, else PiDisplay) · `{}` · `{}` · `{}` · `{ "positionMs" }` · `{ "percent" }` · `{ "on" }` · `{ "mode": "off" \| "context" \| "track" }` · `{ "deviceId", "play"? }`. |
+| GET | `/api/audio` | The Pi's sound outputs (PipeWire via `pactl`): display speakers over HDMI, headphone jack, connected Bluetooth speakers, with the default marked. |
+| POST | `/api/audio/select` · `volume` | `{ "name" }` makes it the default and moves anything playing to it · `{ "name", "volume" }` (0-100). |
+| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`, `spotify`. |
 
 Example, from the Pi itself:
 

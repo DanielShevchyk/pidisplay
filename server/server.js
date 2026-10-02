@@ -12,6 +12,8 @@ import { createCalendar, CalendarError } from './calendar.js';
 import { createKiosk } from './kiosk.js';
 import { createNetwork, NetworkError } from './network.js';
 import { createTimers, TimersError } from './timers.js';
+import { createSpotify, SpotifyError } from './spotify.js';
+import { createAudio, AudioError } from './audio.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -77,6 +79,21 @@ function send(res, status, body) {
   res.end(body === undefined ? '' : JSON.stringify(body));
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+/** A small standalone page for the Spotify sign-in redirect, shown in whichever browser signed in. */
+function sendPage(res, status, title, message, returnTo) {
+  const back = returnTo
+    ? `<p><a href="${escapeHtml(returnTo)}">Back to the dashboard</a></p><script>setTimeout(() => location.replace(${JSON.stringify(returnTo)}), 2500)</script>`
+    : '<p>You can close this tab.</p>';
+  res.writeHead(status, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
+  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>
+<style>body{font:20px system-ui,sans-serif;background:#0b0e13;color:#eef2f7;display:grid;place-items:center;min-height:90vh;margin:0;text-align:center;padding:16px}a{color:#4da3ff}h1{font-size:30px}</style></head>
+<body><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p>${back}</main></body></html>`);
+}
+
 function validateLayout(layout) {
   const ok =
     layout &&
@@ -100,6 +117,8 @@ export function createServer({
   system = createSystem(),
   kiosk = createKiosk(),
   network = createNetwork(),
+  audio = createAudio(),
+  spotify = undefined,
   timerTickMs = 1000,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
@@ -111,6 +130,13 @@ export function createServer({
   const weather = createWeather({ fetchImpl });
   // Secret iCal feed URLs, edited by hand on the Pi; see docs/CALENDAR.md.
   const calendar = createCalendar({ configFile: path.join(dataDir, 'calendars.json'), fetchImpl });
+  // Spotify tokens, plus librespot's cache, which holds its login once it has been linked.
+  spotify ??= createSpotify({
+    configFile: path.join(dataDir, 'spotify.json'),
+    receiverCacheDir: path.join(dataDir, 'spotify-cache'),
+    redirectUri: `http://127.0.0.1:${Number(process.env.PORT) || 8080}/api/spotify/callback`,
+    fetchImpl,
+  });
 
   function broadcast(event, data) {
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -226,6 +252,30 @@ export function createServer({
       }
     }
 
+    if (resource === 'spotify') {
+      try {
+        return await handleSpotify(req, res, url, parts, key);
+      } catch (err) {
+        if (err instanceof SpotifyError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'audio') {
+      try {
+        if (req.method === 'GET' && !key) return send(res, 200, await audio.status());
+        if (req.method === 'POST' && key === 'select') return send(res, 200, await audio.select((await readBody(req))?.name));
+        if (req.method === 'POST' && key === 'volume') {
+          const body = (await readBody(req)) ?? {};
+          return send(res, 200, await audio.setVolume(body.name, body.volume));
+        }
+        throw new HttpError(404, 'Not found');
+      } catch (err) {
+        if (err instanceof AudioError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
 
     if (resource === 'fares' && !key && req.method === 'GET') {
@@ -273,6 +323,34 @@ export function createServer({
     }
 
     throw new HttpError(404, 'Not found');
+  }
+
+  async function handleSpotify(req, res, url, parts, key) {
+    // Sign-in happens in a browser tab (on the Pi, or on the laptop through an SSH
+    // tunnel), so these two answer with redirects and pages instead of JSON.
+    if (key === 'login' && req.method === 'GET') {
+      try {
+        res.writeHead(302, { Location: await spotify.loginUrl(url.searchParams.get('return')), 'Cache-Control': 'no-store' });
+        return res.end();
+      } catch (err) {
+        if (!(err instanceof SpotifyError)) throw err;
+        return sendPage(res, err.status, 'Spotify', err.message, url.searchParams.get('return')?.startsWith('/') ? '/' : null);
+      }
+    }
+    if (key === 'callback' && req.method === 'GET') {
+      try {
+        const { returnTo } = await spotify.callback(url.searchParams);
+        broadcast('spotify', { connected: true });
+        return sendPage(res, 200, 'Spotify connected', 'PiDisplay can now show and control your music.', returnTo);
+      } catch (err) {
+        if (!(err instanceof SpotifyError)) throw err;
+        return sendPage(res, err.status, 'Spotify sign-in failed', err.message, null);
+      }
+    }
+    const body = req.method === 'GET' ? null : await readBody(req);
+    const result = await spotify.handle(req.method, parts, body, url.searchParams);
+    if (key === 'client' || key === 'logout') broadcast('spotify', { connected: Boolean(result.connected) });
+    return send(res, 200, result);
   }
 
   async function handleNetwork(req, res, url, resource, action) {

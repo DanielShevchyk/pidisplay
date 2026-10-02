@@ -1,0 +1,17 @@
+# systemd *user* unit, installed by deploy/update.sh as
+# ~/.config/systemd/user/pidisplay-spotify.service. Runs in dan's session so it
+# can play through dan's PipeWire (display speakers, Bluetooth).
+#   systemctl --user status pidisplay-spotify      journalctl --user -u pidisplay-spotify
+[Unit]
+Description=PiDisplay Spotify Connect receiver (librespot)
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Environment=PIDISPLAY_DATA=%h/pidisplay-data
+ExecStart=/bin/bash %h/pidisplay/deploy/spotify-receiver.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
