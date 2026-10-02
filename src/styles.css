@@ -21,15 +21,15 @@
    variables above, so they follow along; status colors are darker for contrast. */
 :root[data-theme='light'] {
   --bg: #a7b1be;
-  --surface: #e1e5ea;
-  --surface-2: #c8cfd8;
-  --border: #7c8899;
+  --surface: #dfe3e9;
+  --surface-2: #bac3ce;
+  --border: #6f7c8e;
   --text: #0f141b;
-  --text-dim: #3c4756;
-  --accent: #1a6fd6;
-  --danger: #d32f2f;
-  --warning: #b86a00;
-  --success: #12804f;
+  --text-dim: #364150;
+  --accent: #1560c4;
+  --danger: #c62828;
+  --warning: #9a5800;
+  --success: #0b6b40;
   --shadow: rgba(20, 30, 45, 0.18);
   /* Light enough that the dashboard keeps its colors behind an open sheet. */
   --scrim: rgba(20, 30, 45, 0.2);
