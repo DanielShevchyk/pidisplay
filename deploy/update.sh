@@ -18,6 +18,20 @@ sudo visudo -cqf /tmp/pidisplay-sudoers
 sudo install -m 440 -o root -g root /tmp/pidisplay-sudoers /etc/sudoers.d/pidisplay
 rm -f /tmp/pidisplay-sudoers
 
+# Alarm sounds and other audio go to the screen's HDMI speakers, not the headphone jack.
+WP="$HOME/.config/wireplumber"
+WP_CHANGED=0
+for f in main.lua.d/51-pidisplay-hdmi.lua wireplumber.conf.d/51-pidisplay-hdmi.conf; do
+  src="deploy/wireplumber/$(basename "$f")"
+  if ! cmp -s "$src" "$WP/$f"; then
+    install -D -m 644 "$src" "$WP/$f"
+    WP_CHANGED=1
+  fi
+done
+if [ "$WP_CHANGED" = 1 ]; then
+  XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user restart wireplumber || true
+fi
+
 npm ci --no-audit --no-fund
 npm run build
 
