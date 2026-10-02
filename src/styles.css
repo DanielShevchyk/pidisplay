@@ -42,6 +42,11 @@
 
 * { box-sizing: border-box; }
 
+/* No scroll bars anywhere: lists, sheets and menus still scroll by dragging a
+   finger (body's touch-action: manipulation keeps panning on). */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
+
 html,
 body {
   margin: 0;
