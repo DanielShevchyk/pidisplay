@@ -5,6 +5,7 @@ import { h, uid } from './dom';
 import { Notifications } from './notifications';
 import { allWidgets, getWidget } from './registry';
 import { openSheet, settingsForm, type SheetHandle } from './sheet';
+import { showBluetooth, showWifi } from './connections';
 import { currentTheme, setTheme, type Theme } from './theme';
 import {
   SIZE_LABELS,
@@ -680,6 +681,9 @@ export class App {
       sheet.body.replaceChildren(
         h('h3', {}, 'Appearance'),
         h('div', { class: 'chips' }, themeChip('dark', '🌙 Dark'), themeChip('light', '☀️ Light')),
+        h('h3', {}, 'Connections'),
+        h('button', { class: 'btn btn-wide menu-row', onclick: () => showWifi(sheet.body, showMain) }, '📶 Wi-Fi', h('span', { class: 'menu-chevron' }, '›')),
+        h('button', { class: 'btn btn-wide menu-row', onclick: () => showBluetooth(sheet.body, showMain) }, '🔵 Bluetooth', h('span', { class: 'menu-chevron' }, '›')),
         h('h3', {}, 'System'),
         h('button', { class: 'btn btn-wide menu-row', onclick: showConfirmExit }, '🖥️ Exit to desktop'),
       );

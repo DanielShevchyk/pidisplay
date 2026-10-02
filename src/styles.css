@@ -333,11 +333,67 @@ select { font: inherit; color: inherit; }
 .bar-list li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
 .bar-list li span { flex: 1; }
 
-.menu-row { text-align: left; margin-top: 0; }
+.menu-row { display: flex; align-items: center; gap: 10px; text-align: left; margin-top: 0; }
+.menu-row + .menu-row { margin-top: 10px; }
+.menu-chevron { margin-left: auto; font-size: 28px; color: var(--text-dim); }
 .menu-text { margin: 8px 0 0; font-size: 22px; }
 .menu-text.dim { color: var(--text-dim); font-size: 18px; }
 .menu-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 .menu-status { min-height: 1.4em; margin: 12px 0 0; color: var(--text-dim); text-align: right; }
+
+/* ---- Wi-Fi and Bluetooth (gear menu) ------------------------------- */
+
+.conn-head { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.conn-head h3 { flex: 1; margin: 0; }
+.conn-head .btn-ghost { padding: 0 12px 0 0; }
+.conn { min-height: 240px; }
+.conn-status { color: var(--text-dim); margin: 12px 0; }
+.conn-error { color: var(--danger); margin: 12px 0; }
+.conn-hint { color: var(--text-dim); font-size: 17px; margin: 8px 0; }
+.conn-warn { color: var(--warning); font-size: 16px; margin: 6px 0 0; }
+.conn-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.conn-list li { border-radius: 16px; background: var(--surface-2); border: 1px solid var(--border); }
+.conn-list li.active { border-color: var(--accent); }
+.conn-row {
+  width: 100%;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+.conn-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-icon { font-size: 24px; }
+.conn-lock { font-size: 16px; opacity: 0.7; }
+.conn-tag { font-size: 15px; color: var(--text-dim); }
+.conn-tag.on { color: var(--success); font-weight: 600; }
+.conn-bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 20px; }
+.conn-bars i { width: 5px; border-radius: 2px; background: var(--border); }
+.conn-bars i:nth-child(1) { height: 25%; }
+.conn-bars i:nth-child(2) { height: 50%; }
+.conn-bars i:nth-child(3) { height: 75%; }
+.conn-bars i:nth-child(4) { height: 100%; }
+.conn-bars i.on { background: var(--text); }
+.conn-detail { padding: 0 18px 16px; }
+.conn-detail p { margin: 0 0 10px; }
+.conn-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.conn-confirm { display: flex; flex-direction: column; max-width: 420px; }
+.conn-password { display: flex; gap: 8px; margin-bottom: 12px; }
+.conn-password input {
+  flex: 1;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.conn-away { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 18px; }
+.conn-away .conn-confirm { align-items: flex-end; }
 
 /* ---- Notifications ---------------------------------------------------- */
 

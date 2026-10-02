@@ -41,6 +41,18 @@ export const api = {
   },
 };
 
+/** JSON call that throws the server's own error message, for screens that show it. */
+export async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error ?? `${method} ${url} failed: ${res.status}`);
+  return data as T;
+}
+
 // ---- Server-sent events -------------------------------------------------
 
 type Handler = (data: any) => void;

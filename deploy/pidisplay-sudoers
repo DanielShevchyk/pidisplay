@@ -1,0 +1,4 @@
+# Installed by deploy/update.sh as /etc/sudoers.d/pidisplay.
+# Lets the PiDisplay server lift the rfkill block on the Bluetooth radio when you
+# turn Bluetooth on from the gear menu. Nothing else.
+dan ALL=(root) NOPASSWD: /usr/sbin/rfkill unblock bluetooth

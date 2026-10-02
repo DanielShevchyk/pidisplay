@@ -7,6 +7,13 @@ cd /home/dan/pidisplay
 # Widgets use emoji icons; Raspberry Pi OS ships without a color emoji font.
 dpkg -s fonts-noto-color-emoji >/dev/null 2>&1 || sudo apt-get install -y fonts-noto-color-emoji
 
+# The gear menu's Bluetooth switch needs rfkill to lift the radio's soft block.
+dpkg -s rfkill >/dev/null 2>&1 || sudo apt-get install -y rfkill
+
+# Narrow permissions for the gear menu's Wi-Fi and Bluetooth screens (see the files).
+sudo install -m 644 -o root -g root deploy/pidisplay-network.rules /etc/polkit-1/rules.d/50-pidisplay-network.rules
+sudo visudo -cqf deploy/pidisplay-sudoers && sudo install -m 440 -o root -g root deploy/pidisplay-sudoers /etc/sudoers.d/pidisplay
+
 npm ci --no-audit --no-fund
 npm run build
 

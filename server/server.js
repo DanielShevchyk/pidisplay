@@ -10,6 +10,7 @@ import { createWeather, WeatherError } from './weather.js';
 import { createSystem } from './system.js';
 import { createCalendar, CalendarError } from './calendar.js';
 import { createKiosk } from './kiosk.js';
+import { createNetwork, NetworkError } from './network.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -97,6 +98,7 @@ export function createServer({
   fetchImpl = globalThis.fetch,
   system = createSystem(),
   kiosk = createKiosk(),
+  network = createNetwork(),
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -173,6 +175,15 @@ export function createServer({
       return send(res, 204);
     }
 
+    if (resource === 'wifi' || resource === 'bluetooth') {
+      try {
+        return await handleNetwork(req, res, url, resource, key);
+      } catch (err) {
+        if (err instanceof NetworkError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
 
     if (resource === 'fares' && !key && req.method === 'GET') {
@@ -229,6 +240,32 @@ export function createServer({
     }
 
     throw new HttpError(404, 'Not found');
+  }
+
+  async function handleNetwork(req, res, url, resource, action) {
+    const { wifi, bluetooth } = network;
+    if (req.method === 'GET' && !action) {
+      if (resource === 'wifi') return send(res, 200, await wifi.status({ rescan: url.searchParams.has('rescan') }));
+      return send(res, 200, await bluetooth.status());
+    }
+    if (req.method !== 'POST') throw new HttpError(404, 'Not found');
+    const body = (await readBody(req)) ?? {};
+    if (resource === 'wifi') {
+      if (action === 'connect') await wifi.connect(body.ssid, body.password || undefined);
+      else if (action === 'disconnect') await wifi.disconnect();
+      else if (action === 'forget') await wifi.forget(body.uuid);
+      else if (action === 'power') await wifi.setEnabled(Boolean(body.on));
+      else throw new HttpError(404, 'Not found');
+      return send(res, 200, await wifi.status());
+    }
+    if (action === 'scan') return send(res, 200, await bluetooth.scan());
+    if (action === 'power') await bluetooth.setPowered(Boolean(body.on));
+    else if (action === 'pair') await bluetooth.pair(body.mac);
+    else if (action === 'connect') await bluetooth.connect(body.mac);
+    else if (action === 'disconnect') await bluetooth.disconnect(body.mac);
+    else if (action === 'forget') await bluetooth.remove(body.mac);
+    else throw new HttpError(404, 'Not found');
+    return send(res, 200, await bluetooth.status());
   }
 
   async function serveStatic(req, res, url) {

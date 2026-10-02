@@ -1,0 +1,17 @@
+// Installed by deploy/update.sh as /etc/polkit-1/rules.d/50-pidisplay-network.rules.
+// The PiDisplay server runs as dan from systemd, outside the desktop session, so
+// NetworkManager would otherwise refuse it. This grants dan only the Wi-Fi
+// actions the gear menu uses: scan, connect/disconnect, save/forget networks,
+// and turn the Wi-Fi radio on or off.
+polkit.addRule(function (action, subject) {
+  if (subject.user !== "dan") return polkit.Result.NOT_HANDLED;
+  var allowed = [
+    "org.freedesktop.NetworkManager.wifi.scan",
+    "org.freedesktop.NetworkManager.network-control",
+    "org.freedesktop.NetworkManager.settings.modify.own",
+    "org.freedesktop.NetworkManager.settings.modify.system",
+    "org.freedesktop.NetworkManager.enable-disable-wifi"
+  ];
+  if (allowed.indexOf(action.id) >= 0) return polkit.Result.YES;
+  return polkit.Result.NOT_HANDLED;
+});
