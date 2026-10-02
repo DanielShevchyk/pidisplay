@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PiDisplay
+Comment=Open the wall dashboard again
+Exec=/home/dan/pidisplay/deploy/open-dashboard.sh
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Utility;

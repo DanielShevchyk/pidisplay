@@ -12,7 +12,27 @@
   --radius: 22px;
   --gap: 16px;
   --bar-h: 76px;
+  --shadow: rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.55);
   color-scheme: dark;
+}
+
+/* Light mode, picked in the gear menu (src/core/theme.ts). Widgets only use the
+   variables above, so they follow along; status colors are darker for contrast. */
+:root[data-theme='light'] {
+  --bg: #e3e8ee;
+  --surface: #ffffff;
+  --surface-2: #eaeef3;
+  --border: #d3dae3;
+  --text: #121820;
+  --text-dim: #5a6576;
+  --accent: #1a6fd6;
+  --danger: #d32f2f;
+  --warning: #b86a00;
+  --success: #12804f;
+  --shadow: rgba(20, 30, 45, 0.18);
+  --scrim: rgba(20, 30, 45, 0.35);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -167,7 +187,7 @@ select { font: inherit; color: inherit; }
   z-index: 10;
   animation: none;
   pointer-events: none;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 20px 50px var(--shadow);
   opacity: 0.9;
 }
 @keyframes wiggle { from { rotate: -0.4deg; } to { rotate: 0.4deg; } }
@@ -179,7 +199,7 @@ select { font: inherit; color: inherit; }
   border-radius: 50%;
   border: 0;
   background: var(--surface-2);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 10px var(--shadow);
   font-size: 24px;
   z-index: 2;
 }
@@ -199,7 +219,7 @@ select { font: inherit; color: inherit; }
   border-radius: 24px;
   background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 10px 40px var(--shadow);
   z-index: 20;
 }
 .editing .edit-toolbar { display: flex; }
@@ -217,7 +237,7 @@ select { font: inherit; color: inherit; }
   background: rgba(0, 0, 0, 0);
   transition: background 0.2s;
 }
-.sheet-backdrop.open { background: rgba(0, 0, 0, 0.55); }
+.sheet-backdrop.open { background: var(--scrim); }
 .sheet {
   width: min(760px, 100%);
   max-height: 85%;
@@ -313,6 +333,12 @@ select { font: inherit; color: inherit; }
 .bar-list li { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
 .bar-list li span { flex: 1; }
 
+.menu-row { text-align: left; margin-top: 0; }
+.menu-text { margin: 8px 0 0; font-size: 22px; }
+.menu-text.dim { color: var(--text-dim); font-size: 18px; }
+.menu-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.menu-status { min-height: 1.4em; margin: 12px 0 0; color: var(--text-dim); text-align: right; }
+
 /* ---- Notifications ---------------------------------------------------- */
 
 .toasts {
@@ -337,7 +363,7 @@ select { font: inherit; color: inherit; }
   background: var(--surface-2);
   text-align: left;
 }
-.toast { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); animation: toast-in 0.25s ease-out; }
+.toast { box-shadow: 0 10px 30px var(--shadow); animation: toast-in 0.25s ease-out; }
 .toast-icon { font-size: 26px; }
 .toast-text,
 .notif-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }

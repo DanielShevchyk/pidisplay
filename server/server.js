@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createWeather, WeatherError } from './weather.js';
 import { createSystem } from './system.js';
 import { createCalendar, CalendarError } from './calendar.js';
+import { createKiosk } from './kiosk.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -95,6 +96,7 @@ export function createServer({
   defaultLayoutFile = path.join(ROOT, 'server', 'default-layout.json'),
   fetchImpl = globalThis.fetch,
   system = createSystem(),
+  kiosk = createKiosk(),
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -163,6 +165,12 @@ export function createServer({
         broadcast('store', { key, clientId });
         return send(res, 204);
       }
+    }
+
+    if (resource === 'kiosk' && key === 'exit' && req.method === 'POST') {
+      if (!kiosk.supported) throw new HttpError(501, 'Exit to desktop only works on the Pi');
+      await kiosk.exit();
+      return send(res, 204);
     }
 
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());

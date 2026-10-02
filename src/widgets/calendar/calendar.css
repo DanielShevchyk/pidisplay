@@ -157,6 +157,8 @@
 }
 .cal-ev.filled { background: var(--c); color: #0b0e13; border-radius: 5px; padding: 1px 5px; font-weight: 500; }
 .cal-ev-time { color: var(--c); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+/* Calendar colors are bright for the dark theme; deepen them where they're text on light. */
+:root[data-theme='light'] .cal-ev-time { color: color-mix(in srgb, var(--c) 60%, #000); }
 .cal-ev-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .view-week .cal-ev:not(.filled) .cal-ev-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .view-week .cal-ev:not(.filled) { align-items: flex-start; flex-direction: column; gap: 0; }

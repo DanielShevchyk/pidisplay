@@ -53,6 +53,10 @@ Subscriptions made through `storage.onChange` and `on` are cleaned up automatica
 
 `el` is a CSS size container, so `cqw`/`cqh` units scale text to the tile: `font-size: min(26cqw, 48cqh)`. The `clock` widget is the reference example, including a compact top-bar view (`supportsBar: true` and `placement === 'bar'`).
 
+## Colors
+
+Use the CSS variables from `src/styles.css` (`--text`, `--text-dim`, `--surface-2`, `--border`, `--accent`, `--success`, `--warning`, `--danger`, `--shadow`) instead of fixed colors, so the widget works in both the dark and light themes. If you need a rule for one theme only, scope it with `:root[data-theme='light']`.
+
 ## Data from the network
 
 Keep API keys and polling on the server side when a service needs secrets; add a route in `server/server.js` and fetch it from the widget. Public APIs without keys can be called from the widget directly. Cache last results in `sharedStorage` so the tile shows something immediately after a reboot.

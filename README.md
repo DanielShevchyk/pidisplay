@@ -55,6 +55,7 @@ Tests: `npm test` (server API).
 | GET | `/api/system` | Pi health for the System widget: CPU, memory, disk, temperature, clock, throttle/undervoltage flags, network. Unavailable readings are `null`. |
 | GET | `/api/fares` | Farewatcher summary (`$PIDISPLAY_DATA/farewatcher.json`, written by `fare_watch.py` after each run), or `{ "available": false }`. Used by the Fares widget. |
 | GET | `/api/calendar?from=<ms>&to=<ms>&tz=America/Los_Angeles` | Events from the iCal feeds in `$PIDISPLAY_DATA/calendars.json` (secret, never returned), recurring events expanded, at most 62 days per call. Feeds cached 5 minutes. Used by the calendar widget; setup in [docs/CALENDAR.md](docs/CALENDAR.md). |
+| POST | `/api/kiosk/exit` | "Exit to desktop" from the gear menu: drops `$XDG_RUNTIME_DIR/pidisplay-desktop` (which `deploy/kiosk.sh` waits on) and closes the kiosk Chromium. The PiDisplay desktop/menu launcher (`deploy/open-dashboard.sh`) or a reboot brings it back. 501 off the Pi. |
 | GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`. |
 
 Example, from the Pi itself:
@@ -74,5 +75,7 @@ src/core/          Shell: types (widget contract), app (pages, grid, edit mode),
 src/widgets/<id>/  One folder per widget
 docs/WIDGETS.md    How to write a widget
 ```
+
+The gear (⚙) in the top bar holds app-wide settings: light or dark appearance (saved in the `app.settings` store key, dark by default) and Exit to desktop.
 
 Deploying to the Pi (kiosk autostart, screen blanking, touch setup, update script) is a separate step.

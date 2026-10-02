@@ -5,6 +5,7 @@ import { h, uid } from './dom';
 import { Notifications } from './notifications';
 import { allWidgets, getWidget } from './registry';
 import { openSheet, settingsForm, type SheetHandle } from './sheet';
+import { currentTheme, setTheme, type Theme } from './theme';
 import {
   SIZE_LABELS,
   SIZE_SPANS,
@@ -62,6 +63,11 @@ export class App {
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
       '✎',
     );
+    const menuBtn = h(
+      'button',
+      { class: 'btn btn-ghost bar-btn', 'aria-label': 'Settings', onclick: () => this.openMenu() },
+      '⚙',
+    );
     const toolbar = h(
       'div',
       { class: 'edit-toolbar' },
@@ -80,7 +86,7 @@ export class App {
         { class: 'topbar' },
         this.barLeft,
         h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
-        h('div', { class: 'bar-slot bar-actions' }, this.barRight, this.notifications.button, editBtn),
+        h('div', { class: 'bar-slot bar-actions' }, this.barRight, this.notifications.button, editBtn, menuBtn),
       ),
       this.main,
       toolbar,
@@ -651,6 +657,67 @@ export class App {
           })
         : h('p', { class: 'empty' }, 'No settings'),
     ]);
+  }
+
+  // ---- Gear menu --------------------------------------------------------
+
+  private openMenu() {
+    const sheet = openSheet('Settings', []);
+    const themeChip = (theme: Theme, label: string) =>
+      h(
+        'button',
+        {
+          class: `chip${currentTheme() === theme ? ' active' : ''}`,
+          onclick: () => {
+            void setTheme(theme).catch((err) => console.error(err));
+            showMain();
+          },
+        },
+        label,
+      );
+
+    const showMain = () =>
+      sheet.body.replaceChildren(
+        h('h3', {}, 'Appearance'),
+        h('div', { class: 'chips' }, themeChip('dark', '🌙 Dark'), themeChip('light', '☀️ Light')),
+        h('h3', {}, 'System'),
+        h('button', { class: 'btn btn-wide menu-row', onclick: showConfirmExit }, '🖥️ Exit to desktop'),
+      );
+
+    const showConfirmExit = () => {
+      const status = h('p', { class: 'menu-status' });
+      const exitBtn = h(
+        'button',
+        {
+          class: 'btn btn-danger',
+          onclick: async () => {
+            exitBtn.disabled = true;
+            status.textContent = 'Closing…';
+            try {
+              await api.exitToDesktop();
+              status.textContent = 'Closed. The desktop should appear in a moment.';
+            } catch (err) {
+              console.error(err);
+              exitBtn.disabled = false;
+              status.textContent = "Couldn't close the dashboard. Exit only works on the Pi itself.";
+            }
+          },
+        },
+        'Exit to desktop',
+      );
+      sheet.body.replaceChildren(
+        h('p', { class: 'menu-text' }, 'Close PiDisplay and show the Raspberry Pi desktop?'),
+        h(
+          'p',
+          { class: 'menu-text dim' },
+          'To come back, tap the PiDisplay icon on the desktop or open it from the menu (Accessories ▸ PiDisplay). It also comes back on the next reboot.',
+        ),
+        h('div', { class: 'menu-actions' }, h('button', { class: 'btn', onclick: showMain }, 'Cancel'), exitBtn),
+        status,
+      );
+    };
+
+    showMain();
   }
 }
 

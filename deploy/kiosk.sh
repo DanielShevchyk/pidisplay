@@ -3,6 +3,14 @@
 # autostart through lwrespawn, so it comes back if it crashes or is killed.
 URL="http://127.0.0.1:8080/?kiosk"
 
+# "Exit to desktop" in the dashboard's gear menu drops this flag and closes
+# Chromium. Stay parked (instead of exiting, which lwrespawn would rerun) until
+# the PiDisplay launcher removes it. It's on tmpfs, so a reboot clears it too.
+FLAG="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pidisplay-desktop"
+while [ -e "$FLAG" ]; do
+  sleep 1
+done
+
 # Wait (up to ~60s) for the server so Chromium doesn't open on an error page.
 for _ in $(seq 1 60); do
   curl -fs http://127.0.0.1:8080/api/health >/dev/null && break

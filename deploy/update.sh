@@ -21,6 +21,12 @@ for _ in $(seq 1 30); do
 done
 curl -fs http://127.0.0.1:8080/api/health >/dev/null || { echo "Server did not come up"; exit 1; }
 
+# PiDisplay launcher for getting back from "Exit to desktop": app menu + desktop icon.
+install -D -m 644 deploy/pidisplay.desktop "$HOME/.local/share/applications/pidisplay.desktop"
+if [ -d "$HOME/Desktop" ]; then
+  install -m 755 deploy/pidisplay.desktop "$HOME/Desktop/pidisplay.desktop"
+fi
+
 # lwrespawn restarts Chromium on the new build.
 pkill -f 'chromium.*127.0.0.1:808[0]' || true
 echo "PiDisplay updated and running."
