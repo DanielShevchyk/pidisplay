@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createStocks, inSession, marketDay, twelveData, yahoo } from './stocks.js';
+import { createStocks, inSession, marketDay, mergeDaily, prevWeekday, twelveData, yahoo } from './stocks.js';
 
 // Fri Oct 2 2026, 11:00 New York (15:00 UTC): the market is open.
 const OPEN = Date.UTC(2026, 9, 2, 15, 0);
@@ -33,16 +33,19 @@ function yahooChart(symbol, price, prev, closes = []) {
   };
 }
 
-function setup({ saved = null, key = null, fetchImpl, start = OPEN } = {}) {
+function setup({ saved = null, history = null, key = null, fetchImpl, start = OPEN } = {}) {
   const clock = { t: start };
   const notes = [];
   const sounds = [];
   const saves = [];
   const sleeps = [];
+  const historySaves = [];
   const stocks = createStocks({
     load: async () => structuredClone(saved),
     save: async (v) => saves.push(v),
     loadKey: async () => (key ? { apiKey: key } : null),
+    loadHistory: async () => structuredClone(history),
+    saveHistory: async (v) => historySaves.push(v),
     fetchImpl,
     notify: (n) => notes.push(n),
     sound: (s) => sounds.push(s),
@@ -53,7 +56,7 @@ function setup({ saved = null, key = null, fetchImpl, start = OPEN } = {}) {
     },
     autoStart: false,
   });
-  return { stocks, clock, notes, sounds, saves, sleeps, call: (m, p, b) => stocks.handle(m, ['stocks', ...p.split('/').filter(Boolean)], b) };
+  return { stocks, clock, notes, sounds, saves, sleeps, historySaves, call: (m, p, b) => stocks.handle(m, ['stocks', ...p.split('/').filter(Boolean)], b) };
 }
 
 test('knows US market hours in New York time', () => {
@@ -238,4 +241,82 @@ test('a weekend poll is scheduled hours apart, an open market every few minutes'
   assert.equal(s2.marketOpen, false);
   assert.equal(s2.nextPollAt - s2.updated, 3 * 3600000);
   closed.stocks.stop();
+});
+
+// ---- Saved daily history ----------------------------------------------------
+
+const DAY = 86400000;
+/** Daily bars at 4 pm New York for the given trading days (YYYY-MM-DD). */
+const bars = (days, close = 100) => days.map((d, i) => [Date.parse(`${d}T20:00:00Z`), close + i]);
+
+function historyFetch() {
+  const urls = [];
+  const fn = async (url) => {
+    urls.push(String(url));
+    const u = new URL(url);
+    const range = u.searchParams.get('range');
+    if (range === '1d' && u.searchParams.get('interval') === '1d') return reply(yahooChart('AAPL', 210, 200));
+    const body = yahooChart('AAPL', 210, 200, [150, 160, 170]);
+    // Three daily bars ending the day before OPEN.
+    body.chart.result[0].timestamp = [OPEN - 3 * DAY, OPEN - 2 * DAY, OPEN - DAY].map((t) => t / 1000);
+    return reply(body);
+  };
+  fn.urls = urls;
+  fn.series = () => urls.filter((u) => !u.includes('range=1d&interval=1d'));
+  return fn;
+}
+
+test('trading-day helpers', () => {
+  assert.equal(prevWeekday('2026-10-05'), '2026-10-02'); // Monday -> Friday
+  assert.equal(prevWeekday('2026-10-02'), '2026-10-01');
+  const merged = mergeDaily(bars(['2026-09-30', '2026-10-01']), [[Date.parse('2026-10-01T14:00:00Z'), 999]]);
+  assert.deepEqual(merged.map((p) => p[1]), [100, 999]);
+});
+
+test('no saved history: fetches five years once and saves it', async () => {
+  const fetchImpl = historyFetch();
+  const { stocks, historySaves } = setup({ saved: { symbols: ['AAPL'] }, fetchImpl });
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 1);
+  assert.match(fetchImpl.series()[0], /range=5y&interval=1d/);
+  const saved = historySaves.at(-1).symbols.AAPL;
+  assert.equal(saved.checked, '2026-10-02');
+  // Three fetched days plus today's bar from the live quote; yesterday takes the
+  // quote's official previous close (200), which in real data equals the fetched close.
+  assert.deepEqual(saved.points.map((p) => p[1]), [150, 160, 200, 210]);
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 1, 'a second poll fetches nothing');
+});
+
+test('restart the same day: uses the saved history, no fetch', async () => {
+  const fetchImpl = historyFetch();
+  const history = { symbols: { AAPL: { checked: '2026-10-02', points: bars(['2026-09-30', '2026-10-01', '2026-10-02']) } } };
+  const { stocks } = setup({ saved: { symbols: ['AAPL'] }, history, fetchImpl });
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 0);
+  const h = await stocks.history('AAPL', '1m');
+  assert.deepEqual(h.points.map((p) => p[1]), [100, 101, 210]);
+  assert.deepEqual(stocks.snapshot().quotes.AAPL.spark, [100, 101]);
+});
+
+test('next trading day: extends the history from the quote, settling yesterday at its official close', async () => {
+  const fetchImpl = historyFetch();
+  const history = { symbols: { AAPL: { checked: '2026-10-01', points: bars(['2026-09-30', '2026-10-01']) } } };
+  const { stocks, historySaves } = setup({ saved: { symbols: ['AAPL'] }, history, fetchImpl });
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 0, 'yesterday is already there, nothing to fetch');
+  // Yesterday's bar (101, last seen intraday) becomes the previous close (200); today follows the price.
+  assert.deepEqual(historySaves.at(-1).symbols.AAPL.points.map((p) => p[1]), [100, 200, 210]);
+});
+
+test('a gap of a few days fetches just the last month and merges it', async () => {
+  const fetchImpl = historyFetch();
+  const history = { symbols: { AAPL: { checked: '2026-09-25', points: bars(['2026-09-24', '2026-09-25']) } } };
+  const { stocks, historySaves } = setup({ saved: { symbols: ['AAPL'] }, history, fetchImpl });
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 1);
+  assert.match(fetchImpl.series()[0], /range=1mo&interval=1d/);
+  assert.deepEqual(historySaves.at(-1).symbols.AAPL.points.map((p) => p[1]), [100, 101, 150, 160, 170, 210]);
+  await stocks.poll();
+  assert.equal(fetchImpl.series().length, 1, 'a holiday-looking gap is only checked once a day');
 });

@@ -53,11 +53,11 @@ async function readJson(file, fallback) {
 }
 
 // Write to a temp file then rename, so a power cut never leaves half a file.
-async function writeJson(file, value) {
+async function writeJson(file, value, indent = 2) {
   await fs.mkdir(path.dirname(file), { recursive: true });
   // Unique per write: two saves of the same key can overlap.
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(value, null, 2));
+  await fs.writeFile(tmp, JSON.stringify(value, null, indent));
   await fs.rename(tmp, file);
 }
 
@@ -184,6 +184,9 @@ export function createServer({
     load: () => readJson(stocksFile, null),
     save: (value) => writeJson(stocksFile, value),
     loadKey: () => readJson(path.join(dataDir, 'stocks-key.json'), null),
+    // Years of daily closes per ticker; compact, since it's a few hundred KB.
+    loadHistory: () => readJson(path.join(dataDir, 'stocks-history.json'), null),
+    saveHistory: (value) => writeJson(path.join(dataDir, 'stocks-history.json'), value, 0),
     fetchImpl,
     notify: (n) => void addNotification({ ...n, source: 'Stocks' }).catch(() => {}),
     broadcast: (snapshot) => broadcast('stocks', snapshot),

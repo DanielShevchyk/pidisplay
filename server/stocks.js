@@ -26,6 +26,9 @@ const SYMBOL = /^\^?[A-Z0-9][A-Z0-9.\-=/:]{0,14}$/;
 const MAX_SYMBOLS = 20;
 const MAX_ALERTS = 50;
 const SPARK_DAYS = 30;
+const MAX_DAILY = 1400;
+/** A gap longer than this refetches the whole history instead of the last month. */
+const RECENT_DAYS = 25;
 
 // Twelve Data free plan, with a little headroom.
 const TD_PER_MINUTE = 8;
@@ -76,6 +79,23 @@ export const marketDay = (ms) => marketClock(ms).day;
 export function inSession(ms) {
   const { weekday, minutes } = marketClock(ms);
   return weekday !== 'Sat' && weekday !== 'Sun' && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
+/** The weekday before a YYYY-MM-DD trading day (holidays aren't known, so they look like gaps). */
+export function prevWeekday(day) {
+  const d = new Date(`${day}T12:00:00Z`);
+  do d.setUTCDate(d.getUTCDate() - 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+  return d.toISOString().slice(0, 10);
+}
+
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000);
+
+/** Daily closes merged by trading day; newer data wins. Keeps about five years. */
+export function mergeDaily(points, fresh) {
+  const byDay = new Map(points.map((p) => [marketDay(p[0]), p]));
+  for (const p of fresh) byDay.set(marketDay(p[0]), p);
+  return [...byDay.values()].sort((a, b) => a[0] - b[0]).slice(-MAX_DAILY);
 }
 
 // ---- Data sources -----------------------------------------------------------
@@ -145,12 +165,12 @@ export function twelveData(apiKey, fetchImpl) {
       return out;
     },
     async series(symbol, kind) {
-      const params =
-        kind === 'daily'
-          ? { interval: '1day', outputsize: '1300' }
-          : kind === '1d'
-            ? { interval: '5min', outputsize: '90' }
-            : { interval: '30min', outputsize: '70' };
+      const params = {
+        daily: { interval: '1day', outputsize: '1300' },
+        recent: { interval: '1day', outputsize: '30' },
+        '1d': { interval: '5min', outputsize: '90' },
+        '5d': { interval: '30min', outputsize: '70' },
+      }[kind];
       const body = await call('time_series', { symbol, ...params, timezone: 'UTC' });
       const points = [];
       for (const v of body?.values ?? []) {
@@ -210,7 +230,7 @@ export function yahoo(fetchImpl, now = Date.now) {
       return out;
     },
     async series(symbol, kind) {
-      const [range, interval] = kind === 'daily' ? ['5y', '1d'] : kind === '1d' ? ['1d', '5m'] : ['5d', '30m'];
+      const [range, interval] = { daily: ['5y', '1d'], recent: ['1mo', '1d'], '1d': ['1d', '5m'] }[kind] ?? ['5d', '30m'];
       const r = await chart(symbol, range, interval);
       const closes = r.indicators?.quote?.[0]?.close ?? [];
       const points = [];
@@ -305,6 +325,8 @@ export function createStocks({
   load,
   save,
   loadKey = async () => null,
+  loadHistory = async () => null,
+  saveHistory = async () => {},
   fetchImpl = globalThis.fetch,
   notify = () => {},
   broadcast = () => {},
@@ -326,7 +348,12 @@ export function createStocks({
   let polling = null;
   let stopped = false;
   let counter = 0;
-  const daily = new Map(); // symbol -> { day, points }
+  // Daily closes per symbol, saved on disk so a restart doesn't refetch years of
+  // history. Kept current from quotes (today's bar follows the live price), so the
+  // source is only asked again to fill gaps, e.g. after the Pi was off for days.
+  const daily = new Map(); // symbol -> { checked: day the series was last confirmed complete, points }
+  let historyDirty = false;
+  let historySaving = Promise.resolve();
   const intraday = new Map(); // "symbol|range" -> { at, points }
   const inflight = new Map();
   // Twelve Data credit accounting: timestamps of the last minute, and a daily count.
@@ -344,7 +371,57 @@ export function createStocks({
       };
       if (saved.used?.day) used = saved.used;
     }
+    try {
+      const hist = await loadHistory();
+      for (const [sym, d] of Object.entries(hist?.symbols ?? {})) {
+        if (Array.isArray(d?.points)) daily.set(sym, { checked: d.checked ?? null, points: d.points });
+      }
+    } catch (err) {
+      console.error('Reading saved stock history failed', err);
+    }
   })();
+
+  function persistHistory() {
+    if (!historyDirty) return;
+    historyDirty = false;
+    const symbols = {};
+    for (const s of state.symbols) if (daily.has(s)) symbols[s] = daily.get(s);
+    const copy = structuredClone({ version: 1, symbols });
+    historySaving = historySaving.then(() => saveHistory(copy)).catch((err) => console.error('Saving stock history failed', err));
+  }
+
+  /** Moves today's daily bar to the live price; a new day also settles the last one at the official previous close. */
+  function applyQuote(symbol, q) {
+    const d = daily.get(symbol);
+    if (!d?.points.length || q.price == null || !q.time) return;
+    const day = marketDay(q.time);
+    const last = d.points[d.points.length - 1];
+    const lastDay = marketDay(last[0]);
+    if (day === lastDay) {
+      if (last[1] !== q.price) {
+        d.points[d.points.length - 1] = [Math.max(last[0], q.time), q.price];
+        // Only worth a disk write once the market has closed for the day.
+        if (!inSession(now())) historyDirty = true;
+      }
+    } else if (day > lastDay) {
+      if (q.prevClose != null && lastDay === prevWeekday(day)) d.points[d.points.length - 1] = [last[0], q.prevClose];
+      d.points.push([q.time, q.price]);
+      historyDirty = true;
+    }
+  }
+
+  /** What the saved history lacks: nothing, the last few weeks, or all of it. */
+  function missingHistory(symbol) {
+    const d = daily.get(symbol);
+    if (!d || d.points.length < 2) return 'daily';
+    const today = marketDay(state.quotes[symbol]?.time ?? now());
+    if (d.checked === today) return null;
+    const before = d.points.filter(([t]) => marketDay(t) < today);
+    if (!before.length) return 'daily';
+    const last = marketDay(before[before.length - 1][0]);
+    if (last >= prevWeekday(today)) return null;
+    return daysBetween(last, today) > RECENT_DAYS ? 'daily' : 'recent';
+  }
 
   async function pickProvider() {
     let key = null;
@@ -357,7 +434,6 @@ export function createStocks({
     if (key !== providerKey) {
       providerKey = key;
       provider = key ? twelveData(key, fetchImpl) : yahoo(fetchImpl, now);
-      daily.clear();
       intraday.clear();
     }
     return provider;
@@ -479,6 +555,7 @@ export function createStocks({
               continue;
             }
             state.quotes[s] = { ...q, error: null };
+            applyQuote(s, q);
             // Closed on a weekday mid-session means a holiday. Wait past the open so a
             // source that's slow to flip its flag at 9:30 doesn't park us for the day.
             if (q.marketOpen === false && inSession(now()) && marketClock(now()).minutes >= 9 * 60 + 45) closedDay = marketDay(now());
@@ -492,15 +569,16 @@ export function createStocks({
       }
       if (!only) lastPoll = now();
       commit();
-      // Sparklines: the daily series, fetched at most once a day per symbol.
+      // Sparklines and charts: fetch only what the saved history is missing.
       for (const s of symbols) {
-        if (daily.get(s)?.day === marketDay(now())) continue;
+        if (!missingHistory(s)) continue;
         try {
           await dailySeries(s);
         } catch {
           // The chart will show the error when someone opens it.
         }
       }
+      persistHistory();
       commit();
     })().finally(() => {
       polling = null;
@@ -532,9 +610,9 @@ export function createStocks({
   // -- History --
 
   async function dailySeries(symbol) {
-    const today = marketDay(now());
     const cached = daily.get(symbol);
-    if (cached?.day === today) return cached.points;
+    const need = missingHistory(symbol);
+    if (!need) return cached.points;
     const key = `daily|${symbol}`;
     if (!inflight.has(key)) {
       inflight.set(
@@ -542,9 +620,15 @@ export function createStocks({
         (async () => {
           const src = await pickProvider();
           await spend(1);
-          const points = await src.series(symbol, 'daily');
-          daily.set(symbol, { day: today, points });
-          return points;
+          const fresh = await src.series(symbol, need);
+          const current = daily.get(symbol);
+          const points = mergeDaily(need === 'recent' && current ? current.points : [], fresh);
+          const q = state.quotes[symbol];
+          daily.set(symbol, { checked: marketDay(q?.time ?? now()), points });
+          if (q) applyQuote(symbol, q);
+          historyDirty = true;
+          persistHistory();
+          return daily.get(symbol).points;
         })().finally(() => inflight.delete(key)),
       );
     }

@@ -37,7 +37,10 @@ No restart is needed.
 
 Twelve Data's free plan allows 8 requests a minute and 800 a day, one per ticker. The Pi keeps count and slows
 its refresh to fit: with 5 tickers it refreshes about every 4 minutes during market hours, with 10 about every
-7. Charts cost one request each the first time they're opened (daily history is fetched once a day per ticker).
+7. Daily history is saved on the Pi (`~/pidisplay-data/stocks-history.json`) and kept up to date from the live
+prices, so it costs one request per ticker when the ticker is added and none after a restart; the source is only
+asked again to fill a gap, such as after the Pi was off for a few days. The 1D and 5D charts cost one request
+each when opened (at most every 5 minutes).
 **⚙** on the tile shows how many have been used today.
 
 ### Free options compared (October 2026)
