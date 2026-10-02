@@ -8,7 +8,7 @@ const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const FORECAST_TTL = 10 * 60 * 1000;
 const TIMEOUT = 10_000;
 
-const US_STATES = {
+export const US_STATES = {
   al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado',
   ct: 'connecticut', de: 'delaware', dc: 'district of columbia', fl: 'florida', ga: 'georgia',
   hi: 'hawaii', id: 'idaho', il: 'illinois', in: 'indiana', ia: 'iowa', ks: 'kansas',

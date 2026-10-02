@@ -7,6 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createWeather, WeatherError } from './weather.js';
+import { createNews, NewsError } from './news.js';
 import { createSystem } from './system.js';
 import { createCalendar, CalendarError } from './calendar.js';
 import { createKiosk } from './kiosk.js';
@@ -130,6 +131,7 @@ export function createServer({
   const faresFile = path.join(dataDir, 'farewatcher.json');
   const clients = new Set();
   const weather = createWeather({ fetchImpl });
+  const news = createNews({ fetchImpl });
   // Secret iCal feed URLs, edited by hand on the Pi; see docs/CALENDAR.md.
   const calendar = createCalendar({ configFile: path.join(dataDir, 'calendars.json'), fetchImpl });
   // Spotify tokens, plus librespot's cache, which holds its login once it has been linked.
@@ -318,6 +320,16 @@ export function createServer({
         return send(res, 200, data);
       } catch (err) {
         if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'news' && !key && req.method === 'GET') {
+      try {
+        const q = url.searchParams;
+        return send(res, 200, await news.get({ sections: q.get('sections') ?? undefined, location: q.get('location') ?? '' }));
+      } catch (err) {
+        if (err instanceof NewsError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }

@@ -203,6 +203,18 @@
           }
         }
       ]
+    },
+    {
+      "id": "news",
+      "name": "News",
+      "tiles": [
+        {
+          "id": "news-full",
+          "widget": "news",
+          "size": "full",
+          "config": {}
+        }
+      ]
     }
   ]
 }
