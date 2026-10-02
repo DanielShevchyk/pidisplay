@@ -56,6 +56,10 @@ Tests: `npm test` (server API).
 | GET | `/api/fares` | Farewatcher summary (`$PIDISPLAY_DATA/farewatcher.json`, written by `fare_watch.py` after each run), or `{ "available": false }`. Used by the Fares widget. |
 | GET | `/api/calendar?from=<ms>&to=<ms>&tz=America/Los_Angeles` | Events from the iCal feeds in `$PIDISPLAY_DATA/calendars.json` (secret, never returned), recurring events expanded, at most 62 days per call. Feeds cached 5 minutes. Used by the calendar widget; setup in [docs/CALENDAR.md](docs/CALENDAR.md). |
 | POST | `/api/kiosk/exit` | "Exit to desktop" from the gear menu: drops `$XDG_RUNTIME_DIR/pidisplay-desktop` (which `deploy/kiosk.sh` waits on) and closes the kiosk Chromium. The PiDisplay desktop/menu launcher (`deploy/open-dashboard.sh`) or a reboot brings it back. 501 off the Pi. |
+| GET | `/api/wifi[?rescan]` | Wi-Fi adapter state, current network and IP, nearby networks, saved networks (nmcli). |
+| POST | `/api/wifi/connect` · `disconnect` · `forget` · `power` | `{ "ssid", "password"? }` · `{}` · `{ "uuid" }` · `{ "on" }`. A failed join removes the new profile and rejoins the previous network. |
+| GET | `/api/bluetooth` | Controller power and known devices (bluetoothctl). |
+| POST | `/api/bluetooth/power` · `scan` · `pair` · `connect` · `disconnect` · `forget` | `{ "on" }` · `{}` (8 s discovery) · `{ "mac" }`. |
 | GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`. |
 
 Example, from the Pi itself:
@@ -76,6 +80,6 @@ src/widgets/<id>/  One folder per widget
 docs/WIDGETS.md    How to write a widget
 ```
 
-The gear (⚙) in the top bar holds app-wide settings: light or dark appearance (saved in the `app.settings` store key, dark by default) and Exit to desktop.
+The gear (⚙) in the top bar holds app-wide settings: light or dark appearance (saved in the `app.settings` store key, dark by default), Wi-Fi and Bluetooth, and Exit to desktop. Because the server runs outside the desktop session, `deploy/update.sh` installs `deploy/pidisplay-network.rules` (polkit: dan may scan and manage Wi-Fi) and `deploy/pidisplay-sudoers` (only `rfkill unblock bluetooth`).
 
 Deploying to the Pi (kiosk autostart, screen blanking, touch setup, update script) is a separate step.

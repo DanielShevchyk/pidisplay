@@ -72,6 +72,7 @@ select { font: inherit; color: inherit; }
   font-weight: 500;
 }
 .btn:active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.45; }
 .btn-ghost { background: transparent; border-color: transparent; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
@@ -344,7 +345,7 @@ select { font: inherit; color: inherit; }
 /* ---- Wi-Fi and Bluetooth (gear menu) ------------------------------- */
 
 .conn-head { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
-.conn-head h3 { flex: 1; margin: 0; }
+.sheet-body .conn-head h3 { flex: 1; margin: 0; font-size: 22px; text-transform: none; letter-spacing: 0; color: var(--text); }
 .conn-head .btn-ghost { padding: 0 12px 0 0; }
 .conn { min-height: 240px; }
 .conn-status { color: var(--text-dim); margin: 12px 0; }
