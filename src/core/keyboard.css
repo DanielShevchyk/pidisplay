@@ -1,0 +1,45 @@
+/* Built-in on-screen keyboard (src/core/keyboard.ts). */
+
+.osk {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  padding: 14px 16px 18px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -10px 40px var(--shadow);
+  transform: translateY(105%);
+  transition: transform 0.2s ease-out;
+  user-select: none;
+  touch-action: none;
+}
+.osk.open { transform: none; }
+
+.osk-keys { display: flex; flex-direction: column; gap: 10px; max-width: 1500px; margin: 0 auto; }
+.osk-numbers { max-width: 560px; }
+.osk-row { display: flex; gap: 10px; }
+
+.osk-key {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 78px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 2px 0 var(--border);
+  font-size: 30px;
+  padding: 0;
+}
+.osk-key.down { background: var(--accent); color: #fff; }
+.osk-mod,
+.osk-back { background: var(--border); font-size: 24px; }
+.osk-mod.on { background: var(--accent); color: #fff; }
+.osk-space { flex-grow: 6; font-size: 22px; color: var(--text-dim); }
+.osk-enter { flex-grow: 1.6; background: var(--accent); color: #fff; font-size: 24px; }
+.osk-numbers .osk-key { height: 74px; }
+
+/* Lift bottom sheets above the keyboard while it is open. */
+body.osk-open .sheet-backdrop { padding-bottom: var(--osk-h, 0px); }
+body.osk-open .edit-toolbar { display: none; }
