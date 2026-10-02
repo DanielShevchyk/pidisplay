@@ -20,12 +20,12 @@
 /* Light mode, picked in the gear menu (src/core/theme.ts). Widgets only use the
    variables above, so they follow along; status colors are darker for contrast. */
 :root[data-theme='light'] {
-  --bg: #b4bdc9;
-  --surface: #eceff3;
-  --surface-2: #d6dce4;
-  --border: #8b97a7;
+  --bg: #a7b1be;
+  --surface: #e1e5ea;
+  --surface-2: #c8cfd8;
+  --border: #7c8899;
   --text: #0f141b;
-  --text-dim: #414c5b;
+  --text-dim: #3c4756;
   --accent: #1a6fd6;
   --danger: #d32f2f;
   --warning: #b86a00;
