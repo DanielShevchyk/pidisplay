@@ -4,6 +4,7 @@ import { api, createStorage, onServerEvent } from './api';
 import { h, uid } from './dom';
 import { Alerts } from './alerts';
 import { Notifications } from './notifications';
+import { initStockAlertSounds } from './stocks';
 import { allWidgets, getWidget } from './registry';
 import { openSheet, settingsForm, type SheetHandle } from './sheet';
 import { showBluetooth, showWifi } from './connections';
@@ -61,6 +62,7 @@ export class App {
   ) {
     this.notifications = new Notifications(root);
     const alerts = new Alerts(document.body);
+    initStockAlertSounds();
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },

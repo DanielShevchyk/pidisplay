@@ -134,6 +134,18 @@
       ]
     },
     {
+      "id": "stocks",
+      "name": "Stocks",
+      "tiles": [
+        {
+          "id": "stocks-full",
+          "widget": "stocks",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "music",
       "name": "Music",
       "tiles": [

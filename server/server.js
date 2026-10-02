@@ -14,6 +14,7 @@ import { createNetwork, NetworkError } from './network.js';
 import { createTimers, TimersError } from './timers.js';
 import { createSpotify, SpotifyError } from './spotify.js';
 import { createAudio, AudioError } from './audio.js';
+import { createStocks, StocksError } from './stocks.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -120,6 +121,7 @@ export function createServer({
   audio = createAudio(),
   spotify = undefined,
   timerTickMs = 1000,
+  stocksAutoStart = true,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -171,6 +173,20 @@ export function createServer({
     notify: (n) => void addNotification({ ...n, source: 'Timers' }).catch(() => {}),
     broadcast: (snapshot) => broadcast('timers', snapshot),
     tickMs: timerTickMs,
+  });
+
+  // Watchlist and alerts in stocks.json; the optional Twelve Data key in stocks-key.json
+  // (a secret, written by deploy/stocks.ps1, never sent to the browser).
+  const stocksFile = path.join(dataDir, 'stocks.json');
+  const stocks = createStocks({
+    load: () => readJson(stocksFile, null),
+    save: (value) => writeJson(stocksFile, value),
+    loadKey: () => readJson(path.join(dataDir, 'stocks-key.json'), null),
+    fetchImpl,
+    notify: (n) => void addNotification({ ...n, source: 'Stocks' }).catch(() => {}),
+    broadcast: (snapshot) => broadcast('stocks', snapshot),
+    sound: (s) => broadcast('stocks-alert', s),
+    autoStart: stocksAutoStart,
   });
 
   async function loadLayout() {
@@ -272,6 +288,19 @@ export function createServer({
         throw new HttpError(404, 'Not found');
       } catch (err) {
         if (err instanceof AudioError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'stocks') {
+      try {
+        if (key === 'history' && req.method === 'GET') {
+          return send(res, 200, await stocks.history(url.searchParams.get('symbol'), url.searchParams.get('range') ?? '1m'));
+        }
+        const body = req.method === 'GET' || req.method === 'DELETE' ? null : await readBody(req);
+        return send(res, 200, await stocks.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof StocksError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -419,6 +448,7 @@ export function createServer({
   server.on('close', () => {
     clearInterval(heartbeat);
     timers.stop();
+    stocks.stop();
     for (const res of clients) res.end();
   });
 
