@@ -210,7 +210,7 @@ function dealHero(deal: Deal, money: (n: number) => string, d: Summary, compact:
   return h(
     'button',
     { class: 'fares-hero', onclick: () => dest && openDetail(dest, d) },
-    h('div', { class: 'fares-hero-top' }, h('span', { class: 'fares-place' }, place(deal.name, deal.code)), badge(deal.verified)),
+    h('div', { class: 'fares-hero-top' }, h('span', { class: 'fares-place' }, place(deal.name, deal.code)), checkedAt(d)),
     h('div', { class: 'fares-price' }, money(best(deal))),
     h(
       'div',
@@ -329,6 +329,17 @@ function status(d: Summary, failed: string) {
   const when = run?.finishedAt ?? d.generatedAt;
   const bad = failed || (run?.ok === false ? `Last run failed${run.error ? `: ${run.error}` : ''}` : '');
   return h('div', { class: `fares-status${bad ? ' bad' : ''}` }, bad || `Checked ${ago(when)}`);
+}
+
+/** When Farewatcher last pulled fares, e.g. "Oct 2, 8:01 AM". */
+function checkedAt(d: Summary) {
+  const iso = d.lastRun?.finishedAt ?? d.generatedAt;
+  const when = iso ? new Date(iso) : null;
+  const text =
+    when && !Number.isNaN(when.getTime())
+      ? when.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      : '–';
+  return h('span', { class: 'fares-checked', title: 'Last fare check' }, text);
 }
 
 function badge(verified: boolean) {

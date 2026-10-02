@@ -75,6 +75,7 @@
   color: var(--warning);
 }
 .fares-badge.live { border-color: var(--success); color: var(--success); }
+.fares-checked { flex: none; margin-left: auto; font-size: 0.65em; color: var(--text-dim); white-space: nowrap; }
 
 /* ---- Destination list ---- */
 
