@@ -88,6 +88,12 @@
             "timeZone": "Europe/London",
             "label": "London"
           }
+        },
+        {
+          "id": "home-timers",
+          "widget": "timers",
+          "size": "medium",
+          "config": {}
         }
       ]
     },
@@ -110,6 +116,18 @@
         {
           "id": "calendar-full",
           "widget": "calendar",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
+      "id": "timers",
+      "name": "Timers",
+      "tiles": [
+        {
+          "id": "timers-full",
+          "widget": "timers",
           "size": "full",
           "config": {}
         }

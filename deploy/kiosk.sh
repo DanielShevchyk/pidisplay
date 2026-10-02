@@ -25,11 +25,13 @@ fi
 
 # The two IME flags let Chromium tell squeekboard (the Pi's on-screen
 # keyboard) when a text field is focused, so it pops up on its own.
+# The autoplay policy lets timers and alarms ring without a tap first.
 exec chromium \
   --kiosk "$URL" \
   --ozone-platform=wayland \
   --enable-wayland-ime \
   --wayland-text-input-version=3 \
+  --autoplay-policy=no-user-gesture-required \
   --noerrdialogs \
   --disable-infobars \
   --no-first-run \

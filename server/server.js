@@ -11,6 +11,7 @@ import { createSystem } from './system.js';
 import { createCalendar, CalendarError } from './calendar.js';
 import { createKiosk } from './kiosk.js';
 import { createNetwork, NetworkError } from './network.js';
+import { createTimers, TimersError } from './timers.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -99,6 +100,7 @@ export function createServer({
   system = createSystem(),
   kiosk = createKiosk(),
   network = createNetwork(),
+  timerTickMs = 1000,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -114,6 +116,36 @@ export function createServer({
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of clients) res.write(msg);
   }
+
+  // Serialized so two notifications arriving together can't drop one another.
+  let notifyQueue = Promise.resolve();
+  function addNotification({ title, body, source, level }) {
+    const n = {
+      id: crypto.randomUUID(),
+      title: title.slice(0, 200),
+      body: typeof body === 'string' ? body.slice(0, 2000) : '',
+      source: typeof source === 'string' ? source.slice(0, 60) : 'system',
+      level: LEVELS.has(level) ? level : 'info',
+      time: new Date().toISOString(),
+    };
+    const done = notifyQueue.then(async () => {
+      const list = await readJson(notificationsFile, []);
+      await writeJson(notificationsFile, [n, ...list].slice(0, MAX_NOTIFICATIONS));
+      broadcast('notification', n);
+      return n;
+    });
+    notifyQueue = done.catch((err) => console.error('Saving notification failed', err));
+    return done;
+  }
+
+  const timersFile = path.join(dataDir, 'timers.json');
+  const timers = createTimers({
+    load: () => readJson(timersFile, null),
+    save: (value) => writeJson(timersFile, value),
+    notify: (n) => void addNotification({ ...n, source: 'Timers' }).catch(() => {}),
+    broadcast: (snapshot) => broadcast('timers', snapshot),
+    tickMs: timerTickMs,
+  });
 
   async function loadLayout() {
     const saved = await readJson(layoutFile, null);
@@ -184,6 +216,16 @@ export function createServer({
       }
     }
 
+    if (resource === 'timers' || resource === 'alarms') {
+      try {
+        const body = req.method === 'GET' || req.method === 'DELETE' ? null : await readBody(req);
+        return send(res, 200, await timers.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof TimersError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
 
     if (resource === 'fares' && !key && req.method === 'GET') {
@@ -219,16 +261,7 @@ export function createServer({
         if (!body || typeof body.title !== 'string' || !body.title.trim()) {
           throw new HttpError(400, 'title is required');
         }
-        const n = {
-          id: crypto.randomUUID(),
-          title: body.title.slice(0, 200),
-          body: typeof body.body === 'string' ? body.body.slice(0, 2000) : '',
-          source: typeof body.source === 'string' ? body.source.slice(0, 60) : 'system',
-          level: LEVELS.has(body.level) ? body.level : 'info',
-          time: new Date().toISOString(),
-        };
-        await writeJson(notificationsFile, [n, ...list].slice(0, MAX_NOTIFICATIONS));
-        broadcast('notification', n);
+        const n = await addNotification(body);
         return send(res, 201, n);
       }
       if (req.method === 'DELETE') {
@@ -307,6 +340,7 @@ export function createServer({
   }, 25000);
   server.on('close', () => {
     clearInterval(heartbeat);
+    timers.stop();
     for (const res of clients) res.end();
   });
 

@@ -78,3 +78,18 @@ test('serves the Farewatcher summary once it has been written', async () => {
   assert.equal(body.available, true);
   assert.equal(body.currency, 'USD');
 });
+
+test('timers and alarms are served under /api/timers and /api/alarms', async () => {
+  let res = await fetch(`${base}/api/timers`, json('POST', { durationMs: 60000, label: 'Tea' }));
+  assert.equal(res.status, 200);
+  const s = await res.json();
+  assert.equal(s.timers[0].label, 'Tea');
+  assert.equal(typeof s.now, 'number');
+  res = await fetch(`${base}/api/alarms`, json('POST', { hour: 7, minute: 0, days: [1] }));
+  assert.equal((await res.json()).alarms.length, 1);
+  assert.equal((await fetch(`${base}/api/timers/${s.timers[0].id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await fetch(`${base}/api/timers`, json('POST', { durationMs: 'soon' }))).status, 400);
+  await new Promise((r) => setTimeout(r, 50)); // saves are queued behind the response
+  const saved = JSON.parse(await fs.readFile(path.join(dataDir, 'timers.json'), 'utf8'));
+  assert.equal(saved.alarms.length, 1);
+});

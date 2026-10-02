@@ -60,7 +60,11 @@ Tests: `npm test` (server API).
 | POST | `/api/wifi/connect` · `disconnect` · `forget` · `power` | `{ "ssid", "password"? }` · `{}` · `{ "uuid" }` · `{ "on" }`. A failed join removes the new profile and rejoins the previous network. |
 | GET | `/api/bluetooth` | Controller power and known devices (bluetoothctl). |
 | POST | `/api/bluetooth/power` · `scan` · `pair` · `connect` · `disconnect` · `forget` | `{ "on" }` · `{}` (8 s discovery) · `{ "mac" }`. |
-| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`. |
+| GET | `/api/timers` | Timers, alarms and sound settings, plus the Pi's clock (`now`). State is in `$PIDISPLAY_DATA/timers.json`; the server decides when things ring, so they ring on every screen, on any page, after reloads and reboots. Anything overdue by more than 10 minutes (the Pi was off) is reported in the bell as missed instead of ringing. |
+| POST | `/api/timers` · `/api/timers/:id/pause` · `resume` · `add` · `restart` · `snooze` · `dismiss` | `{ "durationMs", "label"? }` to start one · `{}` · `{}` · `{ "ms" }` · `{}` · `{}` · `{}`. DELETE `/api/timers/:id` cancels. |
+| PUT | `/api/timers/settings` | `{ "snoozeMinutes", "sound", "volume" (0-100), "ringMinutes" (stop ringing after), "fadeIn" }` |
+| POST / PUT / DELETE | `/api/alarms[/:id]` | `{ "hour", "minute", "days": [0-6, 0 = Sunday; empty = once], "label", "sound", "enabled" }`, in the Pi's time zone. POST `/api/alarms/:id/snooze` · `dismiss`. |
+| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`. |
 
 Example, from the Pi itself:
 
