@@ -1,0 +1,140 @@
+/* Photos run edge to edge: drop the tile's usual padding. */
+.widget-body:has(> .photos) { padding: 0; }
+
+.photos {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: inherit;
+  background: #000;
+}
+
+.photos-stage { position: absolute; inset: 0; }
+
+.photos-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.photos-slide.in { opacity: 1; }
+
+.photos-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Small blurred thumbnail behind a whole (contained) photo; cheap on the Pi's GPU. */
+.photos-fill {
+  position: absolute;
+  inset: -40px;
+  width: calc(100% + 80px);
+  height: calc(100% + 80px);
+  object-fit: cover;
+  filter: blur(28px) brightness(0.55);
+}
+
+.photos-message {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: clamp(14px, 8cqh, 24px);
+}
+.photos-message-icon { font-size: min(24cqw, 30cqh); }
+.photos-message-detail { font-size: 0.7em; white-space: pre-line; max-width: 40em; }
+
+.photos-caption {
+  position: absolute;
+  left: 16px;
+  bottom: 12px;
+  max-width: calc(100% - 32px);
+  color: #fff;
+  font-size: clamp(14px, 5cqh, 22px);
+  font-weight: 600;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.photos-caption:empty { display: none; }
+
+/* ---- Tap controls ---- */
+
+.photos-controls {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 12px 14px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+.photos-controls.open { opacity: 1; pointer-events: auto; }
+.photos-btns { display: flex; gap: 14px; }
+.photos-btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(20, 24, 30, 0.6);
+  color: #fff;
+  font-size: 22px;
+}
+.size-small .photos-btn { width: 52px; height: 52px; font-size: 19px; }
+.photos-info {
+  font-size: 15px;
+  opacity: 0.85;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- Browse sheet ---- */
+
+.photos-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.photos-chip {
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 17px;
+}
+.photos-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.photos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.photos-thumb {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.photos-thumb.current { border-color: var(--accent); }
+.photos-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photos-more, .photos-note { grid-column: 1 / -1; color: var(--text-dim); padding: 8px 0; }
+.photos-note { color: var(--warning); }
+.photos:has(.photos-controls.open) .photos-caption { opacity: 0; }

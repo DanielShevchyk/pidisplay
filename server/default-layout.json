@@ -227,6 +227,18 @@
           "config": {}
         }
       ]
+    },
+    {
+      "id": "photos",
+      "name": "Photos",
+      "tiles": [
+        {
+          "id": "photos-full",
+          "widget": "photos",
+          "size": "full",
+          "config": {}
+        }
+      ]
     }
   ]
 }

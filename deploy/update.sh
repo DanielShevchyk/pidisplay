@@ -7,6 +7,10 @@ cd /home/dan/pidisplay
 # Widgets use emoji icons; Raspberry Pi OS ships without a color emoji font.
 dpkg -s fonts-noto-color-emoji >/dev/null 2>&1 || sudo apt-get install -y fonts-noto-color-emoji
 
+# The photo gallery shrinks camera photos to screen size with ImageMagick. Without it photos
+# still show, just slowly, so a failed install only warns.
+dpkg -s imagemagick >/dev/null 2>&1 || sudo apt-get install -y imagemagick || echo "WARNING: ImageMagick install failed; photos will load slowly."
+
 # The gear menu's Bluetooth switch needs rfkill to lift the radio's soft block.
 dpkg -s rfkill >/dev/null 2>&1 || sudo apt-get install -y rfkill
 

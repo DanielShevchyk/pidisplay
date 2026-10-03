@@ -2,6 +2,7 @@
 // JSON files, and pushes live events (notifications, data changes) over SSE.
 // Dependency-free on purpose so it runs on a bare Raspberry Pi Node install.
 import http from 'node:http';
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -16,6 +17,7 @@ import { createTimers, TimersError } from './timers.js';
 import { createSpotify, SpotifyError } from './spotify.js';
 import { createAudio, AudioError } from './audio.js';
 import { createStocks, StocksError } from './stocks.js';
+import { createPhotos, PhotosError } from './photos.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -31,6 +33,8 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
@@ -123,6 +127,7 @@ export function createServer({
   spotify = undefined,
   timerTickMs = 1000,
   stocksAutoStart = true,
+  photos = undefined,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -139,6 +144,15 @@ export function createServer({
     configFile: path.join(dataDir, 'spotify.json'),
     receiverCacheDir: path.join(dataDir, 'spotify-cache'),
     redirectUri: `http://127.0.0.1:${Number(process.env.PORT) || 8080}/api/spotify/callback`,
+    fetchImpl,
+  });
+
+  // Photo files in photos/ (one folder per album), resized copies in photos-cache/,
+  // Google Photos shared-album links in photos.json; see deploy/photos.ps1.
+  photos ??= createPhotos({
+    dir: path.join(dataDir, 'photos'),
+    cacheDir: path.join(dataDir, 'photos-cache'),
+    configFile: path.join(dataDir, 'photos.json'),
     fetchImpl,
   });
 
@@ -333,6 +347,24 @@ export function createServer({
         return send(res, 200, await news.get({ sections: q.get('sections') ?? undefined, location: q.get('location') ?? '' }));
       } catch (err) {
         if (err instanceof NewsError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'photos' && req.method === 'GET') {
+      try {
+        if (!key) return send(res, 200, await photos.list({ source: url.searchParams.get('source') || 'all' }));
+        if (key === 'image') {
+          const { file, type } = await photos.image(url.searchParams.get('path') ?? '', url.searchParams.get('size') ?? 'full');
+          // The URL carries the file's version, so the browser may keep it.
+          res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' });
+          createReadStream(file)
+            .on('error', () => res.destroy())
+            .pipe(res);
+          return;
+        }
+      } catch (err) {
+        if (err instanceof PhotosError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
