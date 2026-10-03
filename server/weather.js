@@ -8,6 +8,11 @@ const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const AIR_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const FORECAST_TTL = 10 * 60 * 1000;
 const TIMEOUT = 10_000;
+const AIR_MAP_TTL = 30 * 60 * 1000;
+// Air quality map grid: points every 0.4° (about the model's resolution) around the center.
+const AIR_MAP_STEP = 0.4;
+const AIR_MAP_COLS = 13;
+const AIR_MAP_ROWS = 9;
 
 export const US_STATES = {
   al: 'alabama', ak: 'alaska', az: 'arizona', ar: 'arkansas', ca: 'california', co: 'colorado',
@@ -99,7 +104,7 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       longitude: String(place.lon),
       current:
         'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,precipitation',
-      hourly: 'temperature_2m,weather_code,precipitation_probability,is_day',
+      hourly: 'temperature_2m,weather_code,precipitation_probability,is_day,uv_index',
       daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max',
       timezone: 'auto',
       timeformat: 'unixtime',
@@ -154,7 +159,48 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
     }
   }
 
-  return { get };
+  const airMaps = new Map(); // "lat,lon" -> { at, data }
+
+  /** Current US AQI on a grid of points around lat/lon, for the air quality map. */
+  async function airMap(latIn, lonIn) {
+    const lat = Number(latIn);
+    const lon = Number(lonIn);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) {
+      throw new WeatherError(400, 'lat and lon are required');
+    }
+    // Snap to the grid so nearby tiles share one upstream call.
+    const cLat = Math.round(lat / AIR_MAP_STEP) * AIR_MAP_STEP;
+    const cLon = Math.round(lon / AIR_MAP_STEP) * AIR_MAP_STEP;
+    const key = `${cLat.toFixed(1)},${cLon.toFixed(1)}`;
+    const cached = airMaps.get(key);
+    if (cached && now() - cached.at < AIR_MAP_TTL) return cached.data;
+
+    const lats = [];
+    const lons = [];
+    for (let r = 0; r < AIR_MAP_ROWS; r++) {
+      for (let c = 0; c < AIR_MAP_COLS; c++) {
+        lats.push((cLat + (r - (AIR_MAP_ROWS - 1) / 2) * AIR_MAP_STEP).toFixed(2));
+        lons.push((cLon + (c - (AIR_MAP_COLS - 1) / 2) * AIR_MAP_STEP).toFixed(2));
+      }
+    }
+    const params = new URLSearchParams({ latitude: lats.join(','), longitude: lons.join(','), current: 'us_aqi', timeformat: 'unixtime' });
+    try {
+      const raw = await getJson(`${AIR_URL}?${params}`);
+      const list = Array.isArray(raw) ? raw : [raw];
+      const points = lats.map((la, i) => {
+        const aqi = list[i]?.current?.us_aqi;
+        return { lat: Number(la), lon: Number(lons[i]), aqi: typeof aqi === 'number' ? Math.round(aqi) : null };
+      });
+      const data = { step: AIR_MAP_STEP, updated: list[0]?.current?.time ?? Math.floor(now() / 1000), points };
+      airMaps.set(key, { at: now(), data });
+      return data;
+    } catch (err) {
+      if (cached) return { ...cached.data, stale: true };
+      throw err;
+    }
+  }
+
+  return { get, airMap };
 }
 
 function normalize(raw, place, units) {
@@ -205,6 +251,11 @@ function normalize(raw, place, units) {
     },
     hourly: hours,
     daily: days,
+    // Today's UV by hour from local midnight, for the UV graph.
+    uvToday: (hourly.time ?? []).slice(0, 24).map((t, i) => ({
+      time: t,
+      uv: typeof hourly.uv_index?.[i] === 'number' ? Math.round(hourly.uv_index[i] * 10) / 10 : null,
+    })),
   };
 }
 

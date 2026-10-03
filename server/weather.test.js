@@ -26,6 +26,7 @@ function forecast() {
       weather_code: Array(48).fill(3),
       precipitation_probability: Array(48).fill(10),
       is_day: Array(48).fill(1),
+      uv_index: Array.from({ length: 48 }, (_, i) => (i % 24 >= 7 && i % 24 <= 18 ? 4.26 : 0)),
     },
     daily: {
       time: Array.from({ length: 7 }, (_, i) => midnight + i * 24 * HOUR),
@@ -77,6 +78,9 @@ test('resolves "City, ST" with the state and normalizes the forecast', async () 
   assert.equal(data.daily.length, 7);
   assert.equal(data.daily[0].high, 75);
   assert.equal(data.daily[0].uvMax, 7.8);
+  assert.equal(data.uvToday.length, 24);
+  assert.equal(data.uvToday[0].time, NOW - 5 * HOUR); // from local midnight
+  assert.equal(data.uvToday[12].uv, 4.3);
   assert.match(fetchImpl.calls[1], /latitude=37\.2/);
   assert.match(fetchImpl.calls[1], /temperature_unit=fahrenheit/);
 });
@@ -150,4 +154,23 @@ test('maps AQI values to EPA categories', () => {
   assert.equal(aqiCategory(151), 'Unhealthy');
   assert.equal(aqiCategory(420), 'Hazardous');
   assert.equal(aqiCategory(null), null);
+});
+
+test('builds a cached AQI grid for the air quality map', async () => {
+  const urls = [];
+  const fetchImpl = async (url) => {
+    urls.push(String(url));
+    const n = new URL(url).searchParams.get('latitude').split(',').length;
+    const body = Array.from({ length: n }, (_, i) => ({ current: { time: NOW, us_aqi: i === 0 ? null : 40.6 } }));
+    return { ok: true, status: 200, json: async () => body };
+  };
+  const w = createWeather({ fetchImpl });
+  const map = await w.airMap('38.7', '-121.28');
+  assert.equal(map.points.length, 13 * 9);
+  assert.equal(map.points[0].aqi, null);
+  assert.equal(map.points[1].aqi, 41);
+  assert.equal(map.points[58].lat, 38.8); // center snapped to the 0.4° grid
+  await w.airMap('38.75', '-121.3');
+  assert.equal(urls.length, 1);
+  await assert.rejects(w.airMap('x', '1'), { status: 400 });
 });

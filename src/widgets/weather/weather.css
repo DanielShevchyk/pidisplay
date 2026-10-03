@@ -142,18 +142,26 @@
 
 /* ---- Air quality ---- */
 
+.wx-pills { display: flex; flex-wrap: wrap; gap: 0.4em; margin-top: 0.15em; }
+.size-small .wx-pills,
+.size-tall .wx-pills { justify-content: center; }
 .wx-aqi {
-  align-self: flex-start;
-  padding: 0.15em 0.6em;
+  padding: 0.25em 0.75em;
+  border: 0;
   border-radius: 999px;
-  font-size: 0.8em;
+  font: inherit;
+  font-size: 0.95em;
   font-weight: 600;
   white-space: nowrap;
   color: #10161f;
   background: var(--text-dim);
 }
-.size-small .wx-aqi,
-.size-tall .wx-aqi { align-self: center; }
+button.wx-aqi { cursor: pointer; }
+/* Narrow columns keep both pills on one line: number and color only. */
+@container (max-width: 330px) {
+  .wx-pills .wx-aqi-cat { display: none; }
+  .wx-pills .wx-aqi { font-size: 1.05em; }
+}
 .wx-aqi-cat { font-weight: 500; }
 .aqi-good { background: #3ccf8e; }
 .aqi-moderate { background: #f5d33d; }
@@ -261,3 +269,52 @@
 .uv-high { background: #ff9a3c; }
 .uv-very { background: #ff5d5d; color: #fff; }
 .uv-extreme { background: #a35cd6; color: #fff; }
+
+/* ---- AQI map and UV graph sheets ---- */
+
+.wx-sheet-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; font-size: 20px; color: var(--text-dim); }
+.wx-sheet-facts .wx-aqi { font-size: 20px; }
+.wx-airmap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #0e1116;
+}
+.wx-airmap-tile { position: absolute; width: 256px; height: 256px; pointer-events: none; user-select: none; }
+.wx-airmap-layer { position: absolute; inset: 0; pointer-events: none; }
+.wx-airmap-home {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.4);
+}
+.wx-airmap-status { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-dim); font-size: 20px; }
+.wx-airmap-credit {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ccd;
+  font-size: 12px;
+}
+.wx-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 16px; color: var(--text-dim); }
+.wx-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.wx-legend-item i { width: 16px; height: 16px; border-radius: 4px; }
+
+.sheet.wx-uv-sheet { width: min(1100px, 100%); }
+.wx-uv-sheet .sheet-body { display: flex; flex-direction: column; gap: 16px; }
+.wx-uv-chart { display: block; width: 100%; height: auto; }
+.wx-uv-chart .wx-grid { stroke: var(--border); stroke-dasharray: 4 6; }
+.wx-uv-chart .wx-base { stroke: var(--text-dim); }
+.wx-uv-chart .wx-axis { fill: var(--text-dim); font-size: 20px; }
+.wx-uv-chart .wx-axis-now { fill: var(--accent); font-weight: 700; }
+.wx-uv-chart .wx-val { fill: var(--text); font-size: 20px; font-weight: 600; }
+.wx-uv-chart .wx-now-bar { stroke: #fff; stroke-width: 3; }

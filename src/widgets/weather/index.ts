@@ -1,6 +1,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
+import { aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
 import './weather.css';
 
 interface WeatherConfig {
@@ -67,6 +68,8 @@ interface Forecast {
     /** Today's peak UV index, from the forecast. */
     uvMax?: number | null;
   }[];
+  /** Today's UV index by hour from local midnight. */
+  uvToday?: { time: number; uv: number | null }[];
 }
 
 interface SharedDefault {
@@ -299,8 +302,7 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
       h('div', { class: 'wx-place' }, place, offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠')),
       h('div', { class: 'wx-cond' }, describe(cur.code)),
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
-      aq && aqiPill(aq, placement !== 'small' && placement !== 'medium'),
-      placement !== 'small' && placement !== 'medium' && today?.uvMax != null && uvPill(today.uvMax),
+      pills(d, place, aq, placement !== 'small' && placement !== 'medium'),
     ),
     placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
   );
@@ -379,35 +381,32 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
   return h('div', { class: 'wx-body' }, ...sections);
 }
 
-/** Colored "AQI 72 Moderate" badge; the band colors follow the EPA scale. */
-function aqiPill(aq: AirQuality, withCategory: boolean) {
+/** "AQI 72 Moderate" and "UV 8 Very high today" side by side; each opens a detail sheet. */
+function pills(d: Forecast, place: string, aq: AirQuality | null, large: boolean) {
+  const uvMax = large ? d.daily[0]?.uvMax : null;
+  if (!aq && uvMax == null) return null;
+  const tap = (open: () => void) => (e: Event) => {
+    e.stopPropagation(); // don't also open the forecast map
+    open();
+  };
   return h(
     'div',
-    { class: `wx-aqi ${aqiClass(aq.aqi)}` },
-    `AQI ${aq.aqi}`,
-    withCategory && aq.category && h('span', { class: 'wx-aqi-cat' }, ` ${aq.category}`),
+    { class: 'wx-pills' },
+    aq &&
+      h(
+        'button',
+        { class: `wx-aqi ${aqiBand(aq.aqi!).cls}`, onclick: tap(() => openAirMap(place, d.location.lat, d.location.lon, aq)) },
+        `AQI ${aq.aqi}`,
+        large && aq.category && h('span', { class: 'wx-aqi-cat' }, ` ${aq.category}`),
+      ),
+    uvMax != null &&
+      h(
+        'button',
+        { class: `wx-aqi wx-uv ${uvBand(uvMax).cls}`, onclick: tap(() => openUvGraph(place, validZone(d.timezone), d.uvToday ?? [])) },
+        `UV ${Math.round(uvMax)}`,
+        h('span', { class: 'wx-aqi-cat' }, ` ${uvBand(uvMax).name}`),
+      ),
   );
-}
-
-/** "UV 8 Very high today": the day's peak, colored on the WHO UV index scale. */
-function uvPill(uv: number) {
-  const level = Math.round(uv);
-  const [cls, name] =
-    level <= 2 ? ['uv-low', 'Low'] :
-    level <= 5 ? ['uv-moderate', 'Moderate'] :
-    level <= 7 ? ['uv-high', 'High'] :
-    level <= 10 ? ['uv-very', 'Very high'] : ['uv-extreme', 'Extreme'];
-  return h('div', { class: `wx-aqi wx-uv ${cls}` }, `UV ${level}`, h('span', { class: 'wx-aqi-cat' }, ` ${name} today`));
-}
-
-function aqiClass(aqi: number | null): string {
-  if (aqi === null) return '';
-  if (aqi <= 50) return 'aqi-good';
-  if (aqi <= 100) return 'aqi-moderate';
-  if (aqi <= 150) return 'aqi-sensitive';
-  if (aqi <= 200) return 'aqi-unhealthy';
-  if (aqi <= 300) return 'aqi-very';
-  return 'aqi-hazardous';
 }
 
 /** Windy's free embeddable forecast map (no key), animated over the coming days. */

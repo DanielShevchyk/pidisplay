@@ -434,6 +434,15 @@ export function createServer({
       return send(res, 200, summary ? { available: true, ...summary } : { available: false });
     }
 
+    if (resource === 'weather' && key === 'airmap' && req.method === 'GET') {
+      try {
+        return send(res, 200, await weather.airMap(url.searchParams.get('lat'), url.searchParams.get('lon')));
+      } catch (err) {
+        if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'weather' && !key && req.method === 'GET') {
       try {
         const data = await weather.get(url.searchParams.get('location'), url.searchParams.get('units') ?? undefined);
