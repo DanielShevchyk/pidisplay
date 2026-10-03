@@ -254,3 +254,10 @@
   font-weight: 600;
 }
 .wx-map-wrap.locked .wx-map-lock-btn { display: none; }
+
+/* UV index (WHO colors) */
+.uv-low { background: #3ccf8e; }
+.uv-moderate { background: #f5d33d; }
+.uv-high { background: #ff9a3c; }
+.uv-very { background: #ff5d5d; color: #fff; }
+.uv-extreme { background: #a35cd6; color: #fff; }

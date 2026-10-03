@@ -35,6 +35,7 @@ function forecast() {
       precipitation_probability_max: Array(7).fill(60),
       sunrise: Array(7).fill(NOW - 2 * HOUR),
       sunset: Array(7).fill(NOW + 10 * HOUR),
+      uv_index_max: Array(7).fill(7.84),
     },
   };
 }
@@ -75,6 +76,7 @@ test('resolves "City, ST" with the state and normalizes the forecast', async () 
   assert.equal(data.hourly[0].time, NOW); // starts at the current hour
   assert.equal(data.daily.length, 7);
   assert.equal(data.daily[0].high, 75);
+  assert.equal(data.daily[0].uvMax, 7.8);
   assert.match(fetchImpl.calls[1], /latitude=37\.2/);
   assert.match(fetchImpl.calls[1], /temperature_unit=fahrenheit/);
 });

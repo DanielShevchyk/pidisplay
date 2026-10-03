@@ -100,7 +100,7 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       current:
         'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,precipitation',
       hourly: 'temperature_2m,weather_code,precipitation_probability,is_day',
-      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max',
       timezone: 'auto',
       timeformat: 'unixtime',
       forecast_days: '7',
@@ -185,6 +185,7 @@ function normalize(raw, place, units) {
     precipChance: daily.precipitation_probability_max?.[i] ?? null,
     sunrise: daily.sunrise?.[i] ?? null,
     sunset: daily.sunset?.[i] ?? null,
+    uvMax: typeof daily.uv_index_max?.[i] === 'number' ? Math.round(daily.uv_index_max[i] * 10) / 10 : null,
   }));
 
   return {

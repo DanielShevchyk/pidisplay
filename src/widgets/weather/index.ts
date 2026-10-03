@@ -64,6 +64,8 @@ interface Forecast {
     precipChance: number | null;
     sunrise: number | null;
     sunset: number | null;
+    /** Today's peak UV index, from the forecast. */
+    uvMax?: number | null;
   }[];
 }
 
@@ -298,6 +300,7 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
       h('div', { class: 'wx-cond' }, describe(cur.code)),
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
       aq && aqiPill(aq, placement !== 'small' && placement !== 'medium'),
+      placement !== 'small' && placement !== 'medium' && today?.uvMax != null && uvPill(today.uvMax),
     ),
     placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
   );
@@ -384,6 +387,17 @@ function aqiPill(aq: AirQuality, withCategory: boolean) {
     `AQI ${aq.aqi}`,
     withCategory && aq.category && h('span', { class: 'wx-aqi-cat' }, ` ${aq.category}`),
   );
+}
+
+/** "UV 8 Very high today": the day's peak, colored on the WHO UV index scale. */
+function uvPill(uv: number) {
+  const level = Math.round(uv);
+  const [cls, name] =
+    level <= 2 ? ['uv-low', 'Low'] :
+    level <= 5 ? ['uv-moderate', 'Moderate'] :
+    level <= 7 ? ['uv-high', 'High'] :
+    level <= 10 ? ['uv-very', 'Very high'] : ['uv-extreme', 'Extreme'];
+  return h('div', { class: `wx-aqi wx-uv ${cls}` }, `UV ${level}`, h('span', { class: 'wx-aqi-cat' }, ` ${name} today`));
 }
 
 function aqiClass(aqi: number | null): string {
