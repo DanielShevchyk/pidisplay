@@ -82,7 +82,7 @@
 /* Tall hit area around a thin bar, so it is easy to tap on a touchscreen. */
 .spt-bar { flex: 1; height: 32px; display: flex; align-items: center; position: relative; }
 .spt-bar::before { content: ''; position: absolute; left: 0; right: 0; height: 6px; border-radius: 3px; background: var(--border); }
-.spt-bar-fill { position: relative; height: 6px; border-radius: 3px; background: var(--accent); transition: width 1s linear; }
+.spt-bar-fill { position: relative; height: 6px; border-radius: 3px; background: var(--accent); }
 
 .spt-volume { display: flex; align-items: center; gap: 12px; max-width: 520px; color: var(--text-dim); }
 .spt-vol-icon { font-size: 24px; }

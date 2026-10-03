@@ -10,6 +10,7 @@ import { allWidgets, getWidget } from './registry';
 import { openSheet, settingsForm, type SheetHandle } from './sheet';
 import { showBluetooth, showWifi } from './connections';
 import { currentTheme, setTheme, type Theme } from './theme';
+import { VoiceUI } from './voice';
 import {
   SIZE_LABELS,
   SIZE_SPANS,
@@ -30,7 +31,12 @@ import {
   type WidgetInstance,
 } from './types';
 
-const SWIPE_PX = 80;
+// A page swipe commits past this share of the screen width, or on a quick flick.
+const SWIPE_SHARE = 0.15;
+const FLICK_PX_PER_MS = 0.3;
+const FLICK_MIN_PX = 40;
+const SWIPE_START_PX = 12;
+const EDGE_RESISTANCE = 0.3;
 const DRAG_START_PX = 10;
 const REORDER_COOLDOWN_MS = 220;
 
@@ -51,6 +57,9 @@ export class App {
   private barItems = new Map<string, Mounted>();
   private lastInteraction = 0;
   private lastPageChange = Date.now();
+  /** Voice "stay on this page": no rotating until then. */
+  private holdUntil = 0;
+  private voice: VoiceUI;
   private saveTimer = 0;
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
@@ -70,6 +79,14 @@ export class App {
     const alerts = new Alerts(document.body);
     initStockAlertSounds();
     const reminderAlerts = new ReminderAlerts(document.body);
+    this.voice = new VoiceUI(document.body, {
+      goTo: (i) => this.goTo(i),
+      step: (delta) => this.goTo(this.page + delta),
+      hold: (ms) => {
+        this.holdUntil = ms ? Date.now() + ms : 0;
+        if (!ms) this.lastInteraction = 0;
+      },
+    });
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
@@ -98,7 +115,7 @@ export class App {
         { class: 'topbar' },
         this.barLeft,
         h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
-        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, this.notifications.button, editBtn, menuBtn),
+        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, this.voice.button, this.notifications.button, editBtn, menuBtn),
       ),
       this.main,
       toolbar,
@@ -271,10 +288,16 @@ export class App {
 
   private goTo(index: number, animate = true) {
     const count = this.layout.pages.length;
+    const from = this.page;
     this.page = ((index % count) + count) % count;
     this.lastPageChange = Date.now();
-    this.track.style.transition = animate ? '' : 'none';
-    this.track.style.transform = `translateX(${-100 * this.page}%)`;
+    this.wakePages();
+    // Sliding across several pages (wrapping around, or a far dot) would drag
+    // every page in between across the screen; a quick fade is cheaper and calmer.
+    const jump = animate && Math.abs(this.page - from) > 1;
+    this.track.style.transition = animate && !jump ? '' : 'none';
+    this.track.style.transform = `translate3d(${-100 * this.page}%, 0, 0)`;
+    if (jump) this.main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
     this.pageTitle.textContent = this.layout.pages[this.page].name;
     this.dots.replaceChildren(
       ...this.layout.pages.map((p, i) =>
@@ -288,11 +311,26 @@ export class App {
     this.dots.hidden = count < 2;
   }
 
+  /**
+   * Only the current page and its neighbours are rendered. The rest skip style,
+   * layout and paint (content-visibility), so clocks and tickers on far pages
+   * don't cost the Pi anything, and a swipe only has to draw two pages.
+   */
+  private wakePages() {
+    const pages = this.track.children;
+    const count = pages.length;
+    for (let i = 0; i < count; i++) {
+      const dist = Math.min((i - this.page + count) % count, (this.page - i + count) % count);
+      pages[i].classList.toggle('asleep', !this.editing && dist > 1);
+    }
+  }
+
   private tick() {
     const { rotateSeconds, resumeAfterSeconds } = this.layout.settings;
     if (this.editing || rotateSeconds <= 0 || this.layout.pages.length < 2) return;
     if (document.querySelector('.sheet-backdrop')) return;
     const now = Date.now();
+    if (now < this.holdUntil) return;
     if (now - this.lastInteraction < resumeAfterSeconds * 1000) return;
     if (now - this.lastPageChange >= rotateSeconds * 1000) this.goTo(this.page + 1);
   }
@@ -301,24 +339,68 @@ export class App {
     document.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerdown', () => (this.lastInteraction = Date.now()), true);
 
-    let start: { x: number; y: number; id: number } | null = null;
+    // The pages follow the finger and settle on release, rather than waiting
+    // for the finger to lift before moving at all.
+    let drag: { x: number; y: number; id: number; width: number; dx: number; t: number; v: number; following: boolean } | null = null;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      if (!drag?.following) return;
+      const count = this.layout.pages.length;
+      const atEdge = (this.page === 0 && drag.dx > 0) || (this.page === count - 1 && drag.dx < 0);
+      const dx = atEdge ? drag.dx * EDGE_RESISTANCE : drag.dx;
+      this.track.style.transform = `translate3d(calc(${-100 * this.page}% + ${dx}px), 0, 0)`;
+    };
+
     this.main.addEventListener('pointerdown', (e) => {
       if (this.editing) {
         const tile = (e.target as HTMLElement).closest<HTMLElement>('.tile');
         if (tile && !(e.target as HTMLElement).closest('button')) this.startDrag(e, tile);
         return;
       }
-      if (e.isPrimary) start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      if (!e.isPrimary || ownsSideways(e.target as HTMLElement)) return;
+      drag = { x: e.clientX, y: e.clientY, id: e.pointerId, width: this.main.clientWidth, dx: 0, t: e.timeStamp, v: 0, following: false };
     });
+
+    this.main.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.following) {
+        const dy = e.clientY - drag.y;
+        if (Math.hypot(dx, dy) < SWIPE_START_PX) return;
+        // A mostly vertical drag is a list scroll, not a page swipe.
+        if (Math.abs(dx) < Math.abs(dy) * 1.2) return void (drag = null);
+        drag.following = true;
+        this.track.style.transition = 'none';
+        // Keep getting the moves even when the finger passes over a map or other frame.
+        this.main.setPointerCapture(e.pointerId);
+      }
+      const dt = Math.max(1, e.timeStamp - drag.t);
+      drag.v = (dx - drag.dx) / dt;
+      drag.dx = dx;
+      drag.t = e.timeStamp;
+      frame ||= requestAnimationFrame(paint);
+    });
+
     const end = (e: PointerEvent) => {
-      if (!start || e.pointerId !== start.id) return;
-      const dx = e.clientX - start.x;
-      const dy = e.clientY - start.y;
-      start = null;
-      if (Math.abs(dx) > SWIPE_PX && Math.abs(dx) > Math.abs(dy) * 1.5) this.goTo(this.page + (dx < 0 ? 1 : -1));
+      if (!drag || e.pointerId !== drag.id) return;
+      const { dx, v, width, following, t } = drag;
+      drag = null;
+      if (!following) return;
+      cancelAnimationFrame(frame);
+      frame = 0;
+      // The lift shouldn't also count as a tap on whatever is under the finger.
+      const swallow = (c: Event) => (c.preventDefault(), c.stopPropagation());
+      window.addEventListener('click', swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener('click', swallow, true), 50);
+
+      const fresh = e.timeStamp - t < 100;
+      const flick = fresh && Math.abs(v) > FLICK_PX_PER_MS && Math.abs(dx) > FLICK_MIN_PX && Math.sign(v) === Math.sign(dx);
+      const step = e.type === 'pointercancel' ? 0 : Math.abs(dx) > width * SWIPE_SHARE || flick ? (dx < 0 ? 1 : -1) : 0;
+      this.goTo(this.page + step);
     };
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', () => (start = null));
+    this.main.addEventListener('pointerup', end);
+    this.main.addEventListener('pointercancel', end);
   }
 
   // ---- Edit mode ------------------------------------------------------
@@ -326,6 +408,8 @@ export class App {
   private setEditing(on: boolean) {
     this.editing = on;
     this.root.classList.toggle('editing', on);
+    // Edit mode measures every page to flag tiles that don't fit, so wake them all.
+    this.wakePages();
     this.saveStatus.textContent = '';
     if (!on) this.flushSave();
     this.checkOverflow();
@@ -699,6 +783,8 @@ export class App {
       sheet.body.replaceChildren(
         h('h3', {}, 'Appearance'),
         h('div', { class: 'chips' }, themeChip('dark', '🌙 Dark'), themeChip('light', '☀️ Light')),
+        h('h3', {}, 'Voice'),
+        h('button', { class: 'btn btn-wide menu-row', onclick: () => (sheet.close(), this.voice.openSheet()) }, '🎙️ Voice control', h('span', { class: 'menu-chevron' }, '›')),
         h('h3', {}, 'Connections'),
         h('button', { class: 'btn btn-wide menu-row', onclick: () => showWifi(sheet.body, showMain) }, '📶 Wi-Fi', h('span', { class: 'menu-chevron' }, '›')),
         h('button', { class: 'btn btn-wide menu-row', onclick: () => showBluetooth(sheet.body, showMain) }, '🔵 Bluetooth', h('span', { class: 'menu-chevron' }, '›')),
@@ -741,6 +827,21 @@ export class App {
 
     showMain();
   }
+}
+
+/**
+ * True when a sideways drag starting here belongs to the control under the
+ * finger (a slider, a text field, a sideways-scrolling row, the stock chart)
+ * rather than to page swiping.
+ */
+function ownsSideways(target: HTMLElement): boolean {
+  if (target.closest('input, textarea, select, [contenteditable]')) return true;
+  for (let el: HTMLElement | null = target; el && !el.classList.contains('page'); el = el.parentElement) {
+    const s = getComputedStyle(el);
+    if (s.touchAction === 'none') return true;
+    if ((s.overflowX === 'auto' || s.overflowX === 'scroll') && el.scrollWidth > el.clientWidth + 1) return true;
+  }
+  return false;
 }
 
 /** A destructive button that needs a second tap to confirm. */

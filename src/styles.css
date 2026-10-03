@@ -151,9 +151,15 @@ select { font: inherit; color: inherit; }
 .track {
   height: 100%;
   display: flex;
-  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Keep the pages on their own GPU layer between swipes; otherwise Chromium
+     re-draws the whole strip of pages at the start of every swipe. */
+  will-change: transform;
 }
-.page { flex: 0 0 100%; height: 100%; padding: var(--gap); overflow: hidden; }
+/* Strict containment keeps a ticking clock on one page from re-laying out the others. */
+.page { flex: 0 0 100%; height: 100%; padding: var(--gap); overflow: hidden; contain: strict; }
+/* Pages more than one away from the current one aren't drawn at all (see App.wakePages). */
+.page.asleep { content-visibility: hidden; }
 
 .grid {
   --row-h: calc((100% - (var(--rows) - 1) * var(--gap)) / var(--rows));
@@ -168,6 +174,7 @@ select { font: inherit; color: inherit; }
 
 .tile {
   position: relative;
+  contain: layout paint;
   min-width: 0;
   min-height: 0;
   border-radius: var(--radius);

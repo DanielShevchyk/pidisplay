@@ -28,7 +28,7 @@
 .tmr-label { color: var(--text-dim); font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tmr-time { font-size: 44px; font-weight: 300; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .tmr-progress { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-top: 4px; }
-.tmr-progress-fill { height: 100%; background: var(--accent); transition: width 1s linear; }
+.tmr-progress-fill { height: 100%; background: var(--accent); }
 .tmr-btns { display: flex; gap: 6px; flex: none; }
 .tmr-btns .btn { padding: 0 14px; }
 .state-paused .tmr-time { color: var(--text-dim); }
