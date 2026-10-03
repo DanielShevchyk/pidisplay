@@ -7,7 +7,7 @@ export type TileSize = 'small' | 'medium' | 'tall' | 'large' | 'xlarge' | 'full'
  * Full-width sizes the shell offers for every widget. Widgets don't handle them
  * directly: they render as the size in WIDE_RENDER_AS, stretched across the page.
  */
-export type WideSize = 'strip' | 'banner';
+export type WideSize = 'strip' | 'banner' | 'column';
 
 /** Any size a tile can have in the layout. */
 export type LayoutSize = TileSize | WideSize;
@@ -15,6 +15,7 @@ export type LayoutSize = TileSize | WideSize;
 export const WIDE_RENDER_AS: Record<WideSize, TileSize> = {
   strip: 'medium',
   banner: 'xlarge',
+  column: 'large',
 };
 
 /** Grid cells each size spans, as [columns, rows]. Values past the grid are clamped. */
@@ -26,8 +27,9 @@ export const SIZE_SPANS: Record<LayoutSize, [number, number]> = {
   xlarge: [3, 2],
   full: [99, 99],
   strip: [99, 1],
-  // Half the rows; resolved against the grid in tileSpan().
+  // 0 means half the grid; resolved in tileSpan().
   banner: [99, 0],
+  column: [0, 99],
 };
 
 export const SIZE_LABELS: Record<LayoutSize, string> = {
@@ -38,13 +40,15 @@ export const SIZE_LABELS: Record<LayoutSize, string> = {
   xlarge: 'Extra large',
   full: 'Full page',
   strip: 'Full-width row',
-  banner: 'Half page',
+  banner: 'Top/bottom half',
+  column: 'Left/right half',
 };
 
 /** The [columns, rows] a tile of this size occupies on a grid of the given dimensions. */
 export function tileSpan(size: LayoutSize, columns: number, rows: number): [number, number] {
   const [c, r] = SIZE_SPANS[size] ?? SIZE_SPANS.small;
-  return [Math.min(c, columns), size === 'banner' ? Math.max(1, Math.floor(rows / 2)) : Math.min(r, rows)];
+  const fit = (n: number, max: number) => (n === 0 ? Math.max(1, Math.floor(max / 2)) : Math.min(n, max));
+  return [fit(c, columns), fit(r, rows)];
 }
 
 /** The size a widget is asked to render at for a tile of this layout size. */
