@@ -198,43 +198,24 @@
 .size-medium .wx-map-hint,
 .size-tall .wx-map-hint { display: none; }
 
-/* ---- Forecast + map side by side ---- */
+/* ---- Forecast and map side by side ---- */
 
-.wx-split {
-  height: 100%;
-  display: flex;
-  gap: 2cqw;
+.wx-split { height: 100%; display: flex; gap: 16px; }
+.wx-split-left { flex: 0 0 40%; min-width: 0; container-type: size; }
+.size-full .wx-split-left { flex-basis: 30%; }
+.wx-split-right { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.wx-split-right .wx-map-layers { gap: 8px; flex-wrap: nowrap; overflow-x: auto; }
+.wx-chip { min-height: 44px; padding: 0 14px; white-space: nowrap; font-size: 18px; }
+.wx-split-right { container-type: inline-size; }
+@container (max-width: 600px) {
+  .wx-chip-text { display: none; }
+  .wx-chip { padding: 0 12px; font-size: 22px; }
 }
-.wx-split-forecast { flex: 0 0 36%; min-width: 0; }
-.wx-split-map {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5cqh;
-}
-.wx-split-map .wx-map-layers { gap: 8px; }
-.wx-split-map .chip { font-size: clamp(12px, 3cqh, 20px); }
 
-/* The forecast column reads as a vertical timeline, like the tall tile. */
-.wx-split .wx-body { gap: 2cqh; }
-.wx-split .wx-now { flex: 0 0 auto; gap: 2cqw; }
-.wx-split .wx-now-icon { font-size: min(7cqw, 14cqh); }
-.wx-split .wx-now-temp { font-size: min(8cqw, 15cqh); }
-.wx-split .wx-now-text { font-size: clamp(12px, 3.6cqh, 26px); }
-.wx-split .wx-details {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(7em, 1fr));
-  gap: 1cqh 1cqw;
-  font-size: clamp(12px, 2.8cqh, 22px);
-}
-.wx-split .wx-days { flex: 1 1 auto; flex-direction: column; gap: 1.2cqh; min-height: 0; }
-.wx-split .wx-day {
-  flex: 1 1 0;
-  flex-direction: row;
-  justify-content: space-between;
-  padding: 0 0.7em;
-  font-size: clamp(12px, 3.4cqh, 26px);
-}
-.wx-split .wx-day .wx-small-label { width: 3.2em; text-align: left; }
-.wx-split .wx-day .wx-pop { width: 3.5em; text-align: right; }
+/* The forecast beside the map: smaller current block so the day list fits. */
+.wx-split-left .wx-body { gap: 2cqh; }
+.wx-split-left .wx-now-icon { font-size: 11cqh; }
+.wx-split-left .wx-now-temp { font-size: min(32cqw, 13cqh); }
+.wx-split-left .wx-now-text { font-size: clamp(12px, 3.4cqh, 26px); gap: 0.15em; }
+.wx-split-left .wx-days { gap: 1.2cqh; min-height: 0; }
+.wx-split-left .wx-day { flex: 1 1 0; min-height: 0; font-size: clamp(12px, 3.4cqh, 24px); }

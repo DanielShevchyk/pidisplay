@@ -10,7 +10,7 @@ interface WeatherConfig {
   /** Shown instead of the resolved place name when set. */
   label: string;
   showAirQuality: boolean;
-  /** 'split' puts a 5-day forecast and a live map side by side; 'map' is the map alone. */
+  /** 'split' puts the forecast and a live map side by side; 'map' is map only. */
   view: 'split' | 'forecast' | 'map';
   mapLayer: MapLayer;
   [key: string]: unknown;
@@ -18,11 +18,11 @@ interface WeatherConfig {
 
 type MapLayer = 'rain' | 'temp' | 'wind' | 'clouds';
 
-const MAP_LAYERS: { value: MapLayer; label: string }[] = [
-  { value: 'rain', label: '🌧️ Rain' },
-  { value: 'temp', label: '🌡️ Temperature' },
-  { value: 'wind', label: '💨 Wind' },
-  { value: 'clouds', label: '☁️ Clouds' },
+const MAP_LAYERS: { value: MapLayer; label: string; icon: string; name: string }[] = [
+  { value: 'rain', label: '🌧️ Rain', icon: '🌧️', name: 'Rain' },
+  { value: 'temp', label: '🌡️ Temperature', icon: '🌡️', name: 'Temperature' },
+  { value: 'wind', label: '💨 Wind', icon: '💨', name: 'Wind' },
+  { value: 'clouds', label: '☁️ Clouds', icon: '☁️', name: 'Clouds' },
 ];
 
 interface AirQuality {
@@ -81,11 +81,18 @@ const DEFAULT_LOCATION = 'Citrus Heights, CA';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 
-/** How much each tile size shows: hourly entries and forecast days. */
-/** Sizes wide enough for the forecast and the map side by side; others fall back to the forecast. */
-const SPLIT_SIZES: Placement[] = ['large', 'xlarge', 'full'];
-const SPLIT_DAYS = 5;
+/** Forecast days beside the map in the side-by-side view; 0 = too small for it. */
+const SPLIT_DAYS: Record<Placement, number> = {
+  bar: 0,
+  small: 0,
+  medium: 0,
+  tall: 0,
+  large: 5,
+  xlarge: 5,
+  full: 7,
+};
 
+/** How much each tile size shows: hourly entries and forecast days. */
 const LAYOUT: Record<Placement, { hours: number; days: number; details: boolean }> = {
   bar: { hours: 0, days: 0, details: false },
   small: { hours: 0, days: 0, details: false },
@@ -123,12 +130,12 @@ export default defineWidget<WeatherConfig>({
       label: 'Tile shows',
       type: 'select',
       options: [
-        { value: 'split', label: 'Forecast + map side by side (large tiles)' },
-        { value: 'forecast', label: 'Forecast (tap for the map)' },
-        { value: 'map', label: 'Forecast map' },
+        { value: 'split', label: 'Forecast and map side by side' },
+        { value: 'forecast', label: 'Forecast only (tap for the map)' },
+        { value: 'map', label: 'Map only' },
       ],
     },
-    { key: 'mapLayer', label: 'Map layer', type: 'select', options: MAP_LAYERS },
+    { key: 'mapLayer', label: 'Map layer', type: 'select', options: MAP_LAYERS.map(({ value, label }) => ({ value, label })) },
   ],
 
   mount(el, { config, placement, storage, sharedStorage }) {
@@ -143,11 +150,10 @@ export default defineWidget<WeatherConfig>({
     const queryFor = (loc: string) => `${loc}|${config.units}`;
 
     const mapTile = config.view === 'map' && placement !== 'bar';
-    const split = config.view === 'split' && SPLIT_SIZES.includes(placement);
+    // Side by side needs a 2x2 tile or bigger; smaller tiles show the forecast.
+    const splitDays = config.view === 'split' ? SPLIT_DAYS[placement] : 0;
     let mapAt = '';
-    // Split view: the forecast column repaints on refresh, the map pane only when the place changes.
-    const left = h('div', { class: 'wx-split-forecast' });
-    const right = h('div', { class: 'wx-split-map' });
+    let split: ReturnType<typeof splitView> | null = null;
 
     const paint = () => {
       if (!location) {
@@ -163,16 +169,18 @@ export default defineWidget<WeatherConfig>({
         }
         return;
       }
-      if (split && data) {
-        const at = `${data.location.lat},${data.location.lon}`;
-        if (at !== mapAt || !root.contains(right)) {
-          mapAt = at;
-          right.replaceChildren(...mapPane(data, config));
-          root.replaceChildren(h('div', { class: 'wx-split' }, left, right));
+      if (splitDays && data) {
+        if (!split) {
+          split = splitView(config);
+          root.replaceChildren(split.el);
+          root.classList.add('wx-split-mode');
         }
-        left.replaceChildren(render(data, config, placement, Boolean(failed), splitSpec(placement)));
+        split.left.replaceChildren(render(data, config, 'tall', Boolean(failed), splitDays));
+        split.setPlace(data);
         return;
       }
+      split = null;
+      root.classList.remove('wx-split-mode');
       root.replaceChildren(
         data ? render(data, config, placement, Boolean(failed)) : failed ? message('⚠️', failed) : message('', 'Loading…'),
       );
@@ -260,18 +268,7 @@ function message(icon: string, text: string) {
   return h('div', { class: 'wx-message' }, icon && h('div', { class: 'wx-message-icon' }, icon), text);
 }
 
-/** What the forecast column shows next to the map: today plus the coming days as a vertical timeline. */
-function splitSpec(placement: Placement) {
-  return { hours: 0, days: SPLIT_DAYS, details: placement !== 'large' };
-}
-
-function render(
-  d: Forecast,
-  config: WeatherConfig,
-  placement: Placement,
-  offline: boolean,
-  spec = LAYOUT[placement],
-) {
+function render(d: Forecast, config: WeatherConfig, placement: Placement, offline: boolean, daysOverride?: number) {
   const tz = validZone(d.timezone);
   const deg = (n: number | null) => (n === null ? '–' : `${n}°`);
   const today = d.daily[0];
@@ -288,6 +285,7 @@ function render(
     );
   }
 
+  const spec = daysOverride ? { ...LAYOUT[placement], days: daysOverride } : LAYOUT[placement];
   const now = h(
     'div',
     { class: 'wx-now' },
@@ -301,7 +299,7 @@ function render(
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
       aq && aqiPill(aq, placement !== 'small' && placement !== 'medium'),
     ),
-    placement !== 'small' && spec === LAYOUT[placement] && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
+    placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
   );
 
   const sections: (HTMLElement | null)[] = [now];
@@ -435,8 +433,45 @@ function mapFrame(d: Forecast, config: WeatherConfig, layer: MapLayer, zoom: num
   });
 }
 
-/** Layer chips plus the map they switch between. */
-function mapPane(d: Forecast, config: WeatherConfig): HTMLElement[] {
+/** Forecast on the left, map with layer buttons on the right. The map only reloads when the place or layer changes. */
+function splitView(config: WeatherConfig) {
+  const left = h('div', { class: 'wx-split-left size-tall' });
+  const holder = h('div', { class: 'wx-map-holder' });
+  let layer: MapLayer = MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'rain';
+  let place: Forecast | null = null;
+  let shownAt = '';
+  const chips = MAP_LAYERS.map((l) =>
+    h(
+      'button',
+      { class: 'chip wx-chip', title: l.name, onclick: () => show(l.value) },
+      l.icon,
+      h('span', { class: 'wx-chip-text' }, ` ${l.name}`),
+    ),
+  );
+  const show = (next: MapLayer) => {
+    layer = next;
+    chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
+    if (!place) return;
+    shownAt = `${place.location.lat},${place.location.lon},${layer}`;
+    holder.replaceChildren(mapFrame(place, config, layer, 7));
+  };
+  const el = h(
+    'div',
+    { class: 'wx-split' },
+    left,
+    h('div', { class: 'wx-split-right' }, h('div', { class: 'wx-map-layers' }, ...chips), holder),
+  );
+  return {
+    el,
+    left,
+    setPlace(d: Forecast) {
+      place = d;
+      if (`${d.location.lat},${d.location.lon},${layer}` !== shownAt) show(layer);
+    },
+  };
+}
+
+function openMap(d: Forecast, config: WeatherConfig) {
   const holder = h('div', { class: 'wx-map-holder' });
   const chips = MAP_LAYERS.map((l) =>
     h('button', { class: 'chip', onclick: () => show(l.value) }, l.label),
@@ -445,13 +480,12 @@ function mapPane(d: Forecast, config: WeatherConfig): HTMLElement[] {
     chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
     holder.replaceChildren(mapFrame(d, config, layer, 7));
   };
-  show(MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'rain');
-  return [h('div', { class: 'wx-map-layers' }, ...chips), holder];
-}
-
-function openMap(d: Forecast, config: WeatherConfig) {
-  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, mapPane(d, config));
+  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, [
+    h('div', { class: 'wx-map-layers' }, ...chips),
+    holder,
+  ]);
   sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
+  show(config.mapLayer);
 }
 
 function chance(p: number | null): string {
