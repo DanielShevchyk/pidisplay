@@ -12,12 +12,16 @@ import { currentTheme, setTheme, type Theme } from './theme';
 import {
   SIZE_LABELS,
   SIZE_SPANS,
+  WIDE_RENDER_AS,
+  renderSize,
+  tileSpan,
+  type LayoutSize,
+  type WideSize,
   type Layout,
   type PageConfig,
   type Placement,
   type SettingField,
   type TileConfig,
-  type TileSize,
   type WidgetConfig,
   type WidgetContext,
   type WidgetDefinition,
@@ -136,10 +140,11 @@ export class App {
         const grid = h('div', { class: 'grid', 'data-page': page.id });
         for (const tile of page.tiles) {
           seenTiles.add(tile.id);
-          const m = this.mountInto(this.tiles, tile.id, tile.widget, tile.size, tile.config);
-          const [cols, rows] = SIZE_SPANS[tile.size] ?? SIZE_SPANS.small;
-          m.el.style.gridColumn = `span ${Math.min(cols, settings.columns)}`;
-          m.el.style.gridRow = `span ${Math.min(rows, settings.rows)}`;
+          const m = this.mountInto(this.tiles, tile.id, tile.widget, renderSize(tile.size), tile.config);
+          const [cols, rows] = tileSpan(tile.size, settings.columns, settings.rows);
+          m.el.style.gridColumn = `span ${cols}`;
+          m.el.style.gridRow = `span ${rows}`;
+          m.el.dataset.size = tile.size;
           grid.append(m.el);
         }
         return h('section', { class: 'page' }, grid);
@@ -403,8 +408,14 @@ export class App {
     }
   }
 
-  private allowedSizes(type: string): TileSize[] {
-    return getWidget(type)?.sizes ?? (Object.keys(SIZE_SPANS) as TileSize[]);
+  /** The widget's own sizes plus the full-width ones it can stretch into, before 'full'. */
+  private allowedSizes(type: string): LayoutSize[] {
+    const own: LayoutSize[] = getWidget(type)?.sizes ?? (Object.keys(SIZE_SPANS) as LayoutSize[]);
+    const wide = (Object.keys(WIDE_RENDER_AS) as WideSize[]).filter(
+      (w) => own.includes(WIDE_RENDER_AS[w]) && !own.includes(w),
+    );
+    const at = own.includes('full') ? own.indexOf('full') : own.length;
+    return [...own.slice(0, at), ...wide, ...own.slice(at)];
   }
 
   private cycleSize(id: string) {

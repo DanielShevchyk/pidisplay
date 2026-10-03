@@ -4,7 +4,7 @@ A customizable touch dashboard for a wall-mounted Raspberry Pi 4 with a 15.6" 10
 
 - **Top bar** that never moves: clock (or any bar-capable widget), page name and dots, notifications bell, edit button.
 - **Pages** of tiles that rotate on a timer, or swipe left/right. Touching pauses rotation for a while.
-- **Tiles** in six sizes on a 6×4 grid (configurable): Small 1×1, Wide 2×1, Tall 1×2, Large 2×2, Extra large 3×2, Full page.
+- **Tiles** in eight sizes on a 6×4 grid (configurable): Small 1×1, Wide 2×1, Tall 1×2, Large 2×2, Extra large 3×2, Full-width row (one row across the page), Half page (full width, half the rows; two stack top and bottom), Full page.
 - **Edit mode** (✎ in the top bar): drag tiles to reorder, ⤢ to cycle sizes, ⚙ for widget settings, size and page, ✕ to remove, plus add tiles/pages, page settings, top bar items and display settings (rotation timing, grid size). Changes save to the Pi automatically.
 - **Widgets** are self-contained folders in `src/widgets/`. Adding one is dropping in a folder; see [docs/WIDGETS.md](docs/WIDGETS.md).
 - **Notifications**: anything on the network path can `POST /api/notifications` to pop a toast and add to the bell.

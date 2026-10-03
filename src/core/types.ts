@@ -3,25 +3,54 @@
 
 export type TileSize = 'small' | 'medium' | 'tall' | 'large' | 'xlarge' | 'full';
 
-/** Grid cells each size spans, as [columns, rows]. */
-export const SIZE_SPANS: Record<TileSize, [number, number]> = {
+/**
+ * Full-width sizes the shell offers for every widget. Widgets don't handle them
+ * directly: they render as the size in WIDE_RENDER_AS, stretched across the page.
+ */
+export type WideSize = 'strip' | 'banner';
+
+/** Any size a tile can have in the layout. */
+export type LayoutSize = TileSize | WideSize;
+
+export const WIDE_RENDER_AS: Record<WideSize, TileSize> = {
+  strip: 'medium',
+  banner: 'xlarge',
+};
+
+/** Grid cells each size spans, as [columns, rows]. Values past the grid are clamped. */
+export const SIZE_SPANS: Record<LayoutSize, [number, number]> = {
   small: [1, 1],
   medium: [2, 1],
   tall: [1, 2],
   large: [2, 2],
   xlarge: [3, 2],
-  // Clamped to the grid, so this always fills the page.
   full: [99, 99],
+  strip: [99, 1],
+  // Half the rows; resolved against the grid in tileSpan().
+  banner: [99, 0],
 };
 
-export const SIZE_LABELS: Record<TileSize, string> = {
+export const SIZE_LABELS: Record<LayoutSize, string> = {
   small: 'Small',
   medium: 'Wide',
   tall: 'Tall',
   large: 'Large',
   xlarge: 'Extra large',
   full: 'Full page',
+  strip: 'Full-width row',
+  banner: 'Half page',
 };
+
+/** The [columns, rows] a tile of this size occupies on a grid of the given dimensions. */
+export function tileSpan(size: LayoutSize, columns: number, rows: number): [number, number] {
+  const [c, r] = SIZE_SPANS[size] ?? SIZE_SPANS.small;
+  return [Math.min(c, columns), size === 'banner' ? Math.max(1, Math.floor(rows / 2)) : Math.min(r, rows)];
+}
+
+/** The size a widget is asked to render at for a tile of this layout size. */
+export function renderSize(size: LayoutSize): TileSize {
+  return size in WIDE_RENDER_AS ? WIDE_RENDER_AS[size as WideSize] : (size as TileSize);
+}
 
 /** Where a widget is rendered: a grid tile of some size, or the persistent top bar. */
 export type Placement = TileSize | 'bar';
@@ -107,7 +136,7 @@ export interface WidgetDefinition<C extends WidgetConfig = WidgetConfig> {
 export interface TileConfig {
   id: string;
   widget: string;
-  size: TileSize;
+  size: LayoutSize;
   config?: WidgetConfig;
 }
 
