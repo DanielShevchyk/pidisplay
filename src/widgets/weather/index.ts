@@ -165,7 +165,7 @@ export default defineWidget<WeatherConfig>({
         const at = `${data.location.lat},${data.location.lon}`;
         if (at !== mapAt) {
           mapAt = at;
-          root.replaceChildren(mapFrame(data, config, config.mapLayer, placement === 'small' ? 6 : 7));
+          root.replaceChildren(lockedMap(mapFrame(data, config, config.mapLayer, placement === 'small' ? 6 : 7)));
         }
         return;
       }
@@ -433,6 +433,54 @@ function mapFrame(d: Forecast, config: WeatherConfig, layer: MapLayer, zoom: num
   });
 }
 
+const UNLOCK_MS = 60_000;
+
+/**
+ * Covers a map on the dashboard so swipes still change pages. Double-tap to
+ * pan and zoom it; it locks again after a minute or with the lock button.
+ */
+function lockedMap(frame: HTMLIFrameElement) {
+  const hint = h('div', { class: 'wx-map-lock-hint' }, 'Double-tap to move the map');
+  const cover = h('div', { class: 'wx-map-cover' }, hint);
+  const lockBtn = h('button', { class: 'wx-map-lock-btn', title: 'Lock map' }, '🔒 Done');
+  const wrap = h('div', { class: 'wx-map-wrap locked' }, frame, cover, lockBtn);
+  let relock = 0;
+  let keepAwake = 0;
+
+  const lock = () => {
+    wrap.classList.add('locked');
+    clearTimeout(relock);
+    clearInterval(keepAwake);
+  };
+  const unlock = () => {
+    wrap.classList.remove('locked');
+    relock = window.setTimeout(lock, UNLOCK_MS);
+    // Touches inside the map don't reach the dashboard; this keeps pages from
+    // rotating away while the map is in use.
+    keepAwake = window.setInterval(() => {
+      if (!wrap.isConnected) return lock();
+      document.dispatchEvent(new PointerEvent('pointerdown'));
+    }, 5000);
+  };
+
+  let lastTap: { t: number; x: number; y: number } | null = null;
+  let start: { x: number; y: number } | null = null;
+  cover.addEventListener('pointerdown', (e) => (start = { x: e.clientX, y: e.clientY }));
+  cover.addEventListener('pointerup', (e) => {
+    // Ignore swipes; only count taps that stay put.
+    if (!start || Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return (lastTap = null);
+    const now = Date.now();
+    if (lastTap && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+      lastTap = null;
+      unlock();
+    } else {
+      lastTap = { t: now, x: e.clientX, y: e.clientY };
+    }
+  });
+  lockBtn.addEventListener('click', lock);
+  return wrap;
+}
+
 /** Forecast on the left, map with layer buttons on the right. The map only reloads when the place or layer changes. */
 function splitView(config: WeatherConfig) {
   const left = h('div', { class: 'wx-split-left size-tall' });
@@ -453,7 +501,7 @@ function splitView(config: WeatherConfig) {
     chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
     if (!place) return;
     shownAt = `${place.location.lat},${place.location.lon},${layer}`;
-    holder.replaceChildren(mapFrame(place, config, layer, 7));
+    holder.replaceChildren(lockedMap(mapFrame(place, config, layer, 7)));
   };
   const el = h(
     'div',

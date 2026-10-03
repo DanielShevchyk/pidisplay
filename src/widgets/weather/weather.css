@@ -219,3 +219,38 @@
 .wx-split-left .wx-now-text { font-size: clamp(12px, 3.4cqh, 26px); gap: 0.15em; }
 .wx-split-left .wx-days { gap: 1.2cqh; min-height: 0; }
 .wx-split-left .wx-day { flex: 1 1 0; min-height: 0; font-size: clamp(12px, 3.4cqh, 24px); }
+
+/* ---- Map lock: swipes pass to the dashboard until a double-tap ---- */
+
+.wx-map-wrap { position: relative; width: 100%; height: 100%; }
+.wx-map-cover {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 14px;
+  border-radius: 14px;
+}
+.wx-map-wrap.locked .wx-map-cover { display: flex; }
+.wx-map-lock-hint {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.7);
+  color: #fff;
+  font-size: 16px;
+}
+.wx-map-lock-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+}
+.wx-map-wrap.locked .wx-map-lock-btn { display: none; }
