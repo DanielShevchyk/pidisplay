@@ -64,6 +64,7 @@ Tests: `npm test` (server API).
 | POST / PUT / DELETE | `/api/stocks/alerts[/:id]` | `{ "symbol", "kind": "above" \| "below" \| "up" \| "down", "value" (price, or percent for up/down), "repeat": "once" \| "daily", "note", "enabled" }` |
 | GET | `/api/stocks/history?symbol=AAPL&range=1d` | Chart points `[[ms, close], ...]` for `1d`, `5d`, `1m`, `6m`, `1y`, `5y`, plus the previous close. Daily closes are saved in `$PIDISPLAY_DATA/stocks-history.json` and extended from live quotes, so only gaps are refetched. |
 | POST | `/api/kiosk/exit` | "Exit to desktop" from the gear menu: drops `$XDG_RUNTIME_DIR/pidisplay-desktop` (which `deploy/kiosk.sh` waits on) and closes the kiosk Chromium. The PiDisplay desktop/menu launcher (`deploy/open-dashboard.sh`) or a reboot brings it back. 501 off the Pi. |
+| GET/PUT/POST | `/api/sleep`, `/api/sleep/settings`, `/api/sleep/now`, `/api/sleep/wake` | Screen sleep (server/sleep.js): status, the awake hours and idle times (saved in `sleep.json`), turn off now, wake. SSE `sleep` tells screens when it changes. |
 | GET | `/api/wifi[?rescan]` | Wi-Fi adapter state, current network and IP, nearby networks, saved networks (nmcli). |
 | POST | `/api/wifi/connect` · `disconnect` · `forget` · `power` | `{ "ssid", "password"? }` · `{}` · `{ "uuid" }` · `{ "on" }`. A failed join removes the new profile and rejoins the previous network. |
 | GET | `/api/bluetooth` | Controller power and known devices (bluetoothctl). |
@@ -102,6 +103,6 @@ voice/             Offline voice service for the Pi (wake word, speech to text, 
 docs/WIDGETS.md    How to write a widget
 ```
 
-The gear (⚙) in the top bar holds app-wide settings: light or dark appearance (saved in the `app.settings` store key, dark by default), Wi-Fi and Bluetooth, and Exit to desktop. Because the server runs outside the desktop session, `deploy/update.sh` installs `deploy/pidisplay-network.rules` (polkit: dan may scan and manage Wi-Fi) and `deploy/pidisplay-sudoers` (only `rfkill unblock bluetooth`).
+The gear (⚙) in the top bar holds app-wide settings: light or dark appearance (saved in the `app.settings` store key, dark by default), Wi-Fi and Bluetooth, Sleep, and Exit to desktop. Sleep turns the screen off (with `wlopm`; the Pi keeps running) outside the awake hours, 7 AM to 10 PM by default. A touch wakes it, read straight from the touchscreen's `/dev/input` node (the service runs with the `input` group), and ringing alarms, timers, reminders and the voice wake word light it too. The kiosk page covers itself in black while asleep and swallows the waking touch. Because the server runs outside the desktop session, `deploy/update.sh` installs `deploy/pidisplay-network.rules` (polkit: dan may scan and manage Wi-Fi) and `deploy/pidisplay-sudoers` (only `rfkill unblock bluetooth`).
 
 Deploying to the Pi (kiosk autostart, screen blanking, touch setup, update script) is a separate step.

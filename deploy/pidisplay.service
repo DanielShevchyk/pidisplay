@@ -5,6 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=dan
+# Sleep reads the touchscreen from /dev/input so a touch wakes the screen.
+SupplementaryGroups=input
 WorkingDirectory=/home/dan/pidisplay
 Environment=NODE_ENV=production
 Environment=PORT=8080

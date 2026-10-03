@@ -14,6 +14,10 @@ dpkg -s imagemagick >/dev/null 2>&1 || sudo apt-get install -y imagemagick || ec
 # The gear menu's Bluetooth switch needs rfkill to lift the radio's soft block.
 dpkg -s rfkill >/dev/null 2>&1 || sudo apt-get install -y rfkill
 
+# Sleep (gear menu) powers the screen off and on with wlopm. Without it the dashboard
+# only goes black, so a failed install only warns.
+dpkg -s wlopm >/dev/null 2>&1 || sudo apt-get install -y wlopm || echo "WARNING: wlopm install failed; Sleep will only black out the screen."
+
 # Narrow permissions for the gear menu's Wi-Fi and Bluetooth screens (see the files).
 sudo install -m 644 -o root -g root deploy/pidisplay-network.rules /etc/polkit-1/rules.d/50-pidisplay-network.rules
 # Strip Windows line endings (sudo rejects them) and only install a file visudo accepts.

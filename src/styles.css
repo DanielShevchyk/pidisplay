@@ -369,6 +369,23 @@ select { font: inherit; color: inherit; }
 .conn-error { color: var(--danger); margin: 12px 0; }
 .conn-hint { color: var(--text-dim); font-size: 17px; margin: 8px 0; }
 .conn-warn { color: var(--warning); font-size: 16px; margin: 6px 0 0; }
+
+/* Sleep screen (gear menu) and the black shade over the wall display while it sleeps. */
+.sleep-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; font-size: 20px; border-bottom: 1px solid var(--border); }
+.sleep-stepper { display: flex; align-items: center; gap: 12px; }
+.sleep-stepper .btn { min-width: 64px; font-size: 26px; }
+.sleep-time { min-width: 120px; text-align: center; font-variant-numeric: tabular-nums; }
+.sleep-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+.sleep-shade.on { opacity: 1; }
+.sleep-shade.catch { pointer-events: auto; }
 .conn-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .conn-list li { border-radius: 16px; background: var(--surface-2); border: 1px solid var(--border); }
 .conn-list li.active { border-color: var(--accent); }

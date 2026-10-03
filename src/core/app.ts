@@ -11,6 +11,7 @@ import { openSheet, settingsForm, type SheetHandle } from './sheet';
 import { showBluetooth, showWifi } from './connections';
 import { currentTheme, setTheme, type Theme } from './theme';
 import { VoiceUI } from './voice';
+import { SleepUI, showSleep } from './sleep';
 import {
   SIZE_LABELS,
   SIZE_SPANS,
@@ -60,6 +61,7 @@ export class App {
   /** Voice "stay on this page": no rotating until then. */
   private holdUntil = 0;
   private voice: VoiceUI;
+  private sleep: SleepUI;
   private saveTimer = 0;
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
@@ -87,6 +89,8 @@ export class App {
         if (!ms) this.lastInteraction = 0;
       },
     });
+    // Coming back from sleep counts as a touch, so the page doesn't flip away at once.
+    this.sleep = new SleepUI(document.body, document.body.classList.contains('kiosk'), () => (this.lastInteraction = Date.now()));
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
@@ -327,7 +331,7 @@ export class App {
 
   private tick() {
     const { rotateSeconds, resumeAfterSeconds } = this.layout.settings;
-    if (this.editing || rotateSeconds <= 0 || this.layout.pages.length < 2) return;
+    if (this.editing || this.sleep.asleep || rotateSeconds <= 0 || this.layout.pages.length < 2) return;
     if (document.querySelector('.sheet-backdrop')) return;
     const now = Date.now();
     if (now < this.holdUntil) return;
@@ -783,6 +787,8 @@ export class App {
       sheet.body.replaceChildren(
         h('h3', {}, 'Appearance'),
         h('div', { class: 'chips' }, themeChip('dark', '🌙 Dark'), themeChip('light', '☀️ Light')),
+        h('h3', {}, 'Screen'),
+        h('button', { class: 'btn btn-wide menu-row', onclick: () => showSleep(sheet.body, showMain, () => sheet.close()) }, '🌙 Sleep', h('span', { class: 'menu-chevron' }, '›')),
         h('h3', {}, 'Voice'),
         h('button', { class: 'btn btn-wide menu-row', onclick: () => (sheet.close(), this.voice.openSheet()) }, '🎙️ Voice control', h('span', { class: 'menu-chevron' }, '›')),
         h('h3', {}, 'Connections'),

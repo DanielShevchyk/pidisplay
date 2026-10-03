@@ -20,6 +20,7 @@ import { createAudio, AudioError } from './audio.js';
 import { createStocks, StocksError } from './stocks.js';
 import { createPhotos, PhotosError } from './photos.js';
 import { createVoice, VoiceError } from './voice.js';
+import { createSleep, SleepError } from './sleep.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -130,6 +131,8 @@ export function createServer({
   timerTickMs = 1000,
   stocksAutoStart = true,
   photos = undefined,
+  sleep = undefined,
+  startSleep = false,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -184,12 +187,30 @@ export function createServer({
     return done;
   }
 
+  // Screen sleep hours in sleep.json. Ringing alarms, timers and reminders light the screen.
+  const sleepFile = path.join(dataDir, 'sleep.json');
+  sleep ??= createSleep({
+    load: () => readJson(sleepFile, null),
+    save: (value) => writeJson(sleepFile, value),
+    broadcast: (s) => broadcast('sleep', s),
+  });
+  if (startSleep) sleep.start();
+  let ringingIds = new Set();
+  function wakeForNewRinging(snapshot) {
+    const now = new Set([...snapshot.timers, ...snapshot.alarms].filter((x) => x.state === 'ringing').map((x) => x.id));
+    if ([...now].some((id) => !ringingIds.has(id))) sleep.wake('alarm');
+    ringingIds = now;
+  }
+
   const timersFile = path.join(dataDir, 'timers.json');
   const timers = createTimers({
     load: () => readJson(timersFile, null),
     save: (value) => writeJson(timersFile, value),
     notify: (n) => void addNotification({ ...n, source: 'Timers' }).catch(() => {}),
-    broadcast: (snapshot) => broadcast('timers', snapshot),
+    broadcast: (snapshot) => {
+      wakeForNewRinging(snapshot);
+      broadcast('timers', snapshot);
+    },
     tickMs: timerTickMs,
   });
 
@@ -199,7 +220,10 @@ export function createServer({
     save: (value) => writeJson(remindersFile, value),
     notify: (n) => void addNotification({ ...n, source: 'Reminders' }).catch(() => {}),
     broadcast: (snapshot) => broadcast('reminders', snapshot),
-    sound: (s) => broadcast('reminder-sound', s),
+    sound: (s) => {
+      sleep.wake('reminder');
+      broadcast('reminder-sound', s);
+    },
     tickMs: timerTickMs,
   });
 
@@ -249,7 +273,11 @@ export function createServer({
     readFares: () => readJson(faresFile, null),
     loadSettings: () => readJson(path.join(dataDir, 'voice.json'), null),
     saveSettings: (value) => writeJson(path.join(dataDir, 'voice.json'), value),
-    broadcast,
+    broadcast: (event, data) => {
+      // The wake word lights the screen so the answer can be seen.
+      if (event === 'voice' && data?.type === 'wake') sleep.wake('voice');
+      broadcast(event, data);
+    },
     watchMs: timerTickMs,
   });
 
@@ -385,6 +413,16 @@ export function createServer({
         return send(res, 200, await voice.handle(req.method, parts, body));
       } catch (err) {
         if (err instanceof VoiceError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'sleep') {
+      try {
+        const body = req.method === 'GET' ? null : await readBody(req);
+        return send(res, 200, await sleep.handle(req.method, key, body));
+      } catch (err) {
+        if (err instanceof SleepError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -563,6 +601,7 @@ export function createServer({
     reminders.stop();
     stocks.stop();
     voice.stop();
+    sleep.stop();
     for (const res of clients) res.end();
   });
 
@@ -574,7 +613,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   // Localhost by default: the API can rewrite the dashboard, so only expose it
   // on the LAN deliberately (HOST=0.0.0.0) e.g. to edit from a phone.
   const host = process.env.HOST || '127.0.0.1';
-  createServer().listen(port, host, () => {
+  createServer({ startSleep: true }).listen(port, host, () => {
     console.log(`PiDisplay listening on http://${host}:${port}`);
   });
 }
