@@ -51,7 +51,7 @@ Tests: `npm test` (server API).
 | GET | `/api/notifications` | Newest first, last 100 kept. |
 | POST | `/api/notifications` | `{ "title": "...", "body": "...", "source": "Farewatcher", "level": "info" \| "success" \| "warning" \| "alert" }` |
 | DELETE | `/api/notifications[/:id]` | Dismiss one, or all. |
-| GET | `/api/weather?location=Austin, TX&units=imperial` | Forecast from Open-Meteo (no API key) for a city or `lat,lon`; `units` is `imperial` or `metric`. Cached 10 minutes. Used by the weather widget. |
+| GET | `/api/weather?location=Austin, TX&units=imperial` | Forecast and US AQI air quality from Open-Meteo (no API key) for a city or `lat,lon`; `units` is `imperial` or `metric`. Cached 10 minutes. `airQuality` is null if that service doesn't answer. Used by the weather widget, whose map view embeds Windy. |
 | GET | `/api/news?sections=world,us,state,local&location=Sacramento, CA` | Headlines from Google News RSS (no API key): the World and U.S. top stories, the state (from a US "City, ST" location) and local news for the city (falls back to a 3-day search when a town's local feed is empty). Each story has `title`, `source`, `time` and `related` coverage from other outlets. Cached 10 minutes; a failing feed keeps its last copy (`stale`) or reports `error` without hiding the others. Used by the news widget. |
 | GET | `/api/system` | Pi health for the System widget: CPU, memory, disk, temperature, clock, throttle/undervoltage flags, network. Unavailable readings are `null`. |
 | GET | `/api/fares` | Farewatcher summary (`$PIDISPLAY_DATA/farewatcher.json`, written by `fare_watch.py` after each run), or `{ "available": false }`. Used by the Fares widget. |

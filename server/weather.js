@@ -5,6 +5,7 @@
 
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
+const AIR_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
 const FORECAST_TTL = 10 * 60 * 1000;
 const TIMEOUT = 10_000;
 
@@ -105,8 +106,21 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       forecast_days: '7',
       ...UNITS[units],
     });
-    const raw = await getJson(`${FORECAST_URL}?${params}`);
-    return normalize(raw, place, units);
+    // Air quality is a separate Open-Meteo API; the forecast still shows if it fails.
+    const airParams = new URLSearchParams({
+      latitude: String(place.lat),
+      longitude: String(place.lon),
+      current: 'us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide,uv_index',
+      hourly: 'us_aqi',
+      timezone: 'auto',
+      timeformat: 'unixtime',
+      forecast_days: '2',
+    });
+    const [raw, air] = await Promise.all([
+      getJson(`${FORECAST_URL}?${params}`),
+      getJson(`${AIR_URL}?${airParams}`).catch(() => null),
+    ]);
+    return { ...normalize(raw, place, units), airQuality: air ? normalizeAir(air) : null };
   }
 
   /** Returns the forecast for a place name or "lat,lon", in 'imperial' or 'metric'. */
@@ -190,5 +204,43 @@ function normalize(raw, place, units) {
     },
     hourly: hours,
     daily: days,
+  };
+}
+
+/** US AQI bands (EPA). */
+const AQI_BANDS = [
+  [50, 'Good'],
+  [100, 'Moderate'],
+  [150, 'Unhealthy for sensitive groups'],
+  [200, 'Unhealthy'],
+  [300, 'Very unhealthy'],
+  [Infinity, 'Hazardous'],
+];
+
+export function aqiCategory(aqi) {
+  if (typeof aqi !== 'number') return null;
+  return AQI_BANDS.find(([max]) => aqi <= max)[1];
+}
+
+function normalizeAir(raw) {
+  const c = raw.current ?? {};
+  const round = (n) => (typeof n === 'number' ? Math.round(n) : null);
+  const aqi = round(c.us_aqi);
+  const nowSec = c.time ?? Math.floor(Date.now() / 1000);
+  const hours = [];
+  const h = raw.hourly ?? {};
+  for (let i = 0; i < (h.time ?? []).length && hours.length < 24; i++) {
+    if (h.time[i] + 3600 <= nowSec) continue;
+    hours.push({ time: h.time[i], aqi: round(h.us_aqi?.[i]) });
+  }
+  return {
+    aqi,
+    category: aqiCategory(aqi),
+    pm25: round(c.pm2_5),
+    pm10: round(c.pm10),
+    ozone: round(c.ozone),
+    no2: round(c.nitrogen_dioxide),
+    uv: typeof c.uv_index === 'number' ? Math.round(c.uv_index * 10) / 10 : null,
+    hourly: hours,
   };
 }

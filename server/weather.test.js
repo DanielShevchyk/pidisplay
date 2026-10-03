@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createWeather } from './weather.js';
+import { aqiCategory, createWeather } from './weather.js';
 
 const NOW = 1_790_000_000; // a fixed unix time
 const HOUR = 3600;
@@ -39,14 +39,29 @@ function forecast() {
   };
 }
 
-function mockFetch() {
+const air = {
+  current: { time: NOW, us_aqi: 72.4, pm2_5: 18.2, pm10: 25.9, ozone: 80, nitrogen_dioxide: 9.6, uv_index: 5.25 },
+  hourly: {
+    time: Array.from({ length: 48 }, (_, i) => NOW - 5 * HOUR + i * HOUR),
+    us_aqi: Array.from({ length: 48 }, (_, i) => 40 + i),
+  },
+};
+
+function mockFetch({ airDown = false } = {}) {
   const calls = [];
+  const airCalls = [];
   const fn = async (url) => {
+    if (String(url).includes('air-quality')) {
+      airCalls.push(String(url));
+      if (airDown) throw new Error('offline');
+      return { ok: true, status: 200, json: async () => air };
+    }
     calls.push(String(url));
     const body = String(url).includes('geocoding') ? geocode : forecast();
     return { ok: true, status: 200, json: async () => body };
   };
   fn.calls = calls;
+  fn.airCalls = airCalls;
   return fn;
 }
 
@@ -106,4 +121,31 @@ test('serves the last forecast when the service goes down', async () => {
   assert.equal(data.stale, true);
   assert.equal(data.current.temp, 72);
   await assert.rejects(createWeather({ fetchImpl }).get('Springfield'), { status: 502 });
+});
+
+test('adds US AQI air quality from the same coordinates', async () => {
+  const fetchImpl = mockFetch();
+  const data = await createWeather({ fetchImpl }).get('Springfield, MO');
+  assert.match(fetchImpl.airCalls[0], /latitude=37\.2/);
+  assert.deepEqual(
+    { aqi: data.airQuality.aqi, category: data.airQuality.category, pm25: data.airQuality.pm25, uv: data.airQuality.uv },
+    { aqi: 72, category: 'Moderate', pm25: 18, uv: 5.3 },
+  );
+  assert.equal(data.airQuality.hourly[0].time, NOW);
+  assert.equal(data.airQuality.hourly.length, 24);
+});
+
+test('still returns the forecast when air quality is unavailable', async () => {
+  const data = await createWeather({ fetchImpl: mockFetch({ airDown: true }) }).get('Springfield');
+  assert.equal(data.airQuality, null);
+  assert.equal(data.current.temp, 72);
+});
+
+test('maps AQI values to EPA categories', () => {
+  assert.equal(aqiCategory(0), 'Good');
+  assert.equal(aqiCategory(50), 'Good');
+  assert.equal(aqiCategory(51), 'Moderate');
+  assert.equal(aqiCategory(151), 'Unhealthy');
+  assert.equal(aqiCategory(420), 'Hazardous');
+  assert.equal(aqiCategory(null), null);
 });

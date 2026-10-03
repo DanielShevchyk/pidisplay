@@ -1,4 +1,5 @@
 import { h } from '../../core/dom';
+import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import './weather.css';
 
@@ -8,7 +9,31 @@ interface WeatherConfig {
   units: 'imperial' | 'metric';
   /** Shown instead of the resolved place name when set. */
   label: string;
+  showAirQuality: boolean;
+  /** 'map' turns the tile into a live forecast map. */
+  view: 'forecast' | 'map';
+  mapLayer: MapLayer;
   [key: string]: unknown;
+}
+
+type MapLayer = 'rain' | 'temp' | 'wind' | 'clouds';
+
+const MAP_LAYERS: { value: MapLayer; label: string }[] = [
+  { value: 'rain', label: '🌧️ Rain' },
+  { value: 'temp', label: '🌡️ Temperature' },
+  { value: 'wind', label: '💨 Wind' },
+  { value: 'clouds', label: '☁️ Clouds' },
+];
+
+interface AirQuality {
+  aqi: number | null;
+  category: string | null;
+  pm25: number | null;
+  pm10: number | null;
+  ozone: number | null;
+  no2: number | null;
+  uv: number | null;
+  hourly: { time: number; aqi: number | null }[];
 }
 
 /** Mirrors the payload from GET /api/weather (server/weather.js). */
@@ -18,6 +43,8 @@ interface Forecast {
   timezone: string;
   updated: number;
   stale?: boolean;
+  /** Null when the air quality service didn't answer. */
+  airQuality?: AirQuality | null;
   current: {
     temp: number | null;
     feelsLike: number | null;
@@ -68,12 +95,12 @@ const LAYOUT: Record<Placement, { hours: number; days: number; details: boolean 
 export default defineWidget<WeatherConfig>({
   type: 'weather',
   name: 'Weather',
-  description: 'Current conditions and forecast for any city',
+  description: 'Conditions, forecast, air quality and a forecast map for any city',
   icon: '⛅',
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
   supportsBar: true,
-  defaultConfig: { location: '', units: 'imperial', label: '' },
+  defaultConfig: { location: '', units: 'imperial', label: '', showAirQuality: true, view: 'forecast', mapLayer: 'rain' },
   settings: [
     { key: 'location', label: 'Location (blank = same as other weather tiles, or Citrus Heights)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
     {
@@ -86,6 +113,17 @@ export default defineWidget<WeatherConfig>({
       ],
     },
     { key: 'label', label: 'Label (blank = city name)', type: 'text', placeholder: 'e.g. Home' },
+    { key: 'showAirQuality', label: 'Show air quality', type: 'boolean' },
+    {
+      key: 'view',
+      label: 'Tile shows',
+      type: 'select',
+      options: [
+        { value: 'forecast', label: 'Forecast (tap for the map)' },
+        { value: 'map', label: 'Forecast map' },
+      ],
+    },
+    { key: 'mapLayer', label: 'Map layer', type: 'select', options: MAP_LAYERS },
   ],
 
   mount(el, { config, placement, storage, sharedStorage }) {
@@ -99,9 +137,21 @@ export default defineWidget<WeatherConfig>({
     let alive = true;
     const queryFor = (loc: string) => `${loc}|${config.units}`;
 
+    const mapTile = config.view === 'map' && placement !== 'bar';
+    let mapAt = '';
+
     const paint = () => {
       if (!location) {
         root.replaceChildren(message('⛅', placement === 'bar' ? '' : 'Set a location in ⚙ settings'));
+        return;
+      }
+      if (mapTile && data) {
+        // Only rebuild the map when the place changes, so refreshes don't reload it.
+        const at = `${data.location.lat},${data.location.lon}`;
+        if (at !== mapAt) {
+          mapAt = at;
+          root.replaceChildren(mapFrame(data, config, config.mapLayer, placement === 'small' ? 6 : 7));
+        }
         return;
       }
       root.replaceChildren(
@@ -168,6 +218,15 @@ export default defineWidget<WeatherConfig>({
 
     const unsubscribe = own ? () => {} : sharedStorage.onChange(followShared);
 
+    // A tap (not a swipe between pages) opens the full-screen forecast map.
+    let down: { x: number; y: number } | null = null;
+    root.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
+    root.addEventListener('click', (e) => {
+      const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 0;
+      if (mapTile || !data || moved > 12) return;
+      openMap(data, config);
+    });
+
     return {
       destroy() {
         alive = false;
@@ -188,6 +247,7 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
   const today = d.daily[0];
   const place = config.label.trim() || d.location.name;
   const cur = d.current;
+  const aq = config.showAirQuality && d.airQuality?.aqi != null ? d.airQuality : null;
 
   if (placement === 'bar') {
     return h(
@@ -210,7 +270,9 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
       h('div', { class: 'wx-place' }, place, offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠')),
       h('div', { class: 'wx-cond' }, describe(cur.code)),
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
+      aq && aqiPill(aq, placement !== 'small' && placement !== 'medium'),
     ),
+    placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
   );
 
   const sections: (HTMLElement | null)[] = [now];
@@ -229,6 +291,8 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
         item('Wind', cur.wind === null ? '–' : `${cur.wind} ${speed} ${compass(cur.windDir)}`),
         today?.sunrise ? item('Sunrise', time.format(today.sunrise * 1000)) : null,
         today?.sunset ? item('Sunset', time.format(today.sunset * 1000)) : null,
+        aq?.pm25 != null ? item('PM2.5', `${aq.pm25} µg/m³`) : null,
+        aq?.uv != null ? item('UV index', String(aq.uv)) : null,
       ),
     );
   }
@@ -283,6 +347,80 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
   }
 
   return h('div', { class: 'wx-body' }, ...sections);
+}
+
+/** Colored "AQI 72 Moderate" badge; the band colors follow the EPA scale. */
+function aqiPill(aq: AirQuality, withCategory: boolean) {
+  return h(
+    'div',
+    { class: `wx-aqi ${aqiClass(aq.aqi)}` },
+    `AQI ${aq.aqi}`,
+    withCategory && aq.category && h('span', { class: 'wx-aqi-cat' }, ` ${aq.category}`),
+  );
+}
+
+function aqiClass(aqi: number | null): string {
+  if (aqi === null) return '';
+  if (aqi <= 50) return 'aqi-good';
+  if (aqi <= 100) return 'aqi-moderate';
+  if (aqi <= 150) return 'aqi-sensitive';
+  if (aqi <= 200) return 'aqi-unhealthy';
+  if (aqi <= 300) return 'aqi-very';
+  return 'aqi-hazardous';
+}
+
+/** Windy's free embeddable forecast map (no key), animated over the coming days. */
+function windyUrl(d: Forecast, layer: MapLayer, zoom: number): string {
+  const { lat, lon } = d.location;
+  const imperial = d.units === 'imperial';
+  const params = new URLSearchParams({
+    type: 'map',
+    location: 'coordinates',
+    lat: String(lat),
+    lon: String(lon),
+    detailLat: String(lat),
+    detailLon: String(lon),
+    zoom: String(zoom),
+    level: 'surface',
+    overlay: layer,
+    product: 'ecmwf',
+    menu: '',
+    message: 'true',
+    marker: 'true',
+    calendar: 'now',
+    pressure: '',
+    detail: '',
+    metricWind: imperial ? 'mph' : 'km/h',
+    metricTemp: imperial ? '°F' : '°C',
+    radarRange: '-1',
+  });
+  return `https://embed.windy.com/embed2.html?${params}`;
+}
+
+function mapFrame(d: Forecast, config: WeatherConfig, layer: MapLayer, zoom: number) {
+  const name = config.label.trim() || d.location.name;
+  return h('iframe', {
+    class: 'wx-map-frame',
+    src: windyUrl(d, MAP_LAYERS.some((l) => l.value === layer) ? layer : 'rain', zoom),
+    title: `Weather map for ${name}`,
+  });
+}
+
+function openMap(d: Forecast, config: WeatherConfig) {
+  const holder = h('div', { class: 'wx-map-holder' });
+  const chips = MAP_LAYERS.map((l) =>
+    h('button', { class: 'chip', onclick: () => show(l.value) }, l.label),
+  );
+  const show = (layer: MapLayer) => {
+    chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
+    holder.replaceChildren(mapFrame(d, config, layer, 7));
+  };
+  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, [
+    h('div', { class: 'wx-map-layers' }, ...chips),
+    holder,
+  ]);
+  sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
+  show(config.mapLayer);
 }
 
 function chance(p: number | null): string {

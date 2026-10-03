@@ -139,3 +139,61 @@
 .wx-bar { display: flex; align-items: center; gap: 8px; }
 .wx-bar-icon { font-size: 30px; line-height: 1; }
 .wx-bar-temp { font-size: 30px; font-variant-numeric: tabular-nums; }
+
+/* ---- Air quality ---- */
+
+.wx-aqi {
+  align-self: flex-start;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  font-size: 0.8em;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #10161f;
+  background: var(--text-dim);
+}
+.size-small .wx-aqi,
+.size-tall .wx-aqi { align-self: center; }
+.wx-aqi-cat { font-weight: 500; }
+.aqi-good { background: #3ccf8e; }
+.aqi-moderate { background: #f5d33d; }
+.aqi-sensitive { background: #ff9a3c; }
+.aqi-unhealthy { background: #ff5d5d; color: #fff; }
+.aqi-very { background: #a35cd6; color: #fff; }
+.aqi-hazardous { background: #8c2a3c; color: #fff; }
+
+/* ---- Forecast map ---- */
+
+.wx { position: relative; }
+.wx-map-hint {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: clamp(16px, 6cqh, 28px);
+  opacity: 0.55;
+}
+.wx-map-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.sheet.wx-map-sheet {
+  width: 100%;
+  height: 94%;
+  max-height: 94%;
+}
+.wx-map-sheet .sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wx-map-layers { display: flex; flex-wrap: wrap; gap: 10px; }
+.wx-map-holder { flex: 1 1 auto; min-height: 0; }
+.size-medium .wx-map-hint,
+.size-tall .wx-map-hint { display: none; }
