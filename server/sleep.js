@@ -104,6 +104,52 @@ export function createDisplay({ supported = process.platform === 'linux' } = {})
   };
 }
 
+// ---- CPU speed -------------------------------------------------------------
+
+// One policy covers all four cores on a Pi 4. Writing it needs root; deploy/pidisplay-sudoers
+// lets dan run exactly `tee` on this file and nothing else.
+export const GOVERNOR_FILE = '/sys/devices/system/cpu/cpufreq/policy0/scaling_governor';
+const LOW_POWER = 'powersave';
+const DEFAULT_GOVERNOR = 'ondemand';
+
+/** Holds the CPU at its lowest speed while the screen sleeps (saves a few tenths of a watt). */
+export function createCpu({ supported = process.platform === 'linux', file = GOVERNOR_FILE } = {}) {
+  let normal = null;
+  let warned = false;
+  const read = () => fs.readFile(file, 'utf8').then((s) => s.trim(), () => null);
+  const write = (governor) =>
+    new Promise((resolve) => {
+      const child = spawn('sudo', ['-n', '/usr/bin/tee', file], { stdio: ['pipe', 'ignore', 'pipe'] });
+      let err = '';
+      child.stderr.on('data', (d) => (err += d));
+      child.on('error', (e) => resolve(e.message));
+      child.on('close', (code) => resolve(code === 0 ? null : err.trim().slice(0, 200) || `exit ${code}`));
+      child.stdin.on('error', () => {});
+      child.stdin.end(`${governor}\n`);
+    }).then((err) => {
+      if (err && !warned) {
+        warned = true;
+        console.error(`Sleep: couldn't set the CPU to ${governor}: ${err}`);
+      }
+    });
+
+  return {
+    async setLowPower(low) {
+      if (!supported) return;
+      const current = await read();
+      if (!current) return;
+      if (low) {
+        if (current === LOW_POWER) return;
+        normal = current;
+        await write(LOW_POWER);
+      } else if (current === LOW_POWER) {
+        // normal is unknown when the server restarted mid-sleep.
+        await write(normal ?? DEFAULT_GOVERNOR);
+      }
+    },
+  };
+}
+
 // ---- Touch input -----------------------------------------------------------
 
 /** Event nodes of pointer devices (touchscreens, mice) from /proc/bus/input/devices. */
@@ -190,6 +236,7 @@ export function createSleep({
   broadcast = () => {},
   display = createDisplay(),
   touch = createTouchWatcher(),
+  cpu = createCpu(),
   now = Date.now,
   tickMs = TICK_MS,
 } = {}) {
@@ -220,7 +267,10 @@ export function createSleep({
     broadcast({ asleep, reason });
     // Serialized so a quick off-then-on can't land in the wrong order.
     power = power.then(async () => {
+      // Full speed first on waking, so the dashboard comes back quickly.
+      if (!next) await cpu.setLowPower(false);
       const err = await display.setPower(!next);
+      if (next) await cpu.setLowPower(true);
       if (err !== screenError) {
         screenError = err;
         if (err) console.error(`Sleep: screen ${next ? 'off' : 'on'} failed: ${err}`);
@@ -257,6 +307,8 @@ export function createSleep({
       if (started) return;
       started = true;
       touch.start(() => wake('touch'));
+      // Undoes a low-power CPU left over from a restart while asleep.
+      if (!asleep) power = power.then(() => cpu.setLowPower(false));
       void ready.then(() => {
         evaluate();
         timer = setInterval(evaluate, tickMs);

@@ -11,6 +11,7 @@ const at = (h, m = 0) => new Date(2026, 9, 3, h, m).getTime();
 function fakes(start) {
   let t = start;
   const power = [];
+  const cpu = [];
   const events = [];
   let touch = () => {};
   const sleep = createSleep({
@@ -19,10 +20,12 @@ function fakes(start) {
     broadcast: (e) => events.push(e),
     display: { setPower: async (on) => (power.push(on), null) },
     touch: { start: (fn) => (touch = fn), stop() {}, watching: 1 },
+    cpu: { setLowPower: async (low) => cpu.push(low) },
   });
   return {
     sleep,
     power,
+    cpu,
     events,
     touch: () => touch(),
     set: (v) => (t = v),
@@ -52,11 +55,14 @@ test('"turn off now" sleeps until a touch, even in the day', async () => {
   await f.settle();
   assert.deepEqual(f.power, [false]);
 
+  assert.deepEqual(f.cpu, [false, true], 'restored at start, slowed once asleep');
+
   f.touch();
   assert.equal(f.sleep.asleep, false);
   assert.equal(f.events.at(-1).reason, 'touch');
   await f.settle();
   assert.deepEqual(f.power, [false, true]);
+  assert.deepEqual(f.cpu, [false, true, false]);
   f.sleep.stop();
 });
 
@@ -69,6 +75,7 @@ test('the schedule turns the screen off at night and back on in the morning', as
     broadcast: () => {},
     display: { setPower: async () => null },
     touch: { start() {}, stop() {} },
+    cpu: { setLowPower: async () => {} },
   });
   sleep.start();
   await settle();
@@ -98,6 +105,7 @@ test('schedule off keeps the screen on at night; day idle turns it off', async (
     load: async () => ({ settings: { schedule: false, dayIdleMinutes: 10 } }),
     display: { setPower: async () => null },
     touch: { start() {}, stop() {} },
+    cpu: { setLowPower: async () => {} },
   });
   sleep.start();
   await new Promise((r) => setTimeout(r, 20));
@@ -137,6 +145,7 @@ test('API: settings persist, sleep now, and a ringing timer wakes the screen', a
     save: (v) => fs.writeFile(path.join(dataDir, 'sleep.json'), JSON.stringify(v)),
     display: { setPower: async (on) => (power.push(on), null) },
     touch: { start() {}, stop() {} },
+    cpu: { setLowPower: async () => {} },
   });
   const server = createServer({ dataDir, distDir: path.join(dataDir, 'dist'), sleep, timerTickMs: 20, stocksAutoStart: false });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

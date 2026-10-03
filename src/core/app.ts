@@ -62,6 +62,8 @@ export class App {
   private holdUntil = 0;
   private voice: VoiceUI;
   private sleep: SleepUI;
+  /** The wall display unmounts every widget while its screen sleeps, so nothing refreshes or animates. */
+  private paused = false;
   private saveTimer = 0;
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
@@ -89,8 +91,22 @@ export class App {
         if (!ms) this.lastInteraction = 0;
       },
     });
-    // Coming back from sleep counts as a touch, so the page doesn't flip away at once.
-    this.sleep = new SleepUI(document.body, document.body.classList.contains('kiosk'), () => (this.lastInteraction = Date.now()));
+    const kiosk = document.body.classList.contains('kiosk');
+    this.sleep = new SleepUI(document.body, kiosk, {
+      onSleep: () => {
+        if (!kiosk || this.editing) return;
+        this.paused = true;
+        this.prune(this.tiles, new Set());
+        this.prune(this.barItems, new Set());
+      },
+      onWake: () => {
+        // Coming back from sleep counts as a touch, so the page doesn't flip away at once.
+        this.lastInteraction = Date.now();
+        if (!this.paused) return;
+        this.paused = false;
+        this.sync();
+      },
+    });
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
@@ -133,7 +149,7 @@ export class App {
       // Another screen (e.g. a phone) changed the layout. Don't clobber local edits.
       if (this.editing) return;
       this.layout = await api.getLayout();
-      this.sync();
+      if (!this.paused) this.sync();
     });
   }
 

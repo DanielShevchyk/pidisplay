@@ -36,7 +36,7 @@ export class SleepUI {
   constructor(
     root: HTMLElement,
     kiosk: boolean,
-    private onWake: () => void,
+    private hooks: { onSleep: () => void; onWake: () => void },
   ) {
     onServerEvent<{ asleep: boolean }>('sleep', (s) => this.apply(s.asleep));
     void call<SleepStatus>('GET', '/api/sleep')
@@ -79,10 +79,11 @@ export class SleepUI {
       this.shade.classList.add('on', 'catch');
       // A sheet left open would still be there in the morning.
       closeSheet();
+      this.hooks.onSleep();
       return;
     }
     this.shade.classList.remove('on');
-    this.onWake();
+    this.hooks.onWake();
     if (!this.pointerDown) this.releaseTimer = window.setTimeout(() => this.release(), CATCH_AFTER_WAKE_MS);
   }
 

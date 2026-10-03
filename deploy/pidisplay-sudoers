@@ -1,4 +1,7 @@
 # Installed by deploy/update.sh as /etc/sudoers.d/pidisplay.
 # Lets the PiDisplay server lift the rfkill block on the Bluetooth radio when you
-# turn Bluetooth on from the gear menu. Nothing else.
+# turn Bluetooth on from the gear menu, and set the CPU speed for Sleep. Nothing else.
 dan ALL=(root) NOPASSWD: /usr/sbin/rfkill unblock bluetooth
+# Lets Sleep slow the CPU while the screen is off and restore it on wake: tee can only
+# write a governor name into this one file.
+dan ALL=(root) NOPASSWD: /usr/bin/tee /sys/devices/system/cpu/cpufreq/policy0/scaling_governor
