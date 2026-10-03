@@ -1,0 +1,84 @@
+/* Voice control (src/core/voice.ts): mic button, the heard/answer card, the Voice sheet. */
+
+.voice-btn.voice-off { opacity: 0.45; }
+
+.voice-card {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: min(900px, calc(100vw - 48px));
+  padding: 18px 26px;
+  border-radius: 28px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  box-shadow: 0 14px 40px var(--shadow);
+  animation: voice-in 0.2s ease-out;
+}
+.voice-card[hidden] { display: none; }
+.voice-icon {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 34px;
+  background: var(--surface);
+}
+.voice-card.listening .voice-icon {
+  background: var(--accent);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+.voice-card.thinking .voice-icon { animation: voice-pulse 0.6s ease-in-out infinite; }
+.voice-card.error { border-color: var(--warning); }
+.voice-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.voice-heard { color: var(--text-dim); font-size: 20px; }
+.voice-heard:empty { display: none; }
+.voice-reply { font-size: 28px; font-weight: 600; line-height: 1.25; }
+
+@keyframes voice-in { from { transform: translate(-50%, 30px); opacity: 0; } }
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  50% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+.voice-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--success);
+  background: var(--surface-2);
+}
+.voice-status.warn { border-left-color: var(--warning); }
+.voice-status.bad { border-left-color: var(--danger); }
+.voice-status small { color: var(--text-dim); }
+
+.voice-type { display: flex; gap: 12px; }
+.voice-input {
+  flex: 1;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.voice-answer { min-height: 1.4em; margin: 12px 0 0; font-size: 22px; }
+.voice-answer.bad,
+.voice-history .bad small { color: var(--warning); }
+.voice-hint { margin: 0 0 6px; color: var(--text-dim); }
+
+.voice-examples { border-bottom: 1px solid var(--border); }
+.voice-examples summary { min-height: 56px; display: flex; align-items: center; font-weight: 600; }
+.voice-examples .chips { padding-bottom: 12px; }
+
+.voice-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.voice-history li { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.voice-history small { color: var(--text-dim); }

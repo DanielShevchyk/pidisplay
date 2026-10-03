@@ -1,0 +1,5 @@
+# Python packages for voice/pidisplay_voice.py, installed by deploy/voice-setup.sh into
+# $PIDISPLAY_DATA/voice/venv. All run offline on the Pi 4 (aarch64 wheels on PyPI).
+pyopen-wakeword==1.1.0   # openWakeWord wake words (Apache-2.0), TFLite bundled
+vosk==0.3.45             # speech to text (Apache-2.0)
+piper-tts==1.8.0         # spoken replies (GPL-3.0, runs as its own program)

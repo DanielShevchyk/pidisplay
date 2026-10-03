@@ -19,6 +19,7 @@ import { createSpotify, SpotifyError } from './spotify.js';
 import { createAudio, AudioError } from './audio.js';
 import { createStocks, StocksError } from './stocks.js';
 import { createPhotos, PhotosError } from './photos.js';
+import { createVoice, VoiceError } from './voice.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -219,6 +220,39 @@ export function createServer({
     autoStart: stocksAutoStart,
   });
 
+  // Voice commands (from voice/pidisplay_voice.py on the Pi, or typed on a screen) change
+  // widget data the way a screen would, then tell every screen; settings in voice.json.
+  const storeFile = (key) => path.join(storeDir, `${key}.json`);
+  const voice = createVoice({
+    timers,
+    reminders,
+    spotify,
+    audio,
+    stocks,
+    weather,
+    news,
+    calendar,
+    system,
+    readStore: (key, fallback) => readJson(storeFile(key), fallback),
+    writeStore: async (key, value) => {
+      await writeJson(storeFile(key), value);
+      broadcast('store', { key, clientId: 'voice' });
+    },
+    loadLayout: () => loadLayout(),
+    notifications: {
+      list: () => readJson(notificationsFile, []),
+      clear: async () => {
+        await writeJson(notificationsFile, []);
+        broadcast('notifications-cleared', { id: null });
+      },
+    },
+    readFares: () => readJson(faresFile, null),
+    loadSettings: () => readJson(path.join(dataDir, 'voice.json'), null),
+    saveSettings: (value) => writeJson(path.join(dataDir, 'voice.json'), value),
+    broadcast,
+    watchMs: timerTickMs,
+  });
+
   async function loadLayout() {
     const saved = await readJson(layoutFile, null);
     return saved ?? readJson(defaultLayoutFile, null);
@@ -341,6 +375,16 @@ export function createServer({
         return send(res, 200, await stocks.handle(req.method, parts, body));
       } catch (err) {
         if (err instanceof StocksError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'voice') {
+      try {
+        const body = req.method === 'GET' ? null : await readBody(req);
+        return send(res, 200, await voice.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof VoiceError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -518,6 +562,7 @@ export function createServer({
     timers.stop();
     reminders.stop();
     stocks.stop();
+    voice.stop();
     for (const res of clients) res.end();
   });
 

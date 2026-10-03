@@ -80,6 +80,12 @@ if ! setup_spotify; then
   echo "WARNING: Spotify receiver setup failed (see above). The dashboard itself is updated; rerun the deploy to retry."
 fi
 
+# Offline voice control (docs/VOICE.md): wake word, speech to text and spoken replies.
+# Downloads about 150 MB the first time; a failure warns but leaves the dashboard updated.
+if ! bash deploy/voice-setup.sh; then
+  echo "WARNING: Voice control setup failed (see above). The dashboard itself is updated; rerun the deploy to retry."
+fi
+
 # PiDisplay launcher for getting back from "Exit to desktop": app menu + desktop icon.
 install -D -m 644 deploy/pidisplay.desktop "$HOME/.local/share/applications/pidisplay.desktop"
 if [ -d "$HOME/Desktop" ]; then

@@ -2,12 +2,13 @@
 
 A customizable touch dashboard for a wall-mounted Raspberry Pi 4 with a 15.6" 1080p touchscreen.
 
-- **Top bar** that never moves: clock (or any bar-capable widget), page name and dots, notifications bell, edit button.
+- **Top bar** that never moves: clock (or any bar-capable widget), page name and dots, 🎙️ voice button, notifications bell, edit button.
 - **Pages** of tiles that rotate on a timer, or swipe left/right. Touching pauses rotation for a while.
 - **Tiles** in nine sizes on a 6×4 grid (configurable): Small 1×1, Wide 2×1, Tall 1×2, Large 2×2, Extra large 3×2, Full-width row (one row across the page), Top/bottom half (full width, half the rows; two stack top and bottom), Left/right half (full height, half the columns; two sit side by side), Full page.
 - **Edit mode** (✎ in the top bar): drag tiles to reorder, ⤢ to cycle sizes, ⚙ for widget settings, size and page, ✕ to remove, plus add tiles/pages, page settings, top bar items and display settings (rotation timing, grid size). Changes save to the Pi automatically.
 - **Widgets** are self-contained folders in `src/widgets/`. Adding one is dropping in a folder; see [docs/WIDGETS.md](docs/WIDGETS.md).
 - **Notifications**: anything on the network path can `POST /api/notifications` to pop a toast and add to the bell.
+- **Voice control**, fully offline: "Hey Jarvis, set a timer for 10 minutes", "add milk to the grocery list", "play some jazz". Needs a USB microphone; see [docs/VOICE.md](docs/VOICE.md).
 
 ## Stack
 
@@ -78,7 +79,9 @@ Tests: `npm test` (server API).
 | POST | `/api/spotify/player/play` · `pause` · `next` · `previous` · `seek` · `volume` · `shuffle` · `repeat` · `transfer` | `{ "contextUri"?, "offsetUri"?, "uris"?, "deviceId"? }` (no device: the active one, else PiDisplay) · `{}` · `{}` · `{}` · `{ "positionMs" }` · `{ "percent" }` · `{ "on" }` · `{ "mode": "off" \| "context" \| "track" }` · `{ "deviceId", "play"? }`. |
 | GET | `/api/audio` | The Pi's sound outputs (PipeWire via `pactl`): display speakers over HDMI, headphone jack, connected Bluetooth speakers, with the default marked. |
 | POST | `/api/audio/select` · `volume` | `{ "name" }` makes it the default and moves anything playing to it · `{ "name", "volume" }` (0-100). |
-| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`, `spotify`. |
+| GET | `/api/voice` | Voice control state: settings, whether the voice service and microphone are working, wake words, example phrases, recent commands. |
+| PUT / POST | `/api/voice/settings` · `/api/voice/command` · `listen` · `cancel` | `{ "enabled", "wakeWord", "sensitivity", "speak", "speechVolume", "chime", "duck" }` · `{ "text" }` runs a command as if spoken and returns `{ reply, action?, expectReply }` · tap to talk · stop listening. More in [docs/VOICE.md](docs/VOICE.md). |
+| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`, `spotify`, `voice`. |
 
 Example, from the Pi itself:
 
@@ -95,6 +98,7 @@ src/main.ts        Boots the app (retries until the server is up)
 src/core/          Shell: types (widget contract), app (pages, grid, edit mode),
                    registry (widget discovery), api, notifications, sheet (modals/forms)
 src/widgets/<id>/  One folder per widget
+voice/             Offline voice service for the Pi (wake word, speech to text, spoken replies)
 docs/WIDGETS.md    How to write a widget
 ```
 

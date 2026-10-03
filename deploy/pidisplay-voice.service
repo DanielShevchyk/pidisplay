@@ -1,0 +1,17 @@
+# systemd *user* unit, installed by deploy/voice-setup.sh as
+# ~/.config/systemd/user/pidisplay-voice.service. Runs in dan's session so it can use
+# dan's PipeWire: the USB microphone in, the display's speakers out.
+#   systemctl --user status pidisplay-voice      journalctl --user -u pidisplay-voice -f
+[Unit]
+Description=PiDisplay voice control (wake word, speech to text, spoken replies)
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Environment=PIDISPLAY_DATA=%h/pidisplay-data
+ExecStart=%h/pidisplay-data/voice/venv/bin/python -u %h/pidisplay/voice/pidisplay_voice.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

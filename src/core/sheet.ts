@@ -42,6 +42,13 @@ export function openSheet(title: string, content: Node[], opts: { onClose?: () =
   return handle;
 }
 
+/** Closes whatever sheet is open (voice "close"); false if none was. */
+export function closeSheet(): boolean {
+  if (!current) return false;
+  current.close();
+  return true;
+}
+
 /** Renders inputs for fields; calls onChange with the full updated config on every edit. */
 export function settingsForm(
   fields: SettingField[],
