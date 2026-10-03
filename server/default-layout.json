@@ -215,6 +215,18 @@
           "config": {}
         }
       ]
+    },
+    {
+      "id": "lists",
+      "name": "Lists",
+      "tiles": [
+        {
+          "id": "lists-todo",
+          "widget": "todo",
+          "size": "full",
+          "config": {}
+        }
+      ]
     }
   ]
 }

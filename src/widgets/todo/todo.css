@@ -1,0 +1,107 @@
+/* ---- Panel (big tiles and the sheet) ----------------------------------- */
+
+.todo { height: 100%; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.todo-sheet { height: min(70vh, 720px); }
+
+.todo-head { display: flex; align-items: center; gap: 4px; flex: none; min-width: 0; }
+.todo-tabs { flex: 1; min-width: 0; display: flex; gap: 8px; overflow-x: auto; }
+.todo-head .chip { min-height: 48px; padding: 0 16px; flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 8px; }
+.todo-head .todo-new { color: var(--text-dim); }
+.todo-head .todo-menu { flex: none; padding: 0 12px; font-size: 26px; color: var(--text-dim); }
+.todo-count {
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 13px;
+  background: var(--border);
+  font-size: 15px;
+  line-height: 26px;
+  text-align: center;
+}
+.todo-head .chip.active .todo-count { background: rgba(255, 255, 255, 0.25); }
+
+.todo-form, .todo-edit { display: flex; gap: 8px; flex: none; }
+.todo-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 20px;
+}
+.todo-form .todo-add { flex: none; padding: 0; font-size: 26px; }
+
+.todo-items { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.todo-items .empty { margin: auto; }
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 60px;
+  padding: 6px 4px 6px 14px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  user-select: none;
+  -webkit-user-select: none;
+  flex: none;
+}
+.todo-item:active { transform: scale(0.99); }
+.todo-check {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+.todo-text { flex: 1; min-width: 0; font-size: 21px; overflow-wrap: anywhere; }
+.todo-item .todo-del { flex: none; min-width: 52px; min-height: 48px; padding: 0; color: var(--text-dim); font-size: 20px; }
+.todo-item.done .todo-check { background: var(--success); border-color: var(--success); }
+.todo-item.done .todo-text { color: var(--text-dim); text-decoration: line-through; }
+.todo-item.done { opacity: 0.75; }
+
+.todo-footer { flex: none; display: flex; justify-content: center; }
+.todo-footer:empty { display: none; }
+.todo-footer .todo-clear { min-height: 48px; color: var(--text-dim); }
+.todo-edit { margin-top: 8px; }
+
+/* Narrow (tall) tiles: tighter tabs and rows. */
+[data-size='tall'] .todo-head .chip { padding: 0 12px; }
+[data-size='tall'] .todo-text { font-size: 19px; }
+
+/* ---- Summary (small and wide tiles) ------------------------------------ */
+
+.todo-sum {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  overflow: hidden;
+}
+.todo-sum-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex: none; }
+.todo-sum-name { font-size: clamp(18px, 14cqh, 30px); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-sum-count { color: var(--text-dim); font-size: clamp(14px, 10cqh, 22px); white-space: nowrap; }
+.todo-sum-items { margin: 0; padding: 0; list-style: none; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.todo-sum-items li {
+  font-size: clamp(15px, 11cqh, 22px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.todo-sum-items li::before { content: '○ '; color: var(--text-dim); }
+.todo-sum-items .todo-sum-more { color: var(--text-dim); }
+.todo-sum-items .todo-sum-more::before { content: ''; }
+.size-medium .todo-sum-items { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
