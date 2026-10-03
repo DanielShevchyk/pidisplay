@@ -197,3 +197,44 @@
 .wx-map-holder { flex: 1 1 auto; min-height: 0; }
 .size-medium .wx-map-hint,
 .size-tall .wx-map-hint { display: none; }
+
+/* ---- Forecast + map side by side ---- */
+
+.wx-split {
+  height: 100%;
+  display: flex;
+  gap: 2cqw;
+}
+.wx-split-forecast { flex: 0 0 36%; min-width: 0; }
+.wx-split-map {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5cqh;
+}
+.wx-split-map .wx-map-layers { gap: 8px; }
+.wx-split-map .chip { font-size: clamp(12px, 3cqh, 20px); }
+
+/* The forecast column reads as a vertical timeline, like the tall tile. */
+.wx-split .wx-body { gap: 2cqh; }
+.wx-split .wx-now { flex: 0 0 auto; gap: 2cqw; }
+.wx-split .wx-now-icon { font-size: min(7cqw, 14cqh); }
+.wx-split .wx-now-temp { font-size: min(8cqw, 15cqh); }
+.wx-split .wx-now-text { font-size: clamp(12px, 3.6cqh, 26px); }
+.wx-split .wx-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7em, 1fr));
+  gap: 1cqh 1cqw;
+  font-size: clamp(12px, 2.8cqh, 22px);
+}
+.wx-split .wx-days { flex: 1 1 auto; flex-direction: column; gap: 1.2cqh; min-height: 0; }
+.wx-split .wx-day {
+  flex: 1 1 0;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0 0.7em;
+  font-size: clamp(12px, 3.4cqh, 26px);
+}
+.wx-split .wx-day .wx-small-label { width: 3.2em; text-align: left; }
+.wx-split .wx-day .wx-pop { width: 3.5em; text-align: right; }

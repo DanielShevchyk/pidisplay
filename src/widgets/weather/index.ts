@@ -10,8 +10,8 @@ interface WeatherConfig {
   /** Shown instead of the resolved place name when set. */
   label: string;
   showAirQuality: boolean;
-  /** 'map' turns the tile into a live forecast map. */
-  view: 'forecast' | 'map';
+  /** 'split' puts a 5-day forecast and a live map side by side; 'map' is the map alone. */
+  view: 'split' | 'forecast' | 'map';
   mapLayer: MapLayer;
   [key: string]: unknown;
 }
@@ -82,6 +82,10 @@ const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 
 /** How much each tile size shows: hourly entries and forecast days. */
+/** Sizes wide enough for the forecast and the map side by side; others fall back to the forecast. */
+const SPLIT_SIZES: Placement[] = ['large', 'xlarge', 'full'];
+const SPLIT_DAYS = 5;
+
 const LAYOUT: Record<Placement, { hours: number; days: number; details: boolean }> = {
   bar: { hours: 0, days: 0, details: false },
   small: { hours: 0, days: 0, details: false },
@@ -100,7 +104,7 @@ export default defineWidget<WeatherConfig>({
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
   supportsBar: true,
-  defaultConfig: { location: '', units: 'imperial', label: '', showAirQuality: true, view: 'forecast', mapLayer: 'rain' },
+  defaultConfig: { location: '', units: 'imperial', label: '', showAirQuality: true, view: 'split', mapLayer: 'rain' },
   settings: [
     { key: 'location', label: 'Location (blank = same as other weather tiles, or Citrus Heights)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
     {
@@ -119,6 +123,7 @@ export default defineWidget<WeatherConfig>({
       label: 'Tile shows',
       type: 'select',
       options: [
+        { value: 'split', label: 'Forecast + map side by side (large tiles)' },
         { value: 'forecast', label: 'Forecast (tap for the map)' },
         { value: 'map', label: 'Forecast map' },
       ],
@@ -138,7 +143,11 @@ export default defineWidget<WeatherConfig>({
     const queryFor = (loc: string) => `${loc}|${config.units}`;
 
     const mapTile = config.view === 'map' && placement !== 'bar';
+    const split = config.view === 'split' && SPLIT_SIZES.includes(placement);
     let mapAt = '';
+    // Split view: the forecast column repaints on refresh, the map pane only when the place changes.
+    const left = h('div', { class: 'wx-split-forecast' });
+    const right = h('div', { class: 'wx-split-map' });
 
     const paint = () => {
       if (!location) {
@@ -152,6 +161,16 @@ export default defineWidget<WeatherConfig>({
           mapAt = at;
           root.replaceChildren(mapFrame(data, config, config.mapLayer, placement === 'small' ? 6 : 7));
         }
+        return;
+      }
+      if (split && data) {
+        const at = `${data.location.lat},${data.location.lon}`;
+        if (at !== mapAt || !root.contains(right)) {
+          mapAt = at;
+          right.replaceChildren(...mapPane(data, config));
+          root.replaceChildren(h('div', { class: 'wx-split' }, left, right));
+        }
+        left.replaceChildren(render(data, config, placement, Boolean(failed), splitSpec(placement)));
         return;
       }
       root.replaceChildren(
@@ -223,7 +242,7 @@ export default defineWidget<WeatherConfig>({
     root.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
     root.addEventListener('click', (e) => {
       const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 0;
-      if (mapTile || !data || moved > 12) return;
+      if (mapTile || split || !data || moved > 12) return;
       openMap(data, config);
     });
 
@@ -241,7 +260,18 @@ function message(icon: string, text: string) {
   return h('div', { class: 'wx-message' }, icon && h('div', { class: 'wx-message-icon' }, icon), text);
 }
 
-function render(d: Forecast, config: WeatherConfig, placement: Placement, offline: boolean) {
+/** What the forecast column shows next to the map: today plus the coming days as a vertical timeline. */
+function splitSpec(placement: Placement) {
+  return { hours: 0, days: SPLIT_DAYS, details: placement !== 'large' };
+}
+
+function render(
+  d: Forecast,
+  config: WeatherConfig,
+  placement: Placement,
+  offline: boolean,
+  spec = LAYOUT[placement],
+) {
   const tz = validZone(d.timezone);
   const deg = (n: number | null) => (n === null ? '–' : `${n}°`);
   const today = d.daily[0];
@@ -258,7 +288,6 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
     );
   }
 
-  const spec = LAYOUT[placement];
   const now = h(
     'div',
     { class: 'wx-now' },
@@ -272,7 +301,7 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
       aq && aqiPill(aq, placement !== 'small' && placement !== 'medium'),
     ),
-    placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
+    placement !== 'small' && spec === LAYOUT[placement] && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
   );
 
   const sections: (HTMLElement | null)[] = [now];
@@ -406,7 +435,8 @@ function mapFrame(d: Forecast, config: WeatherConfig, layer: MapLayer, zoom: num
   });
 }
 
-function openMap(d: Forecast, config: WeatherConfig) {
+/** Layer chips plus the map they switch between. */
+function mapPane(d: Forecast, config: WeatherConfig): HTMLElement[] {
   const holder = h('div', { class: 'wx-map-holder' });
   const chips = MAP_LAYERS.map((l) =>
     h('button', { class: 'chip', onclick: () => show(l.value) }, l.label),
@@ -415,12 +445,13 @@ function openMap(d: Forecast, config: WeatherConfig) {
     chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
     holder.replaceChildren(mapFrame(d, config, layer, 7));
   };
-  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, [
-    h('div', { class: 'wx-map-layers' }, ...chips),
-    holder,
-  ]);
+  show(MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'rain');
+  return [h('div', { class: 'wx-map-layers' }, ...chips), holder];
+}
+
+function openMap(d: Forecast, config: WeatherConfig) {
+  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, mapPane(d, config));
   sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
-  show(config.mapLayer);
 }
 
 function chance(p: number | null): string {
