@@ -1,5 +1,6 @@
 import { api } from './core/api';
 import { App } from './core/app';
+import { initDragScroll } from './core/dragscroll';
 import { initKeyboard } from './core/keyboard';
 import { initTheme } from './core/theme';
 import './styles.css';
@@ -9,6 +10,7 @@ const root = document.getElementById('app')!;
 const params = new URLSearchParams(location.search);
 if (params.has('kiosk')) document.body.classList.add('kiosk');
 initTheme();
+initDragScroll();
 // The kiosk covers the OS keyboard, so touch typing uses the app's own (?osk to try it elsewhere).
 if (params.has('kiosk') || params.has('osk')) initKeyboard();
 
