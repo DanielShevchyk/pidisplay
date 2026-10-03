@@ -1,0 +1,165 @@
+/* ---- Panel (big tiles and the sheet) ----------------------------------- */
+
+.rem { height: 100%; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.rem-sheet { height: min(70vh, 720px); }
+.rem-head { display: flex; align-items: center; gap: 8px; flex: none; }
+.rem-heading { margin: 0; font-size: 22px; font-weight: 600; }
+.rem-head .rem-sounds { margin-left: auto; min-height: 48px; padding: 0 12px; color: var(--text-dim); }
+.rem-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.rem-list .empty { margin: auto; padding: 8px 0; }
+.rem-add { width: 100%; flex: none; }
+
+.rem-group { margin: 8px 4px 0; font-size: 15px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+.rem-group:first-child { margin-top: 0; }
+.rem-group-due { color: var(--warning); }
+
+.rem-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  min-height: 72px;
+  padding: 8px 16px;
+  border-radius: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  text-align: left;
+  flex: none;
+}
+.rem-time { flex: none; min-width: 4.6em; font-size: 24px; font-weight: 300; font-variant-numeric: tabular-nums; }
+.rem-text { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 0; background: none; padding: 0; text-align: left; }
+.rem-title { font-size: 21px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rem-meta { color: var(--text-dim); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rem-row.off .rem-time,
+.rem-row.off .rem-title,
+.rem-row.done .rem-time { color: var(--text-dim); }
+.rem-row.done .rem-title { color: var(--text-dim); text-decoration: line-through; }
+.rem-due { border: 2px solid var(--warning); background: color-mix(in srgb, var(--warning) 12%, var(--surface-2)); }
+.rem-due .btn { flex: none; padding: 0 16px; }
+.rem-done-head { display: flex; justify-content: space-between; }
+.rem-done-head .btn { color: var(--text-dim); min-height: 48px; padding: 0 8px; }
+
+/* ---- Small tiles: summary ------------------------------------------------ */
+
+.rem-sum {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4cqh;
+  padding: 0 6cqw;
+  border: 0;
+  background: none;
+  text-align: center;
+}
+.rem-sum-main { max-width: 100%; font-size: min(13cqw, 26cqh); font-weight: 500; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.rem-sum.size-medium .rem-sum-main { font-size: min(7cqw, 30cqh); -webkit-line-clamp: 1; }
+.rem-sum-sub { font-size: min(8cqw, 14cqh); color: var(--text-dim); }
+.rem-sum.size-medium .rem-sum-sub { font-size: min(4cqw, 16cqh); }
+.rem-sum.due .rem-sum-main { color: var(--warning); }
+
+/* ---- Editor ------------------------------------------------------------- */
+
+.rem-editor .rem-input {
+  width: 100%;
+  min-height: 56px;
+  margin-bottom: 10px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 20px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.rem-when-row { display: flex; flex-direction: column; align-items: center; gap: 14px; margin-top: 8px; }
+.rem-date-row { display: inline-flex; align-items: center; gap: 12px; }
+.rem-date-row .btn { width: 72px; min-height: 60px; font-size: 22px; touch-action: none; }
+.rem-date-text { min-width: 9em; text-align: center; font-size: 26px; }
+.rem-date-text.small { min-width: 7em; font-size: 20px; }
+.rem-clock { display: flex; align-items: center; gap: 14px; }
+.rem-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rem-num { font-size: 76px; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; min-width: 1.3em; text-align: center; }
+.rem-colon { font-size: 64px; font-weight: 300; padding-bottom: 10px; }
+.rem-col .btn { width: 110px; min-height: 56px; font-size: 24px; touch-action: none; }
+.rem-ampm { display: flex; flex-direction: column; gap: 10px; margin-left: 10px; }
+.rem-ampm .chip { min-height: 60px; min-width: 86px; font-size: 22px; }
+.rem-repeat-more { display: flex; flex-direction: column; gap: 12px; }
+.rem-every,
+.rem-ends { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; font-size: 20px; }
+.rem-every .btn { width: 60px; padding: 0; }
+.rem-every-n { min-width: 1.6em; text-align: center; font-size: 26px; font-variant-numeric: tabular-nums; }
+.rem-ends .chip { margin: 0; }
+.rem-days { display: flex; justify-content: space-between; gap: 8px; }
+.rem-day {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 22px;
+  font-weight: 600;
+}
+.rem-day.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rem-sound-row { display: flex; gap: 8px; align-items: center; }
+.rem-sound-row select {
+  min-height: 52px;
+  min-width: 220px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.rem-warning { margin: 12px 0 0; color: var(--warning); font-size: 18px; }
+.rem-warning[hidden] { display: none; }
+.rem-editor .menu-actions .spacer { flex: 1; }
+
+/* ---- Sound settings ---------------------------------------------------- */
+
+.rem-volume-row { display: flex; align-items: center; gap: 14px; font-size: 26px; }
+.rem-volume { flex: 1; height: 56px; accent-color: var(--accent); }
+.rem-volume::-webkit-slider-thumb { width: 40px; height: 40px; }
+.rem-volume-value { font-size: 20px; min-width: 3.2em; text-align: right; color: var(--text-dim); }
+.rem-hint { margin: 4px 0 0; color: var(--text-dim); font-size: 16px; }
+
+/* ---- Due popup (src/core/reminder-alerts.ts) ---------------------------- */
+
+.remd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: var(--scrim);
+}
+.remd-overlay[hidden] { display: none; }
+.remd-box {
+  width: min(900px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px 28px 28px;
+  border-radius: 28px;
+  background: var(--surface);
+  border: 2px solid var(--warning);
+  box-shadow: 0 20px 60px var(--shadow);
+  animation: remd-in 0.25s ease-out;
+}
+.remd-head { display: flex; align-items: center; justify-content: space-between; }
+.remd-head h2 { margin: 0; font-size: 24px; color: var(--warning); }
+.remd-head .btn { min-height: 56px; color: var(--text-dim); }
+.remd-cards { display: flex; flex-direction: column; gap: 18px; margin-top: 8px; }
+.remd-card + .remd-card { padding-top: 18px; border-top: 1px solid var(--border); }
+.remd-title { font-size: 42px; font-weight: 600; line-height: 1.15; }
+.remd-notes { margin-top: 6px; font-size: 24px; }
+.remd-when { margin-top: 6px; font-size: 20px; color: var(--text-dim); }
+.remd-actions { display: flex; gap: 12px; margin-top: 18px; }
+.remd-actions .btn { min-height: 88px; font-size: 24px; border-radius: 20px; }
+.remd-actions .remd-done { flex: 1.6; font-size: 30px; font-weight: 600; }
+.remd-actions .remd-snooze { flex: 1; }
+.bar-btn.remd-chip { font-size: 22px; white-space: nowrap; color: var(--warning); }
+.remd-chip[hidden] { display: none; }
+
+@keyframes remd-in { from { transform: scale(0.94); opacity: 0; } }

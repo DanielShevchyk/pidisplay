@@ -367,7 +367,7 @@ function openAlarmEditor(existing: AlarmItem | null, back: () => void) {
 }
 
 /** A button that repeats while held, speeding up, for stepping through times. */
-function holdButton(label: string, aria: string, fn: () => void): HTMLElement {
+export function holdButton(label: string, aria: string, fn: () => void): HTMLElement {
   let timer = 0;
   let count = 0;
   const stop = () => clearTimeout(timer);

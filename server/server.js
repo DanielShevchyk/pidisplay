@@ -14,6 +14,7 @@ import { createCalendar, CalendarError } from './calendar.js';
 import { createKiosk } from './kiosk.js';
 import { createNetwork, NetworkError } from './network.js';
 import { createTimers, TimersError } from './timers.js';
+import { createReminders, RemindersError } from './reminders.js';
 import { createSpotify, SpotifyError } from './spotify.js';
 import { createAudio, AudioError } from './audio.js';
 import { createStocks, StocksError } from './stocks.js';
@@ -191,6 +192,16 @@ export function createServer({
     tickMs: timerTickMs,
   });
 
+  const remindersFile = path.join(dataDir, 'reminders.json');
+  const reminders = createReminders({
+    load: () => readJson(remindersFile, null),
+    save: (value) => writeJson(remindersFile, value),
+    notify: (n) => void addNotification({ ...n, source: 'Reminders' }).catch(() => {}),
+    broadcast: (snapshot) => broadcast('reminders', snapshot),
+    sound: (s) => broadcast('reminder-sound', s),
+    tickMs: timerTickMs,
+  });
+
   // Watchlist and alerts in stocks.json; the optional Twelve Data key in stocks-key.json
   // (a secret, written by deploy/stocks.ps1, never sent to the browser).
   const stocksFile = path.join(dataDir, 'stocks.json');
@@ -283,6 +294,16 @@ export function createServer({
         return send(res, 200, await timers.handle(req.method, parts, body));
       } catch (err) {
         if (err instanceof TimersError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'reminders') {
+      try {
+        const body = req.method === 'GET' || req.method === 'DELETE' ? null : await readBody(req);
+        return send(res, 200, await reminders.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof RemindersError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -495,6 +516,7 @@ export function createServer({
   server.on('close', () => {
     clearInterval(heartbeat);
     timers.stop();
+    reminders.stop();
     stocks.stop();
     for (const res of clients) res.end();
   });

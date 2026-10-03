@@ -3,6 +3,7 @@
 import { api, createStorage, onServerEvent } from './api';
 import { h, uid } from './dom';
 import { Alerts } from './alerts';
+import { ReminderAlerts } from './reminder-alerts';
 import { Notifications } from './notifications';
 import { initStockAlertSounds } from './stocks';
 import { allWidgets, getWidget } from './registry';
@@ -67,6 +68,7 @@ export class App {
     this.notifications = new Notifications(root);
     const alerts = new Alerts(document.body);
     initStockAlertSounds();
+    const reminderAlerts = new ReminderAlerts(document.body);
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
@@ -95,7 +97,7 @@ export class App {
         { class: 'topbar' },
         this.barLeft,
         h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
-        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, this.notifications.button, editBtn, menuBtn),
+        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, this.notifications.button, editBtn, menuBtn),
       ),
       this.main,
       toolbar,

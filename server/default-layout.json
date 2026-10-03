@@ -134,6 +134,18 @@
       ]
     },
     {
+      "id": "reminders",
+      "name": "Reminders",
+      "tiles": [
+        {
+          "id": "reminders-main",
+          "widget": "reminders",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "stocks",
       "name": "Stocks",
       "tiles": [
