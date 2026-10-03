@@ -12,6 +12,7 @@ export interface SleepSettings {
   sleepAt: number;
   nightIdleMinutes: number;
   dayIdleMinutes: number;
+  screenOff: 'black' | 'power';
 }
 
 interface SleepStatus {
@@ -194,6 +195,26 @@ export function showSleep(body: HTMLElement, back: () => void, closeSheet: () =>
         : []),
       h('p', { class: 'conn-hint' }, `${s.schedule ? 'During those hours, t' : 'T'}urn off after no touches for`),
       chips(DAY_IDLE, s.dayIdleMinutes, 'dayIdleMinutes'),
+      h('p', { class: 'conn-hint' }, 'While asleep, the screen'),
+      h(
+        'div',
+        { class: 'chips' },
+        ...(
+          [
+            ['black', 'Goes black (keeps the signal)'],
+            ['power', 'Turns off (HDMI off)'],
+          ] as const
+        ).map(([mode, label]) =>
+          h('button', { class: `chip${s.screenOff === mode ? ' active' : ''}`, onclick: () => save({ screenOff: mode }) }, label),
+        ),
+      ),
+      h(
+        'p',
+        { class: 'conn-hint' },
+        s.screenOff === 'black'
+          ? 'Black keeps the monitor from showing "no signal" or test colors, and turns its backlight down when the monitor allows it.'
+          : 'Turning HDMI off saves the most power, but some monitors show "no signal" or cycle test colors instead of going to standby.',
+      ),
       h(
         'button',
         {
@@ -211,7 +232,15 @@ export function showSleep(body: HTMLElement, back: () => void, closeSheet: () =>
         'Touch the screen to wake it. Alarms, timers and reminders turn it on when they ring. The Pi itself stays on so they can: a Raspberry Pi 4 has no sleep mode a touch could wake it from.',
       ),
       ...(status.screenError
-        ? [h('p', { class: 'conn-warn' }, `The screen couldn't be powered down (${status.screenError}), so the dashboard just goes black.`)]
+        ? [
+            h(
+              'p',
+              { class: 'conn-warn' },
+              s.screenOff === 'black'
+                ? `The monitor's backlight couldn't be turned down (${status.screenError}), so the screen is black but still lit.`
+                : `The screen couldn't be powered down (${status.screenError}), so the dashboard just goes black.`,
+            ),
+          ]
         : []),
       ...(error ? [h('p', { class: 'conn-error' }, error)] : []),
     );

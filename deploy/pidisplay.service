@@ -5,8 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=dan
-# Sleep reads the touchscreen from /dev/input so a touch wakes the screen.
-SupplementaryGroups=input
+# Sleep reads the touchscreen from /dev/input so a touch wakes the screen, and dims
+# the monitor over DDC/CI through /dev/i2c-*.
+SupplementaryGroups=input i2c
 WorkingDirectory=/home/dan/pidisplay
 Environment=NODE_ENV=production
 Environment=PORT=8080

@@ -17,6 +17,13 @@ dpkg -s rfkill >/dev/null 2>&1 || sudo apt-get install -y rfkill
 # Sleep (gear menu) powers the screen off and on with wlopm. Without it the dashboard
 # only goes black, so a failed install only warns.
 dpkg -s wlopm >/dev/null 2>&1 || sudo apt-get install -y wlopm || echo "WARNING: wlopm install failed; Sleep will only black out the screen."
+# By default Sleep keeps the HDMI signal and turns the monitor's backlight down over
+# DDC/CI with ddcutil, which reaches the monitor through the i2c-dev nodes.
+dpkg -s ddcutil >/dev/null 2>&1 || sudo apt-get install -y ddcutil || echo "WARNING: ddcutil install failed; Sleep will show black with the backlight on."
+# pidisplay.service joins the i2c group; Raspberry Pi OS has it, but the unit won't start without it.
+getent group i2c >/dev/null || sudo groupadd -r i2c
+echo i2c-dev | sudo tee /etc/modules-load.d/pidisplay-ddc.conf >/dev/null
+sudo modprobe i2c-dev || true
 
 # Narrow permissions for the gear menu's Wi-Fi and Bluetooth screens (see the files).
 sudo install -m 644 -o root -g root deploy/pidisplay-network.rules /etc/polkit-1/rules.d/50-pidisplay-network.rules

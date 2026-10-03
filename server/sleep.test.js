@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createServer } from './server.js';
 import { createSleep, inAwakeHours, parseInputDevices, DEFAULT_SETTINGS } from './sleep.js';
 
+const nullDisplay = { setPower: async () => null, getBrightness: async () => ({ value: 50, max: 100 }), setBrightness: async () => null };
+
 const at = (h, m = 0) => new Date(2026, 9, 3, h, m).getTime();
 
 function fakes(start) {
@@ -18,7 +20,11 @@ function fakes(start) {
     now: () => t,
     tickMs: 60_000_000,
     broadcast: (e) => events.push(e),
-    display: { setPower: async (on) => (power.push(on), null) },
+    display: {
+      setPower: async (on) => (power.push(on ? 'on' : 'off'), null),
+      getBrightness: async () => ({ value: 70, max: 100 }),
+      setBrightness: async (v) => (power.push(`brightness ${v}`), null),
+    },
     touch: { start: (fn) => (touch = fn), stop() {}, watching: 1 },
     cpu: { setLowPower: async (low) => cpu.push(low) },
   });
@@ -53,7 +59,7 @@ test('"turn off now" sleeps until a touch, even in the day', async () => {
   await f.sleep.handle('POST', 'now');
   assert.equal(f.sleep.asleep, true);
   await f.settle();
-  assert.deepEqual(f.power, [false]);
+  assert.deepEqual(f.power, ['brightness 0'], 'keeps the HDMI signal and turns the backlight down');
 
   assert.deepEqual(f.cpu, [false, true], 'restored at start, slowed once asleep');
 
@@ -61,9 +67,37 @@ test('"turn off now" sleeps until a touch, even in the day', async () => {
   assert.equal(f.sleep.asleep, false);
   assert.equal(f.events.at(-1).reason, 'touch');
   await f.settle();
-  assert.deepEqual(f.power, [false, true]);
+  assert.deepEqual(f.power, ['brightness 0', 'brightness 70']);
   assert.deepEqual(f.cpu, [false, true, false]);
   f.sleep.stop();
+});
+
+test('"power" mode turns the HDMI output off and back on', async () => {
+  const f = fakes(at(12, 0));
+  await f.sleep.handle('PUT', 'settings', { screenOff: 'power' });
+  f.sleep.start();
+  await f.settle();
+  await f.sleep.handle('POST', 'now');
+  await f.settle();
+  f.touch();
+  await f.settle();
+  assert.deepEqual(f.power, ['on', 'off', 'on'], 'also lights the output at start in case it was left off');
+  f.sleep.stop();
+});
+
+test('a backlight left dimmed by a restart mid-sleep is restored at start', async () => {
+  const log = [];
+  const sleep = createSleep({
+    load: async () => ({ settings: {}, restoreBrightness: 60 }),
+    save: async (v) => log.push(`save ${v.restoreBrightness}`),
+    display: { ...nullDisplay, setBrightness: async (v) => (log.push(`brightness ${v}`), null) },
+    touch: { start() {}, stop() {} },
+    cpu: { setLowPower: async () => {} },
+  });
+  sleep.start();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(log, ['brightness 60', 'save null']);
+  sleep.stop();
 });
 
 test('the schedule turns the screen off at night and back on in the morning', async () => {
@@ -73,7 +107,7 @@ test('the schedule turns the screen off at night and back on in the morning', as
     now: () => clock,
     tickMs: 5,
     broadcast: () => {},
-    display: { setPower: async () => null },
+    display: nullDisplay,
     touch: { start() {}, stop() {} },
     cpu: { setLowPower: async () => {} },
   });
@@ -103,7 +137,7 @@ test('schedule off keeps the screen on at night; day idle turns it off', async (
     now: () => clock,
     tickMs: 5,
     load: async () => ({ settings: { schedule: false, dayIdleMinutes: 10 } }),
-    display: { setPower: async () => null },
+    display: nullDisplay,
     touch: { start() {}, stop() {} },
     cpu: { setLowPower: async () => {} },
   });
@@ -117,9 +151,10 @@ test('schedule off keeps the screen on at night; day idle turns it off', async (
 });
 
 test('settings are validated', async () => {
-  const sleep = createSleep({ display: { setPower: async () => null }, touch: { start() {}, stop() {} } });
+  const sleep = createSleep({ display: nullDisplay, touch: { start() {}, stop() {} } });
   await assert.rejects(sleep.handle('PUT', 'settings', { wakeAt: 2000 }), /wakeAt/);
   await assert.rejects(sleep.handle('PUT', 'settings', { nightIdleMinutes: 0 }), /nightIdleMinutes/);
+  await assert.rejects(sleep.handle('PUT', 'settings', { screenOff: 'dim' }), /screenOff/);
   const s = await sleep.handle('PUT', 'settings', { wakeAt: 390, sleepAt: 1380, schedule: true });
   assert.equal(s.settings.wakeAt, 390);
   assert.equal(s.settings.sleepAt, 1380);
@@ -143,7 +178,7 @@ test('API: settings persist, sleep now, and a ringing timer wakes the screen', a
   const sleep = createSleep({
     load: async () => JSON.parse(await fs.readFile(path.join(dataDir, 'sleep.json'), 'utf8').catch(() => 'null')),
     save: (v) => fs.writeFile(path.join(dataDir, 'sleep.json'), JSON.stringify(v)),
-    display: { setPower: async (on) => (power.push(on), null) },
+    display: { ...nullDisplay, setPower: async (on) => (power.push(on), null) },
     touch: { start() {}, stop() {} },
     cpu: { setLowPower: async () => {} },
   });
@@ -155,7 +190,7 @@ test('API: settings persist, sleep now, and a ringing timer wakes the screen', a
     return { status: res.status, data: await res.json() };
   };
   try {
-    let r = await req('PUT', '/api/sleep/settings', { sleepAt: 23 * 60 });
+    let r = await req('PUT', '/api/sleep/settings', { sleepAt: 23 * 60, screenOff: 'power' });
     assert.equal(r.status, 200);
     assert.equal(r.data.settings.sleepAt, 23 * 60);
     assert.equal(JSON.parse(await fs.readFile(path.join(dataDir, 'sleep.json'), 'utf8')).settings.sleepAt, 23 * 60);

@@ -3,9 +3,11 @@
 // turns off. By default it stays on from 7 AM to 10 PM; outside those hours it
 // turns off, a touch wakes it, and it turns off again after a short idle spell.
 //
-// The screen is powered down with wlopm (wlr output power management, which labwc
-// supports), and the kiosk page also goes black, so the screen is dark even when
-// wlopm is missing. Touches are read straight from the touchscreen's /dev/input
+// The kiosk page always goes black. By default the HDMI signal stays on and the
+// monitor's backlight is turned down over DDC/CI (ddcutil) when the monitor allows it,
+// because some monitors show "no signal" and then cycle test colors when HDMI stops.
+// The other mode powers the output down with wlopm (wlr output power management,
+// which labwc supports). Touches are read straight from the touchscreen's /dev/input
 // node, because Chromium may get no input while its output is off.
 import fs from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
@@ -27,7 +29,11 @@ export const DEFAULT_SETTINGS = {
   nightIdleMinutes: 2,
   /** During the awake hours, turn off after this long without a touch (0 = never). */
   dayIdleMinutes: 0,
+  /** 'black': keep the HDMI signal, black page, backlight down. 'power': HDMI output off. */
+  screenOff: 'black',
 };
+
+const SCREEN_OFF_MODES = new Set(['black', 'power']);
 
 const TICK_MS = 5000;
 const MINUTES_IN_DAY = 24 * 60;
@@ -66,6 +72,10 @@ export function validateSettings(body, current) {
     if (!isInt(body.dayIdleMinutes, 0, 240)) throw new SleepError(400, 'dayIdleMinutes must be 0-240');
     next.dayIdleMinutes = body.dayIdleMinutes;
   }
+  if (body.screenOff !== undefined) {
+    if (!SCREEN_OFF_MODES.has(body.screenOff)) throw new SleepError(400, 'screenOff must be black or power');
+    next.screenOff = body.screenOff;
+  }
   return next;
 }
 
@@ -101,7 +111,30 @@ export function createDisplay({ supported = process.platform === 'linux' } = {})
         });
       });
     },
+    /** Backlight (VCP feature 10) over DDC/CI: { value, max } or { error }. */
+    async getBrightness() {
+      if (!supported) return { error: 'Backlight control only works on the Pi' };
+      const { out, error } = await ddcutil(['--brief', 'getvcp', '10']);
+      if (error) return { error };
+      const m = /VCP 10 C (\d+) (\d+)/.exec(out);
+      return m ? { value: Number(m[1]), max: Number(m[2]) } : { error: `Unexpected ddcutil output: ${out.trim().slice(0, 100)}` };
+    },
+    /** Resolves to null on success or an error message. */
+    async setBrightness(value) {
+      if (!supported) return 'Backlight control only works on the Pi';
+      return (await ddcutil(['setvcp', '10', String(value)])).error;
+    },
   };
+}
+
+function ddcutil(args) {
+  return new Promise((resolve) => {
+    execFile('ddcutil', args, { timeout: 20000 }, (err, out, stderr) => {
+      if (!err) return resolve({ out, error: null });
+      const msg = err.code === 'ENOENT' ? 'ddcutil is not installed' : String(stderr || out || err.message).trim().split('\n')[0];
+      resolve({ out, error: msg.slice(0, 200) });
+    });
+  });
 }
 
 // ---- CPU speed -------------------------------------------------------------
@@ -249,10 +282,16 @@ export function createSleep({
   let timer = null;
   let started = false;
   let power = Promise.resolve();
+  /** Backlight level to put back on waking. Saved, so a restart mid-sleep can't leave it dark. */
+  let restoreBrightness = null;
+  let poweredOff = false;
+
+  const persist = () => save({ settings, restoreBrightness }).catch((err) => console.error('Saving sleep settings failed', err));
 
   const ready = load()
     .then((saved) => {
       if (saved?.settings) settings = validateSettings(saved.settings, DEFAULT_SETTINGS);
+      if (Number.isInteger(saved?.restoreBrightness)) restoreBrightness = saved.restoreBrightness;
     })
     .catch((err) => console.error('Loading sleep settings failed', err));
 
@@ -269,13 +308,40 @@ export function createSleep({
     power = power.then(async () => {
       // Full speed first on waking, so the dashboard comes back quickly.
       if (!next) await cpu.setLowPower(false);
-      const err = await display.setPower(!next);
+      const err = next ? await screenOff() : await screenOn();
       if (next) await cpu.setLowPower(true);
       if (err !== screenError) {
         screenError = err;
         if (err) console.error(`Sleep: screen ${next ? 'off' : 'on'} failed: ${err}`);
       }
     });
+  }
+
+  async function screenOff() {
+    if (settings.screenOff === 'power') {
+      poweredOff = true;
+      return display.setPower(false);
+    }
+    const b = await display.getBrightness();
+    if (b.error) return b.error;
+    // Already 0 means an earlier dim was never undone; come back to full instead.
+    restoreBrightness = b.value > 0 ? b.value : b.max;
+    await persist();
+    return display.setBrightness(0);
+  }
+
+  async function screenOn() {
+    let err = null;
+    if (poweredOff) {
+      poweredOff = false;
+      err = await display.setPower(true);
+    }
+    if (restoreBrightness !== null) {
+      err = (await display.setBrightness(restoreBrightness)) ?? err;
+      restoreBrightness = null;
+      await persist();
+    }
+    return err;
   }
 
   function shouldSleep(t) {
@@ -308,7 +374,14 @@ export function createSleep({
       started = true;
       touch.start(() => wake('touch'));
       // Undoes a low-power CPU left over from a restart while asleep.
-      if (!asleep) power = power.then(() => cpu.setLowPower(false));
+      // Also undoes a dimmed backlight, and lights an output left powered down.
+      if (!asleep)
+        power = power.then(async () => {
+          await ready;
+          await cpu.setLowPower(false);
+          if (settings.screenOff === 'power') poweredOff = true;
+          await screenOn();
+        });
       void ready.then(() => {
         evaluate();
         timer = setInterval(evaluate, tickMs);
@@ -324,7 +397,7 @@ export function createSleep({
       if (method === 'GET' && !action) return status();
       if (method === 'PUT' && action === 'settings') {
         settings = validateSettings(body, settings);
-        await save({ settings });
+        await persist();
         // Changing the hours shouldn't black out the screen under the finger that changed them.
         lastActivity = now();
         evaluate();
