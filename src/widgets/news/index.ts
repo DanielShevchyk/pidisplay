@@ -39,7 +39,7 @@ interface Cached {
   sections: Section[];
 }
 
-/** Dan picked Sacramento + California news over the weather's Citrus Heights. */
+/** Dan wants California news; the city part only matters for the "City only" option. */
 const DEFAULT_LOCATION = 'Sacramento, CA';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
@@ -50,7 +50,7 @@ const ICONS: Record<SectionId, string> = { world: '🌍', us: '🇺🇸', state:
 export default defineWidget<NewsConfig>({
   type: 'news',
   name: 'News',
-  description: 'Top world, U.S., state and local headlines',
+  description: 'Top world, U.S. and state headlines',
   icon: '📰',
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
@@ -62,20 +62,20 @@ export default defineWidget<NewsConfig>({
       label: 'Show',
       type: 'select',
       options: [
-        { value: 'all', label: 'World, U.S., state and local' },
+        { value: 'all', label: 'World, U.S. and state' },
         { value: 'world', label: 'World only' },
         { value: 'us', label: 'U.S. only' },
         { value: 'state', label: 'State only' },
         { value: 'local', label: 'City only' },
       ],
     },
-    { key: 'location', label: 'State and city news for (blank = Sacramento, CA)', type: 'text', placeholder: 'City, ST' },
+    { key: 'location', label: 'State (and city) for news (blank = Sacramento, CA)', type: 'text', placeholder: 'City, ST' },
     { key: 'rotateSeconds', label: 'Rotate every (seconds, 0 = off)', type: 'number', min: 0, max: 600, step: 5 },
   ],
 
   mount(el, { config, placement, storage }) {
     const location = config.location.trim() || DEFAULT_LOCATION;
-    const ids: SectionId[] = config.section === 'all' ? ['world', 'us', 'state', 'local'] : [config.section];
+    const ids: SectionId[] = config.section === 'all' ? ['world', 'us', 'state'] : [config.section];
     const root = h('div', { class: `news size-${placement}` });
     el.append(root);
 
