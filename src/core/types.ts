@@ -44,10 +44,16 @@ export const SIZE_LABELS: Record<LayoutSize, string> = {
   column: 'Left/right half',
 };
 
-/** The [columns, rows] a tile of this size occupies on a grid of the given dimensions. */
+/**
+ * The CSS grid uses two tracks per layout cell, so halves are exact even when the
+ * grid has an odd number of columns or rows. Cell sizes are unchanged by this.
+ */
+export const TRACKS_PER_CELL = 2;
+
+/** The [column, row] grid tracks a tile of this size spans on a grid of the given cells. */
 export function tileSpan(size: LayoutSize, columns: number, rows: number): [number, number] {
   const [c, r] = SIZE_SPANS[size] ?? SIZE_SPANS.small;
-  const fit = (n: number, max: number) => (n === 0 ? Math.max(1, Math.floor(max / 2)) : Math.min(n, max));
+  const fit = (n: number, max: number) => (n === 0 ? max : Math.min(n, max) * TRACKS_PER_CELL);
   return [fit(c, columns), fit(r, rows)];
 }
 

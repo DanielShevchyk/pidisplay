@@ -16,6 +16,7 @@ import {
   WIDE_RENDER_AS,
   renderSize,
   tileSpan,
+  TRACKS_PER_CELL,
   type LayoutSize,
   type WideSize,
   type Layout,
@@ -120,8 +121,8 @@ export class App {
   /** Reconcile the DOM with this.layout, reusing widget instances that didn't change. */
   private sync() {
     const { settings, pages, topBar } = this.layout;
-    this.main.style.setProperty('--cols', String(settings.columns));
-    this.main.style.setProperty('--rows', String(settings.rows));
+    this.main.style.setProperty('--cols', String(settings.columns * TRACKS_PER_CELL));
+    this.main.style.setProperty('--rows', String(settings.rows * TRACKS_PER_CELL));
 
     const seenBar = new Set<string>();
     for (const side of ['left', 'right'] as BarSide[]) {
