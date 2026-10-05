@@ -1,0 +1,10 @@
+# Daily at 03:30 local time; Persistent: a backup missed while the Pi was off runs at boot.
+[Unit]
+Description=Back up the Farewatcher database nightly
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

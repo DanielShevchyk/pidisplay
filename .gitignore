@@ -2,3 +2,10 @@ node_modules/
 dist/
 data/
 *.tmp
+
+# Farewatcher: runtime data and secrets stay on the Pi
+farewatcher/*.db
+farewatcher/backups/
+farewatcher/*.log
+farewatcher/config.json
+farewatcher/__pycache__/

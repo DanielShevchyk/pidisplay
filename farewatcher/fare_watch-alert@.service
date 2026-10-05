@@ -1,0 +1,11 @@
+# Sends "Farewatcher run FAILED" via the ntfy topic in config.json (and PiDisplay).
+# Triggered by OnFailure=fare_watch-alert@%n.service; %i is the failed unit's name.
+[Unit]
+Description=Farewatcher failure alert for %i
+
+[Service]
+Type=oneshot
+User=dan
+WorkingDirectory=/home/dan/fare_watch
+EnvironmentFile=/etc/fare_watch.env
+ExecStart=/usr/bin/python3 /home/dan/fare_watch/fare_watch.py --notify-failure %i

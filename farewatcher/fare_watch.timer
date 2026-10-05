@@ -1,0 +1,11 @@
+# Daily at 8:00 local time (America/Los_Angeles), same as the old laptop task.
+# Persistent: a run missed while the Pi was off happens at the next boot.
+[Unit]
+Description=Run Farewatcher daily
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

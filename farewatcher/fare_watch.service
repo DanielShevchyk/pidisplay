@@ -1,0 +1,16 @@
+# Farewatcher daily run on the Pi. Installed to /etc/systemd/system/; started by fare_watch.timer.
+# Secrets and PiDisplay settings come from /etc/fare_watch.env (root-only).
+[Unit]
+Description=Farewatcher daily fare check
+Wants=network-online.target
+After=network-online.target pidisplay.service
+# Push an ntfy alert if a run fails (see fare_watch-alert@.service).
+OnFailure=fare_watch-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dan
+WorkingDirectory=/home/dan/fare_watch
+EnvironmentFile=/etc/fare_watch.env
+ExecStart=/usr/bin/python3 /home/dan/fare_watch/fare_watch.py --log /home/dan/fare_watch/fare_watch.log
+TimeoutStartSec=30min

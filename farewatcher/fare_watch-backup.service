@@ -1,0 +1,10 @@
+# Nightly consistent copy of fares.db (SQLite online backup) into ~/fare_watch/backups, keeps 14.
+[Unit]
+Description=Farewatcher database backup
+OnFailure=fare_watch-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dan
+WorkingDirectory=/home/dan/fare_watch
+ExecStart=/usr/bin/python3 /home/dan/fare_watch/fare_watch.py --backup /home/dan/fare_watch/backups

@@ -1,0 +1,116 @@
+{
+  "travelpayouts_token": "",
+  "currency": "usd",
+  "origins": [
+    "SMF",
+    "SFO",
+    "OAK",
+    "SJC"
+  ],
+  "_compare_origins_note": "Always shown side by side in every alert, even when another airport is cheaper",
+  "compare_origins": [
+    "SFO",
+    "SMF"
+  ],
+  "_origin_allowance_note": "Extra $ you'd pay to fly from this airport: it alerts on its own at target + this amount, and alerts mark whether its price gap is within it",
+  "origin_allowance": {
+    "SMF": 250
+  },
+  "_destinations_note": "IATA city codes -> round-trip USD alert threshold",
+  "destinations": {
+    "TYO": 750,
+    "SEL": 700,
+    "LON": 650,
+    "PAR": 675,
+    "IST": 800,
+    "WAW": 650,
+    "SYD": 1000,
+    "AKL": 1000,
+    "YVR": 275,
+    "AMS": 700,
+    "MNL": 650,
+    "MUC": 750,
+    "FRA": 700
+  },
+  "_events_note": "Fixed-date trips checked directly on Google Flights (live_check origins), with their own target. Checks start once Google sells the dates (~horizon_days ahead) and repeat every check_every_days. Each check = 1 SerpApi search per origin.",
+  "events": [
+    {
+      "name": "Oktoberfest (opening)",
+      "dest": "MUC",
+      "depart": "2027-09-17",
+      "return": "2027-09-26",
+      "target": 1100,
+      "tag": "beer"
+    },
+    {
+      "name": "Oktoberfest (middle)",
+      "dest": "MUC",
+      "depart": "2027-09-22",
+      "return": "2027-10-01",
+      "target": 1100,
+      "tag": "beer"
+    }
+  ],
+  "event_settings": {
+    "check_every_days": 3.5,
+    "horizon_days": 330
+  },
+  "months_ahead": 12,
+  "trip": {
+    "one_way": false,
+    "return_offset_months": null
+  },
+  "request_delay_sec": 0.5,
+  "alerting": {
+    "drop_vs_median": 0.25,
+    "history_window_days": 30,
+    "min_history_days": 7,
+    "realert_drop": 0.03,
+    "realert_cooldown_days": 14,
+    "max_alerts_per_run": 8
+  },
+  "_weather_note": "Typical weather for each alert's trip dates, averaged over the same dates in past years. units: fahrenheit or celsius",
+  "weather": {
+    "enabled": true,
+    "years": 5,
+    "units": "fahrenheit"
+  },
+  "_charts_note": "Attach a price chart image to each alert (rendered by quickchart.io; only price numbers are sent)",
+  "charts": {
+    "enabled": true,
+    "_min_own_history_note": "When Google has no price history, chart our own saved daily prices once this many days exist",
+    "min_own_history_days": 7
+  },
+  "_live_check_note": "Live Google Flights price (SerpApi, key in SERPAPI_KEY env var) for deals about to alert. Free plan = 250 searches/month; each deal costs 1 search per origin",
+  "live_check": {
+    "enabled": true,
+    "origins": [
+      "SFO",
+      "SMF"
+    ],
+    "max_searches_per_run": 6,
+    "reserve_searches": 10,
+    "_confirm_note": "Skip an alert if the live price no longer beats the target. confirm_leeway 0.05 = still alert when live is up to 5% over target",
+    "require_live_confirmation": true,
+    "confirm_leeway": 0.02,
+    "_recheck_note": "If the same destination + dates was live-checked within this many days and was over target, skip it without spending searches",
+    "recheck_after_days": 3
+  },
+  "notify": {
+    "ntfy_server": "https://ntfy.sh",
+    "ntfy_topic": "replace-with-a-long-random-topic",
+    "_priority_note": "Priority 5 (urgent) when the price is at least 25% under target, 4 (high) at 10%+, else 3 (normal)",
+    "urgent_below_target": 0.25,
+    "high_below_target": 0.1,
+    "email": {
+      "enabled": false,
+      "smtp_host": "smtp.example.com",
+      "smtp_port": 465,
+      "username": "you@example.com",
+      "password": "",
+      "from": "you@example.com",
+      "to": "you@example.com"
+    }
+  },
+  "_travelpayouts_token_note": "Leave empty; set TRAVELPAYOUTS_TOKEN in /etc/fare_watch.env instead"
+}
