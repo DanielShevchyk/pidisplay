@@ -38,6 +38,8 @@ const FLICK_PX_PER_MS = 0.3;
 const FLICK_MIN_PX = 40;
 const SWIPE_START_PX = 12;
 const EDGE_RESISTANCE = 0.3;
+// A little longer than the .track slide in styles.css.
+const WAKE_AFTER_SLIDE_MS = 450;
 const DRAG_START_PX = 10;
 const REORDER_COOLDOWN_MS = 220;
 
@@ -65,6 +67,7 @@ export class App {
   /** The wall display unmounts every widget while its screen sleeps, so nothing refreshes or animates. */
   private paused = false;
   private saveTimer = 0;
+  private wakeTimer = 0;
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
   private barRight = h('div', { class: 'bar-slot bar-right' });
@@ -311,10 +314,18 @@ export class App {
     const from = this.page;
     this.page = ((index % count) + count) % count;
     this.lastPageChange = Date.now();
-    this.wakePages();
     // Sliding across several pages (wrapping around, or a far dot) would drag
     // every page in between across the screen; a quick fade is cheaper and calmer.
     const jump = animate && Math.abs(this.page - from) > 1;
+    // Drawing the page beyond the new one is real work on the Pi, so during a
+    // slide only the arriving page is woken and the rest waits until it settles.
+    clearTimeout(this.wakeTimer);
+    if (animate && !jump) {
+      this.track.children[this.page]?.classList.remove('asleep');
+      this.wakeTimer = window.setTimeout(() => this.wakePages(), WAKE_AFTER_SLIDE_MS);
+    } else {
+      this.wakePages();
+    }
     this.track.style.transition = animate && !jump ? '' : 'none';
     this.track.style.transform = `translate3d(${-100 * this.page}%, 0, 0)`;
     if (jump) this.main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
@@ -337,6 +348,8 @@ export class App {
    * don't cost the Pi anything, and a swipe only has to draw two pages.
    */
   private wakePages() {
+    clearTimeout(this.wakeTimer);
+    this.wakeTimer = 0;
     const pages = this.track.children;
     const count = pages.length;
     for (let i = 0; i < count; i++) {
@@ -392,6 +405,8 @@ export class App {
         if (Math.abs(dx) < Math.abs(dy) * 1.2) return void (drag = null);
         drag.following = true;
         this.track.style.transition = 'none';
+        // A swipe straight after the last one needs the page beyond it drawn now.
+        if (this.wakeTimer) this.wakePages();
         // Keep getting the moves even when the finger passes over a map or other frame.
         this.main.setPointerCapture(e.pointerId);
       }

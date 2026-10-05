@@ -9,6 +9,8 @@ Wants=pipewire.service wireplumber.service
 
 [Service]
 Environment=PIDISPLAY_DATA=%h/pidisplay-data
+# Listening for the wake word runs all the time; give way to the dashboard so swipes stay smooth.
+Nice=10
 ExecStart=%h/pidisplay-data/voice/venv/bin/python -u %h/pidisplay/voice/pidisplay_voice.py
 Restart=always
 RestartSec=10
