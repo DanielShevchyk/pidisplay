@@ -11,6 +11,20 @@ interface FaresConfig {
 }
 
 /** Mirrors farewatcher.json, written by fare_watch.py and served by GET /api/fares. */
+/** The same trip from another home airport (e.g. SMF for an SFO deal). */
+interface Alternate {
+  origin: string;
+  price: number;
+  departDate: string | null;
+  returnDate: string | null;
+  stops: number | null;
+  airline: string | null;
+  /** False when no fare matched the exact dates and a nearby one (±3 days) was used. */
+  sameDates: boolean;
+  verified?: boolean;
+  livePrice?: number | null;
+}
+
 interface Low {
   price: number;
   origin: string | null;
@@ -21,6 +35,7 @@ interface Low {
   verified: boolean;
   livePrice: number | null;
   link: string | null;
+  alternates?: Alternate[];
 }
 
 interface Destination {
@@ -51,6 +66,7 @@ interface Deal {
   link: string | null;
   foundAt: string | null;
   event: string | null;
+  alternates?: Alternate[];
 }
 
 interface Summary {
@@ -219,6 +235,7 @@ function dealHero(deal: Deal, money: (n: number) => string, d: Summary, compact:
     ),
     !compact && deal.event && h('div', { class: 'fares-meta' }, `🎟 ${deal.event}`),
     under !== null && under > 0 && h('div', { class: 'fares-under' }, `${money(under)} under target`),
+    ...alternates(deal, money, compact),
   );
 }
 
@@ -309,6 +326,7 @@ function openDetail(dest: Destination, d: Summary) {
             { class: 'fares-meta' },
             [x.origin, dateRange(x.departDate, x.returnDate), stops(x.stops), x.bags].filter(Boolean).join(' · '),
           ),
+          ...alternates(x, money),
           x.event && h('div', { class: 'fares-meta' }, `🎟 ${x.event}`),
           x.weather &&
             h(
@@ -340,6 +358,25 @@ function checkedAt(d: Summary) {
       ? when.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
       : '–';
   return h('span', { class: 'fares-checked', title: 'Last fare check' }, text);
+}
+
+/** One line per other home airport: "SMF $612 (+$45) · same dates"; dates dropped when compact. */
+function alternates(
+  x: { price: number; livePrice: number | null; alternates?: Alternate[] },
+  money: (n: number) => string,
+  compact = false,
+) {
+  return (x.alternates ?? []).map((a) => {
+    const diff = best(a) - best(x);
+    const sign = diff > 0 ? `+${money(diff)}` : diff < 0 ? `−${money(-diff)}` : 'same price';
+    return h(
+      'div',
+      { class: `fares-alt${diff < 0 ? ' cheaper' : ''}` },
+      h('span', { class: 'fares-alt-origin' }, a.origin),
+      ` ${money(best(a))} (${sign})`,
+      !compact && ` · ${a.sameDates ? 'same dates' : dateRange(a.departDate, a.returnDate)}`,
+    );
+  });
 }
 
 function badge(verified: boolean) {
@@ -419,7 +456,7 @@ function moneyFormat(currency: string) {
 }
 
 /** The price to show: Google's live price when it was checked, else the cached fare. */
-function best(x: { price: number; livePrice: number | null }) {
+function best(x: { price: number; livePrice?: number | null }) {
   return x.livePrice ?? x.price;
 }
 

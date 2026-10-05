@@ -64,6 +64,9 @@
 .fares-price.dim { color: var(--text); }
 .fares-meta { color: var(--text-dim); font-size: 0.85em; }
 .fares-under { color: var(--success); font-size: 0.85em; font-weight: 500; }
+.fares-alt { color: var(--text-dim); font-size: 0.85em; font-variant-numeric: tabular-nums; }
+.fares-alt.cheaper { color: var(--success); }
+.fares-alt-origin { font-weight: 600; color: var(--text); }
 .fares-none { color: var(--text-dim); font-size: clamp(14px, 5cqh, 22px); }
 
 .fares-badge {
