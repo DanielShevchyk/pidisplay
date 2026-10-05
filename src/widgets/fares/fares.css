@@ -151,3 +151,20 @@
 .fares-qr { width: 220px; height: 220px; border-radius: 12px; background: #fff; flex: none; }
 .fares-tickets-side { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
 .fares-tickets-status { color: var(--text-dim); font-size: 16px; min-height: 1.2em; }
+
+/* ---- Home airport switch ---- */
+
+.fares-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none; }
+.fares-footer .fares-status { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fares-origin { display: flex; flex: none; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.fares .fares-origin button {
+  min-width: 52px;
+  min-height: 36px;
+  padding: 0 12px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.fares .fares-origin button.active { background: var(--accent); color: #fff; }
+

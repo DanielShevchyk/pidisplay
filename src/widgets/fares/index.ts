@@ -38,14 +38,19 @@ interface Low {
   alternates?: Alternate[];
 }
 
-interface Destination {
+interface OriginData {
+  currentLow: Low | null;
+  median30: number | null;
+  history: { date: string; low: number }[];
+  monthly: { month: string; low: number | null }[];
+}
+
+interface Destination extends OriginData {
   code: string;
   name: string | null;
   target: number | null;
-  median30: number | null;
-  currentLow: Low | null;
-  history: { date: string; low: number }[];
-  monthly: { month: string; low: number | null }[];
+  /** Per home airport, added Oct 2026; older summaries don't have it. */
+  byOrigin?: Record<string, OriginData>;
 }
 
 interface Deal {
@@ -91,6 +96,16 @@ interface Summary {
 
 type Response = Summary | { available: false };
 
+/** Home airports the switch flips between. */
+const ORIGINS = ['SFO', 'SMF'] as const;
+type Origin = (typeof ORIGINS)[number];
+
+/** Shared by every Fares tile, so one tap flips them all. */
+interface Shared {
+  summary: Response | null;
+  origin: Origin;
+}
+
 const REFRESH_MS = 5 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 
@@ -114,6 +129,7 @@ export default defineWidget<FaresConfig>({
     const root = h('div', { class: `fares size-${placement}` });
     el.append(root);
     let data: Response | null = null;
+    let origin: Origin = 'SFO';
     let failed = '';
     let timer = 0;
     let alive = true;
@@ -127,8 +143,19 @@ export default defineWidget<FaresConfig>({
         root.replaceChildren(message('✈️', 'Waiting for the first Farewatcher run'));
         return;
       }
-      root.replaceChildren(render(data, config, placement, failed));
+      const flip = (o: Origin) => {
+        origin = o;
+        paint();
+        saveShared();
+      };
+      root.replaceChildren(render(forOrigin(data, origin), config, placement, failed, originSwitch(origin, flip)));
     };
+
+    const saveShared = () => sharedStorage.save({ summary: data, origin } satisfies Shared).catch(() => {});
+
+    // Older versions stored the bare summary here.
+    const readShared = (v: Shared | Response | null): Shared =>
+      v && 'origin' in v ? v : { summary: (v as Response | null) ?? null, origin: 'SFO' };
 
     const refresh = async () => {
       clearTimeout(timer);
@@ -140,7 +167,7 @@ export default defineWidget<FaresConfig>({
         if (!alive) return;
         data = body;
         failed = '';
-        sharedStorage.save(body).catch(() => {});
+        saveShared();
       } catch (err) {
         if (!alive) return;
         failed = err instanceof Error ? err.message : String(err);
@@ -152,14 +179,30 @@ export default defineWidget<FaresConfig>({
 
     // Show the last summary right away (e.g. after a reboot), then refresh.
     sharedStorage
-      .load<Response | null>(null)
+      .load<Shared | Response | null>(null)
       .catch(() => null)
-      .then((cached) => {
+      .then((stored) => {
         if (!alive) return;
-        if (cached && !data) data = cached;
+        const shared = readShared(stored);
+        if (shared.summary && !data) data = shared.summary;
+        origin = shared.origin;
         paint();
         refresh();
       });
+
+    // Another tile flipped the switch.
+    const offShared = sharedStorage.onChange(() => {
+      sharedStorage
+        .load<Shared | Response | null>(null)
+        .then((stored) => {
+          const next = readShared(stored).origin;
+          if (alive && next !== origin) {
+            origin = next;
+            paint();
+          }
+        })
+        .catch(() => {});
+    });
 
     // Farewatcher posts a notification at the end of a run that found deals.
     on('notification', (n: { source?: string }) => {
@@ -170,18 +213,119 @@ export default defineWidget<FaresConfig>({
       destroy() {
         alive = false;
         clearTimeout(timer);
+        offShared();
       },
     };
   },
 });
 
+// ---- Home airport switch ----------------------------------------------
+
+function originSwitch(current: Origin, flip: (o: Origin) => void) {
+  return h(
+    'div',
+    { class: 'fares-origin', role: 'group', 'aria-label': 'Home airport' },
+    ...ORIGINS.map((o) =>
+      h(
+        'button',
+        {
+          class: o === current ? 'active' : '',
+          'aria-pressed': String(o === current),
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            if (o !== current) flip(o);
+          },
+        },
+        o,
+      ),
+    ),
+  );
+}
+
+/**
+ * The summary as seen from one home airport: every destination's low, history and months
+ * come from that airport, and deals are that airport's own plus other-airport deals whose
+ * same trip from here is also under target.
+ */
+function forOrigin(d: Summary, origin: Origin): Summary {
+  const destinations = d.destinations.map((dest): Destination => {
+    const own = dest.byOrigin?.[origin];
+    if (own) return { ...dest, ...own };
+    // Older summary: use the overall low when it's from here, else its same-trip alternate.
+    const low = dest.currentLow;
+    const alt = low?.alternates?.find((a) => a.origin === origin);
+    return {
+      ...dest,
+      currentLow: low?.origin === origin ? low : alt ? lowFromAlternate(alt, dest.code) : null,
+    };
+  });
+
+  const deals: Deal[] = [];
+  for (const deal of d.deals) {
+    if (deal.origin === origin) {
+      deals.push(deal);
+      continue;
+    }
+    const alt = deal.alternates?.find((a) => a.origin === origin);
+    if (!alt || (deal.target && best(alt) > deal.target)) continue;
+    const { alternates: _, ...rest } = deal;
+    deals.push({
+      ...rest,
+      ...lowFromAlternate(alt, deal.code),
+      // The original deal becomes this one's "other airport" line.
+      alternates: deal.origin
+        ? [
+            {
+              origin: deal.origin,
+              price: deal.price,
+              departDate: deal.departDate,
+              returnDate: deal.returnDate,
+              stops: deal.stops,
+              airline: null,
+              sameDates: alt.sameDates,
+              verified: deal.verified,
+              livePrice: deal.livePrice,
+            },
+          ]
+        : [],
+    });
+  }
+  deals.sort((a, b) => dealRatio(a) - dealRatio(b));
+  return { ...d, destinations, deals };
+}
+
+function lowFromAlternate(a: Alternate, code: string): Low {
+  return {
+    price: a.price,
+    origin: a.origin,
+    departDate: a.departDate,
+    returnDate: a.returnDate,
+    stops: a.stops,
+    airline: a.airline,
+    verified: Boolean(a.verified),
+    livePrice: a.livePrice ?? null,
+    link: flightsLink(a.origin, code, a.departDate, a.returnDate),
+  };
+}
+
+/** Google Flights search for a route and dates, the same form fare_watch.py links to. */
+function flightsLink(origin: string, code: string, depart: string | null, ret: string | null) {
+  if (!depart) return null;
+  const q = `Flights from ${origin} to ${code} on ${depart.slice(0, 10)}${ret ? ` through ${ret.slice(0, 10)}` : ''}`;
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
+}
+
+function dealRatio(x: Deal) {
+  return x.target ? best(x) / x.target : 10 + best(x);
+}
+
 // ---- Rendering ----------------------------------------------------------
 
-function render(d: Summary, config: FaresConfig, placement: Placement, failed: string) {
+function render(d: Summary, config: FaresConfig, placement: Placement, failed: string, toggle: HTMLElement) {
   const money = moneyFormat(d.currency);
   const deals = d.deals.filter((x) => config.showUnverified || x.verified);
   const featured = config.featured.trim().toUpperCase();
-  const footer = status(d, failed);
+  const footer = h('div', { class: 'fares-footer' }, status(d, failed), toggle);
 
   if (placement === 'small') {
     const deal = (featured && deals.find((x) => x.code.toUpperCase() === featured)) || (!featured && deals[0]);
