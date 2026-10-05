@@ -102,7 +102,7 @@ export function createNews({ fetchImpl = globalThis.fetch, now = () => Date.now(
 
   async function state(location) {
     const place = localPlace(location);
-    if (!place?.state) throw new NewsError(400, 'Add a US state to the location, e.g. Sacramento, CA');
+    if (!place?.state) throw new NewsError(400, 'Add a US state to the location, e.g. Austin, TX');
     return { label: place.state, ...(await feed(`${BASE}/headlines/section/geo/${encodeURIComponent(place.state)}?${LOCALE}`)) };
   }
 

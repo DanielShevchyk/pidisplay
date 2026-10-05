@@ -484,7 +484,8 @@ export function createVoice({
     const configs = await widgetConfig('weather');
     const own = configs.map((c) => String(c.location ?? '').trim()).find(Boolean);
     const shared = await readStore('weather', null).catch(() => null);
-    const location = own || String(shared?.location ?? '').trim() || 'Citrus Heights, CA';
+    const home = await readStore('home', null).catch(() => null);
+    const location = own || String(shared?.location ?? '').trim() || String(home?.location ?? '').trim();
     const units = configs.find((c) => c.units)?.units === 'metric' ? 'metric' : 'imperial';
     return { location, units };
   }
@@ -560,6 +561,7 @@ export function createVoice({
     let location = place.location;
     if (where && !dayWords.test(where[1]) && !/^(the )?(house|home|here|outside)$/.test(where[1])) location = where[1];
 
+    if (!location) return fail('Set a location on a weather tile first, then ask me again.');
     let data;
     try {
       data = await weather.get(location, place.units);
@@ -1431,7 +1433,10 @@ export function createVoice({
 
   async function newsReport(t) {
     const configs = await widgetConfig('news');
-    const location = configs.map((c) => String(c.location ?? '').trim()).find(Boolean) || 'Sacramento, CA';
+    const home = await readStore('home', null).catch(() => null);
+    const location =
+      configs.map((c) => String(c.location ?? '').trim()).find(Boolean) ||
+      String(home?.newsLocation || home?.location || '').trim();
     const section = /\b(local|around here|nearby|my area|city)\b/.test(t)
       ? 'local'
       : /\b(state|california)\b/.test(t)

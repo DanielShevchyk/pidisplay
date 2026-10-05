@@ -270,8 +270,14 @@ test('lists: add, read, check off, remove, clear', async () => {
   assert.ok(v.events.some(([e, k]) => e === 'store' && k === 'todo'));
 });
 
+test('weather: asks for a location when none is saved', async () => {
+  const v = setup();
+  assert.equal(await v.say("what's the weather"), 'Set a location on a weather tile first, then ask me again.');
+});
+
 test('weather: now, tomorrow, rain, sunset, other places', async () => {
   const v = setup();
+  v.store.set('home', { location: 'Citrus Heights, CA' });
   assert.equal(await v.say("what's the weather"), "Right now it's 72 degrees and partly cloudy. Today's high is 80 and the low is 55.");
   assert.equal(await v.say('will it rain tomorrow'), 'Yes, rain is likely tomorrow, with a 80 percent chance.');
   assert.equal(await v.say('is it going to rain today'), 'Rain is likely around 3 PM, with a 60 percent chance.');

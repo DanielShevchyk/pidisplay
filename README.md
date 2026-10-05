@@ -87,6 +87,13 @@ Add `?kiosk` to the URL to hide the mouse cursor, as the Pi does.
 | `HOST` | `127.0.0.1` | Bind address. Set `0.0.0.0` to edit the dashboard from a phone or laptop on your LAN. The API has no login, so only do this on a network you trust. |
 | `PIDISPLAY_DATA` | `./data` | Where the layout and widget data are stored (plain JSON files, easy to back up) |
 
+Weather and news tiles start with no location; enter one in a tile's ⚙ settings and other blank weather tiles follow it. To give every blank tile (and voice answers) a fallback, save it on the display:
+
+```bash
+curl -X PUT localhost:8080/api/store/home -H 'Content-Type: application/json' \
+  -d '{"location":"Austin, TX","newsLocation":"Austin, TX"}'
+```
+
 ## Running it on a Raspberry Pi
 
 The [`deploy/`](deploy) folder holds everything the Pi needs:

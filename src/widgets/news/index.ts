@@ -1,4 +1,5 @@
 import { h } from '../../core/dom';
+import { homeSettings } from '../../core/home';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import './news.css';
@@ -8,7 +9,7 @@ type SectionId = 'world' | 'us' | 'state' | 'local';
 interface NewsConfig {
   /** 'all' or a single section id. */
   section: 'all' | SectionId;
-  /** "City, ST" for the state and city sections; blank = DEFAULT_LOCATION. */
+  /** "City, ST" for the state and city sections; blank = the display's home location, if saved. */
   location: string;
   /** Seconds between switching sections (lists) or headlines (small tile, top bar); 0 = off. */
   rotateSeconds: number;
@@ -39,8 +40,6 @@ interface Cached {
   sections: Section[];
 }
 
-/** Dan wants California news; the city part only matters for the "City only" option. */
-const DEFAULT_LOCATION = 'Sacramento, CA';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 /** After a tap, hold the chosen section this long before rotating again. */
@@ -69,13 +68,17 @@ export default defineWidget<NewsConfig>({
         { value: 'local', label: 'City only' },
       ],
     },
-    { key: 'location', label: 'State (and city) for news (blank = Sacramento, CA)', type: 'text', placeholder: 'City, ST' },
+    { key: 'location', label: 'State (and city) for news (needed for state and city news)', type: 'text', placeholder: 'City, ST' },
     { key: 'rotateSeconds', label: 'Rotate every (seconds, 0 = off)', type: 'number', min: 0, max: 600, step: 5 },
   ],
 
   mount(el, { config, placement, storage }) {
-    const location = config.location.trim() || DEFAULT_LOCATION;
-    const ids: SectionId[] = config.section === 'all' ? ['world', 'us', 'state'] : [config.section];
+    let location = config.location.trim();
+    let ids: SectionId[] = [];
+    // Without a location there is no state or city to show, so "all" is World and U.S.
+    const pickSections = () =>
+      (ids = config.section === 'all' ? (location ? ['world', 'us', 'state'] : ['world', 'us']) : [config.section]);
+    pickSections();
     const root = h('div', { class: `news size-${placement}` });
     el.append(root);
 
@@ -179,8 +182,18 @@ export default defineWidget<NewsConfig>({
     storage
       .load<Cached | null>(null)
       .catch(() => null)
-      .then((cached) => {
+      .then(async (cached) => {
         if (!alive) return;
+        if (!location) {
+          const home = await homeSettings();
+          if (!alive) return;
+          location = (home.newsLocation || home.location || '').trim();
+          pickSections();
+        }
+        if ((config.section === 'state' || config.section === 'local') && !location) {
+          root.replaceChildren(placement === 'bar' ? '' : message('📰', 'Set a city and state in ⚙ settings'));
+          return;
+        }
         if (cached?.query === query()) sections = cached.sections;
         paint();
         rotate();

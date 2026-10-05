@@ -1,6 +1,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
+import { homeSettings } from '../../core/home';
 import { aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
 import './weather.css';
 
@@ -81,8 +82,8 @@ interface Cached {
   data: Forecast;
 }
 
-/** Used until a location is set on any weather tile. */
-const DEFAULT_LOCATION = 'Citrus Heights, CA';
+/** Used until a location is set on any weather tile: the display's saved home location, if any. */
+const fallbackLocation = async () => (await homeSettings()).location?.trim() || '';
 const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 
@@ -118,7 +119,7 @@ export default defineWidget<WeatherConfig>({
   supportsBar: true,
   defaultConfig: { location: '', units: 'imperial', label: '', showAirQuality: true, view: 'split', mapLayer: 'rain' },
   settings: [
-    { key: 'location', label: 'Location (blank = same as other weather tiles, or Citrus Heights)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
+    { key: 'location', label: 'Location (blank = same as other weather tiles)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
     {
       key: 'units',
       label: 'Units',
@@ -162,7 +163,7 @@ export default defineWidget<WeatherConfig>({
 
     const paint = () => {
       if (!location) {
-        root.replaceChildren(message('⛅', placement === 'bar' ? '' : 'Set a location in ⚙ settings'));
+        root.replaceChildren(placement === 'bar' ? '' : message('⛅', 'Set a location in ⚙ settings'));
         return;
       }
       if (mapTile && data) {
@@ -227,7 +228,10 @@ export default defineWidget<WeatherConfig>({
     const followShared = () =>
       sharedStorage
         .load<SharedDefault | null>(null)
-        .then((d) => alive && !own && use(d?.location || DEFAULT_LOCATION))
+        .then(async (d) => {
+          const loc = d?.location || (await fallbackLocation());
+          if (alive && !own) use(loc);
+        })
         .catch(() => {});
 
     // Show this tile's last forecast right away (e.g. after a reboot), then refresh.
@@ -241,7 +245,7 @@ export default defineWidget<WeatherConfig>({
           sharedStorage.save({ location: own } satisfies SharedDefault).catch(() => {});
         }
         const shared = own ? null : await sharedStorage.load<SharedDefault | null>(null).catch(() => null);
-        const loc = own || shared?.location || DEFAULT_LOCATION;
+        const loc = own || shared?.location || (await fallbackLocation());
         if (loc && cached?.query === queryFor(loc)) data = cached.data;
         location = loc;
         paint();
