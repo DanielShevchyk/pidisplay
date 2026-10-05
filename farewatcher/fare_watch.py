@@ -1286,6 +1286,45 @@ def _alternates(conn, cfg, dest, origin, dep, ret, since, window_days=3, live_si
     return out
 
 
+def _origin_view(conn, code, origin, latest, months, cut90, cut30, now, recheck):
+    """One home airport's view of a destination for the widget's airport switch: its cheapest
+    current cached fare (else its latest live Google check in the last 14 days), median,
+    90-day daily lows and cheapest per travel month."""
+    current, per_month = None, {}
+    if latest:
+        rows = conn.execute(
+            "SELECT month, price, depart_at, return_at, airline, transfers FROM observations"
+            " WHERE dest=? AND origin=? AND checked_at=? AND month >= ? ORDER BY price",
+            (code, origin, latest, months[0])).fetchall()
+        for r in rows:
+            per_month.setdefault(r[0], r[1])
+        if rows:
+            _, price, dep, ret, airline, stops = rows[0]
+            dep, ret = (dep or "")[:10] or None, (ret or "")[:10] or None
+            live = _live_for(conn, code, origin, dep, ret, (now - timedelta(days=recheck)).isoformat())
+            current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
+                       "stops": stops, "airline": airline, "verified": live is not None, "livePrice": live,
+                       "link": google_flights_link(origin, code, {"departure_at": dep, "return_at": ret})}
+    if current is None:                     # nothing cached from here: use a recent live check
+        row = conn.execute(
+            "SELECT price, depart_date, return_date, stops, airline FROM live_checks"
+            " WHERE dest=? AND origin=? AND checked_at >= ? AND price IS NOT NULL AND depart_date >= ?"
+            " ORDER BY checked_at DESC, price LIMIT 1",
+            (code, origin, (now - timedelta(days=DISPROVED_DAYS)).isoformat(),
+             now.strftime("%Y-%m-%d"))).fetchone()
+        if row:
+            price, dep, ret, stops, airline = row
+            current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
+                       "stops": stops, "airline": airline, "verified": True, "livePrice": price,
+                       "link": google_flights_link(origin, code, {"departure_at": dep, "return_at": ret})}
+    history = [{"date": d_, "low": p} for d_, p in conn.execute(
+        "SELECT substr(checked_at,1,10) AS d, MIN(price) FROM observations WHERE dest=? AND origin=?"
+        " AND substr(checked_at,1,10) >= ? GROUP BY d ORDER BY d", (code, origin, cut90))]
+    lows30 = [x["low"] for x in history if x["date"] >= cut30]
+    return {"currentLow": current, "median30": statistics.median(lows30) if lows30 else None,
+            "history": history, "monthly": [{"month": m, "low": per_month.get(m)} for m in months]}
+
+
 def build_summary(cfg, conn, now=None):
     now = now or datetime.now(timezone.utc).replace(microsecond=0)
     names = cfg.get("place_names") or {}
@@ -1337,9 +1376,12 @@ def build_summary(cfg, conn, now=None):
             " AND substr(checked_at,1,10) >= ? GROUP BY d ORDER BY d", (code, cut90))]
         cut30 = (now - timedelta(days=30)).strftime("%Y-%m-%d")
         lows30 = [h["low"] for h in history if h["date"] >= cut30]
+        by_origin = {o: _origin_view(conn, code, o, latest, months, cut90, cut30, now, recheck)
+                     for o in cfg.get("origins") or []}
         destinations.append({"code": code, "name": place(code, names), "target": target,
                              "median30": statistics.median(lows30) if lows30 else None,
-                             "currentLow": current, "history": history, "monthly": monthly})
+                             "currentLow": current, "history": history, "monthly": monthly,
+                             "byOrigin": by_origin})
 
     # Active deals: the latest alert per destination+month inside the re-alert cooldown,
     # departing in the future. Heads-up event checks above target are not deals.
