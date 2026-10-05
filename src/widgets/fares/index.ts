@@ -360,13 +360,15 @@ function checkedAt(d: Summary) {
   return h('span', { class: 'fares-checked', title: 'Last fare check' }, text);
 }
 
-/** One line per other home airport: "SMF $612 (+$45) · same dates"; dates dropped when compact. */
+/** The other home airport's price: "SMF $612 (+$45) · same dates"; dates dropped when compact. */
 function alternates(
   x: { price: number; livePrice: number | null; alternates?: Alternate[] },
   money: (n: number) => string,
   compact = false,
 ) {
-  return (x.alternates ?? []).map((a) => {
+  // Dan's two home airports: an SFO deal shows SMF, an SMF deal shows SFO (OAK/SJC are skipped).
+  const alt = ['SMF', 'SFO'].map((o) => x.alternates?.find((a) => a.origin === o)).find(Boolean);
+  return (alt ? [alt] : []).map((a) => {
     const diff = best(a) - best(x);
     const sign = diff > 0 ? `+${money(diff)}` : diff < 0 ? `−${money(-diff)}` : 'same price';
     return h(
