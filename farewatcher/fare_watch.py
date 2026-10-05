@@ -268,6 +268,13 @@ CREATE TABLE IF NOT EXISTS sent_alerts (
     push        TEXT                    -- JSON {tags, priority, icon, attach, filename}
 );
 CREATE INDEX IF NOT EXISTS ix_sent_at ON sent_alerts(sent_at);
+-- Airport coordinates for the widget's route map: geocoded once, for codes not in AIRPORTS.
+CREATE TABLE IF NOT EXISTS airports (
+    code  TEXT PRIMARY KEY,
+    name  TEXT,
+    lat   REAL,
+    lon   REAL
+);
 -- One row per normal run, for the PiDisplay summary's "last run" status.
 CREATE TABLE IF NOT EXISTS runs (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -304,7 +311,8 @@ def open_db(path, read_only=False):
     conn.executescript(SCHEMA)
     # Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.
     for table, col, typ in (("fares", "checked_bags", "INTEGER"), ("fares", "bag_kg", "INTEGER"),
-                            ("alerts", "verified", "INTEGER"), ("sent_alerts", "deal_json", "TEXT")):
+                            ("alerts", "verified", "INTEGER"), ("sent_alerts", "deal_json", "TEXT"),
+                            ("live_checks", "legs_json", "TEXT")):
         if col not in [r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)]:
             conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, typ))
     return conn
@@ -345,13 +353,59 @@ def record_fares(conn, origin, dest, month, fares, currency, now_iso):
 
 def record_live(conn, origin, dest, lv, cached_price, now_iso):
     typ = lv.get("typical") or [None, None]
+    legs = None
+    if lv.get("legs"):
+        legs = json.dumps({"legs": lv["legs"], "layovers": lv.get("layovers") or [],
+                           "duration": lv.get("duration"), "carbon_g": lv.get("carbon_g")},
+                          separators=(",", ":"))
     conn.execute(
         "INSERT INTO live_checks (checked_at, origin, dest, depart_date, return_date, price,"
-        " cached_price, airline, stops, duration, price_level, typical_low, typical_high)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " cached_price, airline, stops, duration, price_level, typical_low, typical_high, legs_json)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now_iso, origin, dest, lv.get("depart"), lv.get("return"), lv.get("price"), cached_price,
          lv.get("airline"), len(lv["via"]) if lv.get("via") is not None else None,
-         lv.get("duration"), lv.get("price_level"), typ[0], typ[1] if len(typ) > 1 else None))
+         lv.get("duration"), lv.get("price_level"), typ[0], typ[1] if len(typ) > 1 else None, legs))
+    for leg in lv.get("legs") or []:
+        for code, name in ((leg.get("from"), leg.get("from_name")), (leg.get("to"), leg.get("to_name"))):
+            try:
+                remember_airport(conn, code, name)
+            except Exception as ex:           # the map is a nice-to-have; never block a run
+                log("airport lookup %s failed: %s" % (code, ex))
+
+
+# Airport coordinates for the route map (lat, lon). Unknown codes are geocoded by name.
+AIRPORTS = {
+    "SFO": (37.62, -122.38), "SMF": (38.70, -121.59), "OAK": (37.72, -122.22), "SJC": (37.36, -121.93),
+    "LAX": (33.94, -118.41), "SEA": (47.45, -122.31), "PDX": (45.59, -122.60), "DEN": (39.86, -104.67),
+    "PHX": (33.43, -112.01), "SLC": (40.79, -111.98), "LAS": (36.08, -115.15), "ORD": (41.98, -87.90),
+    "DFW": (32.90, -97.04), "IAH": (29.98, -95.34), "ATL": (33.64, -84.43), "JFK": (40.64, -73.78),
+    "EWR": (40.69, -74.17), "BOS": (42.36, -71.01), "IAD": (38.95, -77.46), "HNL": (21.32, -157.92),
+    "MSP": (44.88, -93.22), "DTW": (42.21, -83.35), "YVR": (49.19, -123.18), "YYZ": (43.68, -79.63),
+    "YYC": (51.13, -114.01), "MEX": (19.44, -99.07), "NRT": (35.77, 140.39), "HND": (35.55, 139.78),
+    "KIX": (34.43, 135.24), "ICN": (37.46, 126.44), "GMP": (37.56, 126.80), "TPE": (25.08, 121.23),
+    "HKG": (22.31, 113.91), "MNL": (14.51, 121.02), "SIN": (1.36, 103.99), "SYD": (-33.95, 151.18),
+    "MEL": (-37.67, 144.84), "AKL": (-37.01, 174.79), "LHR": (51.47, -0.45), "LGW": (51.15, -0.19),
+    "CDG": (49.01, 2.55), "ORY": (48.72, 2.38), "AMS": (52.31, 4.76), "FRA": (50.04, 8.56),
+    "MUC": (48.35, 11.79), "IST": (41.26, 28.74), "SAW": (40.90, 29.31), "WAW": (52.17, 20.97),
+    "DOH": (25.27, 51.61), "DXB": (25.25, 55.36), "ZRH": (47.46, 8.55), "MAD": (40.49, -3.57),
+    "LIS": (38.77, -9.13), "HEL": (60.32, 24.96), "CPH": (55.62, 12.65), "KEF": (63.99, -22.62),
+    "DUB": (53.42, -6.27), "BER": (52.36, 13.50), "VIE": (48.11, 16.57), "FCO": (41.80, 12.25),
+}
+
+
+def remember_airport(conn, code, name=None):
+    """Make sure the airports table can place `code` on the map (bundled table, else geocode)."""
+    if not code or code in AIRPORTS:
+        return
+    if conn.execute("SELECT 1 FROM airports WHERE code=?", (code,)).fetchone():
+        return
+    query = re.sub(r"\s*(International)?\s*Airport$", "", name or "").strip() or place(code).split(",")[0]
+    if not query or query == code:
+        return
+    res = (http_get_json(GEOCODE_URL, {"name": query, "count": 1}, {}).get("results") or [])
+    if res:
+        conn.execute("INSERT OR REPLACE INTO airports (code, name, lat, lon) VALUES (?,?,?,?)",
+                     (code, name, res[0]["latitude"], res[0]["longitude"]))
 
 
 def deal_record(d, click):
@@ -731,16 +785,21 @@ def live_price(key, origin, dest, fare, currency="usd"):
     res["history"] = [(int(t), float(p)) for t, p in (pi.get("price_history") or []) if p]
     # Outbound itinerary (Google's search results don't include the return legs).
     res["legs"] = [{"from": (s.get("departure_airport") or {}).get("id"),
+                    "from_name": (s.get("departure_airport") or {}).get("name"),
+                    "depart": (s.get("departure_airport") or {}).get("time"),  # local time at departure
                     "to": (s.get("arrival_airport") or {}).get("id"),
                     "to_name": (s.get("arrival_airport") or {}).get("name"),
                     "arrive": (s.get("arrival_airport") or {}).get("time"),   # local time at arrival
                     "minutes": s.get("duration"), "airline": s.get("airline"),
-                    "flight": s.get("flight_number")} for s in o.get("flights") or []]
+                    "flight": s.get("flight_number"), "airplane": s.get("airplane"),
+                    "travel_class": s.get("travel_class"), "legroom": s.get("legroom"),
+                    "overnight": bool(s.get("overnight"))} for s in o.get("flights") or []]
     res["layovers"] = [{"id": l.get("id"), "name": l.get("name"), "minutes": l.get("duration"),
                         "overnight": bool(l.get("overnight"))} for l in o.get("layovers") or []]
     res.update(price=float(o["price"]), airline=", ".join(airlines), logo=o.get("airline_logo"),
                via=[l.get("id") for l in o.get("layovers") or []],
-               duration=o.get("total_duration"))
+               duration=o.get("total_duration"),
+               carbon_g=(o.get("carbon_emissions") or {}).get("this_flight"))
     return res
 
 
@@ -1286,6 +1345,53 @@ def _alternates(conn, cfg, dest, origin, dep, ret, since, window_days=3, live_si
     return out
 
 
+def _itinerary(conn, dest, origin, dep, ret, since):
+    """Outbound legs and layovers from the latest live check on these exact dates, or None.
+    Google prices the whole trip, so there is no per-leg cost."""
+    if not dep or not origin:
+        return None
+    row = conn.execute(
+        "SELECT price, legs_json FROM live_checks WHERE dest=? AND origin=? AND depart_date=?"
+        " AND return_date IS ? AND checked_at >= ? AND legs_json IS NOT NULL"
+        " ORDER BY checked_at DESC LIMIT 1", (dest, origin, dep, ret or None, since)).fetchone()
+    if not row:
+        return None
+    it = json.loads(row[1])
+    carbon = it.get("carbon_g")
+    return {"legs": [{"from": l.get("from"), "fromName": l.get("from_name"), "to": l.get("to"),
+                      "toName": l.get("to_name"), "departTime": l.get("depart"), "arriveTime": l.get("arrive"),
+                      "durationMin": l.get("minutes"), "airline": l.get("airline"),
+                      "flightNumber": l.get("flight"), "airplane": l.get("airplane"),
+                      "travelClass": l.get("travel_class"), "legroom": l.get("legroom"),
+                      "overnight": bool(l.get("overnight"))} for l in it.get("legs") or []],
+            "layovers": [{"airport": l.get("id"), "name": l.get("name"), "durationMin": l.get("minutes"),
+                          "overnight": bool(l.get("overnight"))} for l in it.get("layovers") or []],
+            "totalDurationMin": it.get("duration"), "price": row[0],
+            "carbonKg": round(carbon / 1000) if carbon else None}
+
+
+def _airport_coords(conn, codes, names=None):
+    """{code: {name, lat, lon}} for codes we can place: bundled airports, geocoded ones, metro codes."""
+    out = {}
+    for code in sorted(c for c in codes if c):
+        row = None
+        try:
+            row = conn.execute("SELECT name, lat, lon FROM airports WHERE code=?", (code,)).fetchone()
+        except sqlite3.OperationalError:
+            pass
+        if code in AIRPORTS:
+            lat, lon = AIRPORTS[code]
+        elif row:
+            lat, lon = row[1], row[2]
+        elif code in COORDS:
+            lat, lon = COORDS[code]
+        else:
+            continue
+        out[code] = {"name": place(code, names) if code in PLACES or (names or {}).get(code)
+                     else (row[0] if row and row[0] else code), "lat": lat, "lon": lon}
+    return out
+
+
 def _origin_view(conn, code, origin, latest, months, cut90, cut30, now, recheck):
     """One home airport's view of a destination for the widget's airport switch: its cheapest
     current cached fare (else its latest live Google check in the last 14 days), median,
@@ -1444,10 +1550,30 @@ def build_summary(cfg, conn, now=None):
                                       live_since, live_since=since)
     deals.sort(key=lambda d: (d["price"] or 0) / (d["target"] or d["price"] or 1))
 
+    # Route map: legs from the latest live check on each fare's exact dates, plus coordinates.
+    legs_since = (now - timedelta(days=DISPROVED_DAYS)).isoformat()
+    codes = set(cfg.get("origins") or []) | set(cfg["destinations"])
+    fares = []
+    for x in destinations:
+        fares.append((x["code"], x["currentLow"]))
+        for v in (x.get("byOrigin") or {}).values():
+            fares.append((x["code"], v["currentLow"]))
+    for d in deals:
+        fares.append((d["code"], d))
+        fares += [(d["code"], a) for a in d.get("alternates") or []]
+    for code, f in fares:
+        if not f:
+            continue
+        it = _itinerary(conn, code, f.get("origin"), f.get("departDate"), f.get("returnDate"), legs_since)
+        f["itinerary"] = it
+        for leg in (it or {}).get("legs") or []:
+            codes.update((leg["from"], leg["to"]))
+
     recent = [{"sentAt": s, "title": t, "body": b} for s, t, b in conn.execute(
         "SELECT sent_at, title, message FROM sent_alerts ORDER BY id DESC LIMIT 20")]
     return {"generatedAt": now.isoformat(), "currency": cfg.get("currency", "usd").upper(),
-            "lastRun": last_run, "destinations": destinations, "deals": deals, "recentAlerts": recent}
+            "lastRun": last_run, "destinations": destinations, "deals": deals, "recentAlerts": recent,
+            "airports": _airport_coords(conn, codes, names)}
 
 
 def export_summary(cfg, db_path, path):
