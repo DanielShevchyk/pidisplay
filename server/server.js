@@ -5,6 +5,7 @@ import http from 'node:http';
 import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createWeather, WeatherError } from './weather.js';
@@ -27,6 +28,8 @@ const MAX_BODY = 1024 * 1024;
 const MAX_NOTIFICATIONS = 100;
 const STORE_KEY = /^[a-zA-Z0-9._-]{1,120}$/;
 const LEVELS = new Set(['info', 'success', 'warning', 'alert']);
+// Ticket links the Fares widget may push to the phone.
+const TICKET_HOSTS = new Set(['www.google.com', 'google.com', 'www.aviasales.com', 'aviasales.com']);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -133,6 +136,8 @@ export function createServer({
   photos = undefined,
   sleep = undefined,
   startSleep = false,
+  // Farewatcher's own config: the ntfy topic used by "Send to phone" for ticket links.
+  faresConfigFile = process.env.FAREWATCHER_CONFIG || path.join(os.homedir(), 'fare_watch', 'config.json'),
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -432,6 +437,39 @@ export function createServer({
     if (resource === 'fares' && !key && req.method === 'GET') {
       const summary = await readJson(faresFile, null).catch(() => null);
       return send(res, 200, summary ? { available: true, ...summary } : { available: false });
+    }
+
+    // Push a ticket link to the phone via Farewatcher's ntfy topic (the kiosk can't open sites).
+    if (resource === 'fares' && key === 'send' && req.method === 'POST') {
+      const body = await readBody(req);
+      let link;
+      try {
+        link = new URL(String(body?.url ?? ''));
+      } catch {
+        throw new HttpError(400, 'url is required');
+      }
+      if (link.protocol !== 'https:' || !TICKET_HOSTS.has(link.hostname)) {
+        throw new HttpError(400, 'Only Google Flights and Aviasales links can be sent');
+      }
+      const config = await readJson(faresConfigFile, null).catch(() => null);
+      const topic = config?.notify?.ntfy_topic;
+      if (!topic) throw new HttpError(503, 'Farewatcher has no ntfy topic configured');
+      const server = String(config.notify.ntfy_server || 'https://ntfy.sh').replace(/\/+$/, '');
+      const title = typeof body.title === 'string' && body.title.trim() ? body.title.slice(0, 150) : 'Flight tickets';
+      const sent = await fetchImpl(server, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic,
+          title,
+          message: 'Sent from PiDisplay. Tap to open the tickets.',
+          click: link.href,
+          tags: ['airplane'],
+          actions: [{ action: 'view', label: 'Open tickets', url: link.href, clear: false }],
+        }),
+      }).catch(() => null);
+      if (!sent?.ok) throw new HttpError(502, 'Could not reach ntfy');
+      return send(res, 200, { sent: true });
     }
 
     if (resource === 'weather' && key === 'airmap' && req.method === 'GET') {

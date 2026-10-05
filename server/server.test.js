@@ -13,6 +13,7 @@ before(async () => {
     dataDir,
     distDir: path.join(dataDir, 'dist'),
     fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({ results: [] }) }),
+    faresConfigFile: path.join(dataDir, 'farewatcher-config.json'),
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -77,6 +78,21 @@ test('serves the Farewatcher summary once it has been written', async () => {
   const body = await (await fetch(`${base}/api/fares`)).json();
   assert.equal(body.available, true);
   assert.equal(body.currency, 'USD');
+});
+
+test('sends Farewatcher ticket links to the phone only for flight sites, once ntfy is set up', async () => {
+  const url = 'https://www.google.com/travel/flights?q=Flights%20from%20SFO%20to%20TYO';
+  let res = await fetch(`${base}/api/fares/send`, json('POST', { url }));
+  assert.equal(res.status, 503); // no Farewatcher config yet
+  await fs.writeFile(
+    path.join(dataDir, 'farewatcher-config.json'),
+    JSON.stringify({ notify: { ntfy_server: 'https://ntfy.example', ntfy_topic: 'test-topic' } }),
+  );
+  assert.equal((await fetch(`${base}/api/fares/send`, json('POST', { url: 'https://evil.example/x' }))).status, 400);
+  assert.equal((await fetch(`${base}/api/fares/send`, json('POST', { url: 'not a url' }))).status, 400);
+  res = await fetch(`${base}/api/fares/send`, json('POST', { url, title: 'Tokyo $589' }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { sent: true });
 });
 
 test('timers and alarms are served under /api/timers and /api/alarms', async () => {

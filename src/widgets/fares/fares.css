@@ -140,3 +140,14 @@
 .fares-deal { padding: 12px 16px; border-radius: 14px; background: var(--surface-2); margin-bottom: 8px; font-size: 18px; }
 .fares-deal-top { display: flex; align-items: center; gap: 12px; font-size: 24px; }
 .sheet-body .fares-status { margin-top: 16px; font-size: 15px; }
+
+/* ---- Tickets (QR + send to phone) ---- */
+
+.fares-tickets { margin-top: 10px; }
+.fares .fares-tickets-btn,
+.fares-tickets-btn { font-size: 18px; }
+.fares-tickets-panel { display: flex; gap: 16px; align-items: center; margin-top: 10px; }
+.fares-tickets-panel[hidden] { display: none; }
+.fares-qr { width: 220px; height: 220px; border-radius: 12px; background: #fff; flex: none; }
+.fares-tickets-side { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.fares-tickets-status { color: var(--text-dim); font-size: 16px; min-height: 1.2em; }

@@ -288,6 +288,9 @@ function openDetail(dest: Destination, d: Summary) {
         { class: 'fares-meta' },
         [low.origin, dateRange(low.departDate, low.returnDate), stops(low.stops), low.airline].filter(Boolean).join(' · '),
       ),
+    low?.link
+      ? tickets(low.link, `${place(dest.name, dest.code)} ${money(best(low))} from ${low.origin ?? '?'}, ${dateRange(low.departDate, low.returnDate)}`)
+      : null,
   ];
 
   if (dest.history.length > 1) {
@@ -328,6 +331,8 @@ function openDetail(dest: Destination, d: Summary) {
           ),
           ...alternates(x, money),
           x.event && h('div', { class: 'fares-meta' }, `🎟 ${x.event}`),
+          x.link &&
+            tickets(x.link, `${place(x.name, x.code)} ${money(best(x))} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`),
           x.weather &&
             h(
               'div',
@@ -379,6 +384,55 @@ function alternates(
       !compact && ` · ${a.sameDates ? 'same dates' : dateRange(a.departDate, a.returnDate)}`,
     );
   });
+}
+
+/**
+ * "Tickets" button for a fare. The kiosk browser has no address bar or back button, so the
+ * link isn't opened on the screen: it expands a QR code to scan and a "Send to my phone"
+ * button that pushes the link through Farewatcher's ntfy topic.
+ */
+function tickets(link: string, title: string) {
+  const status = h('div', { class: 'fares-tickets-status' });
+  const sendBtn = h('button', { class: 'btn btn-primary' }, '📲 Send to my phone') as HTMLButtonElement;
+  sendBtn.onclick = async () => {
+    sendBtn.disabled = true;
+    status.textContent = 'Sending…';
+    try {
+      const res = await fetch('/api/fares/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: link, title }),
+      });
+      const body = await res.json().catch(() => ({}));
+      status.textContent = res.ok ? 'Sent. Check your phone.' : `Couldn't send: ${body.error ?? res.status}`;
+    } catch {
+      status.textContent = "Couldn't send: no connection";
+    }
+    sendBtn.disabled = false;
+  };
+  const qr = `https://quickchart.io/qr?size=220&margin=1&text=${encodeURIComponent(link)}`;
+  const panel = h(
+    'div',
+    { class: 'fares-tickets-panel', hidden: true },
+    h('img', { class: 'fares-qr', alt: 'QR code for the tickets link', width: 220, height: 220 }),
+    h(
+      'div',
+      { class: 'fares-tickets-side' },
+      // A normal browser (dashboard opened from a phone or laptop) can just open it.
+      !document.body.classList.contains('kiosk') &&
+        h('a', { class: 'btn', href: link, target: '_blank', rel: 'noopener' }, '↗ Open tickets'),
+      h('div', { class: 'fares-meta' }, 'Scan with your phone, or:'),
+      sendBtn,
+      status,
+    ),
+  );
+  const toggle = h('button', { class: 'btn fares-tickets-btn' }, '🎫 Tickets') as HTMLButtonElement;
+  toggle.onclick = () => {
+    panel.hidden = !panel.hidden;
+    const img = panel.querySelector('img');
+    if (!panel.hidden && img && !img.getAttribute('src')) img.setAttribute('src', qr); // load on first open
+  };
+  return h('div', { class: 'fares-tickets' }, toggle, panel);
 }
 
 function badge(verified: boolean) {
