@@ -318,3 +318,23 @@ button.wx-aqi { cursor: pointer; }
 .wx-uv-chart .wx-axis-now { fill: var(--accent); font-weight: 700; }
 .wx-uv-chart .wx-val { fill: var(--text); font-size: 20px; font-weight: 600; }
 .wx-uv-chart .wx-now-bar { stroke: #fff; stroke-width: 3; }
+
+/* ---- Tap to load: live maps stay off until asked for (they're heavy on the Pi) ---- */
+
+.wx-map-live { position: relative; width: 100%; height: 100%; container-type: size; }
+.wx-map-load {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
+.wx-map-load:active { background: var(--surface); }
+.wx-map-load-icon { font-size: clamp(28px, 22cqh, 72px); line-height: 1; }
+.wx-map-load-text { font-size: clamp(14px, 7cqh, 22px); font-weight: 600; }

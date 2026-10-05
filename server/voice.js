@@ -45,6 +45,9 @@ export const WAKE_WORDS = {
 };
 
 export const DEFAULT_SETTINGS = {
+  /** The master switch. Off = the service closes the microphone and tap to talk is refused. */
+  active: true,
+  /** Listen for the wake word (tap to talk still works when this is off). */
   enabled: true,
   wakeWord: 'hey_jarvis',
   /** Wake word confidence needed, 0.1-0.95; lower hears it more easily but wakes by mistake more. */
@@ -312,7 +315,7 @@ export function createVoice({
     const bool = (k) => {
       if (body[k] !== undefined) s[k] = Boolean(body[k]);
     };
-    ['enabled', 'speak', 'chime', 'duck'].forEach(bool);
+    ['active', 'enabled', 'speak', 'chime', 'duck'].forEach(bool);
     if (body.wakeWord !== undefined) {
       if (typeof body.wakeWord !== 'string' || !/^[a-z0-9_-]{1,40}$/i.test(body.wakeWord)) throw new VoiceError(400, 'Unknown wake word');
       s.wakeWord = body.wakeWord;
@@ -382,6 +385,7 @@ export function createVoice({
       return command(body.text, body.source === 'typed' ? 'typed' : 'voice');
     }
     if (method === 'POST' && action === 'listen') {
+      if (!settings.active) throw new VoiceError(409, 'Voice control is turned off. Turn it on in ⚙ Settings › Voice control.');
       if (!serviceAlive()) throw new VoiceError(409, "The voice service isn't running on the Pi. Check the microphone, or type a command instead.");
       broadcast('voice-control', { action: 'listen' });
       return { ok: true };

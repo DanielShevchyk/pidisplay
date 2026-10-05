@@ -153,11 +153,15 @@ class Mic:
         self.chunks = queue.Queue(maxsize=200)
         self.proc = None
         self.alive = False
+        # Set while voice control is switched off: the microphone is closed, not just ignored.
+        self.paused = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
     def _run(self):
         while True:
+            while self.paused.is_set():
+                time.sleep(0.5)
             cmd = ["arecord", "-q", "-D", MIC, "-f", "S16_LE", "-r", str(RATE), "-c", "1", "-t", "raw"]
             try:
                 self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -175,8 +179,25 @@ class Mic:
             except Exception as err:
                 log("microphone:", err)
             self.alive = False
+            if self.paused.is_set():
+                log("microphone closed: voice control is off")
+                continue
             log("microphone stopped; retrying in 10 s")
             time.sleep(10)
+
+    def pause(self, off):
+        """Close (off=True) or reopen the microphone."""
+        if off == self.paused.is_set():
+            return
+        if off:
+            self.paused.set()
+            proc = self.proc
+            if proc and proc.poll() is None:
+                proc.terminate()
+            self.drain()
+        else:
+            self.drain()
+            self.paused.clear()
 
     def read(self, timeout=1.0):
         try:
@@ -547,6 +568,14 @@ class Service:
         ring_rec = None
         log("listening")
         while not self.stop.is_set():
+            active = self.settings.get("active", True)
+            self.mic.pause(not active)
+            if not active:
+                # Switched off on the dashboard: nothing listens until it's back on.
+                self.listen_now.clear()
+                ring_rec = None
+                self.stop.wait(0.5)
+                continue
             if self.reload_wake.is_set():
                 self.reload_wake.clear()
                 self.load_wake()

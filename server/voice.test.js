@@ -400,6 +400,11 @@ test('the /api/voice routes: settings, heartbeat, commands, tap to talk', async 
 
     assert.equal((await post('/settings', { wakeWord: 'alexa', sensitivity: 0.6 }, 'PUT')).status, 200);
     assert.equal((await post('/settings', { sensitivity: 3 }, 'PUT')).status, 400);
+    // The master switch: off refuses tap to talk, on allows it again.
+    assert.equal((await (await post('/settings', { active: false }, 'PUT')).json()).settings.active, false);
+    assert.equal((await post('/listen', {})).status, 409);
+    assert.equal((await (await post('/settings', { active: true }, 'PUT')).json()).settings.active, true);
+    assert.equal((await post('/listen', {})).status, 200);
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, 'voice.json'), 'utf8')).wakeWord, 'alexa');
 
     const r = await (await post('/command', { text: 'add milk to the grocery list', source: 'typed' })).json();

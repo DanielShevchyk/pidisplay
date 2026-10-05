@@ -30,6 +30,7 @@ Later deploys skip whatever is already there. If the setup fails (no internet, s
 - **Wake word**: "Hey Jarvis", then the command. A chime plays and a card at the bottom of the screen shows the words as you speak. Music turns down while it listens.
 - **Tap to talk**: tap 🎙️ in the top bar and speak.
 - **Voice sheet**: hold 🎙️ (or ⚙ → Voice control). It shows whether the service and microphone are working, has a box to **type** commands (handy for testing, or from a laptop), lists things to say (tap one to try it), recent commands, and settings: wake word, sensitivity, spoken answers on or off and their volume, the chime, and turning music down while listening.
+- **On/off switch**: the button at the top of the Voice sheet turns voice control off completely: the service closes the microphone, the 🎙️ button leaves the top bar, and tap to talk is refused. Turn it back on from ⚙ → Voice control.
 - **While an alarm, timer or reminder is ringing**, just say "stop" or "snooze"; no wake word needed.
 - When it needs more ("For how long?", "Which list?"), it keeps listening for your answer.
 

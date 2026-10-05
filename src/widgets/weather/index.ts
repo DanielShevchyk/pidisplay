@@ -170,7 +170,7 @@ export default defineWidget<WeatherConfig>({
         const at = `${data.location.lat},${data.location.lon}`;
         if (at !== mapAt) {
           mapAt = at;
-          root.replaceChildren(lockedMap(mapFrame(data, config, config.mapLayer, placement === 'small' ? 6 : 7)));
+          root.replaceChildren(tapToLoad(() => lockedMap(mapFrame(data!, config, config.mapLayer, placement === 'small' ? 6 : 7))));
         }
         return;
       }
@@ -447,6 +447,49 @@ function mapFrame(d: Forecast, config: WeatherConfig, layer: MapLayer, zoom: num
 }
 
 const UNLOCK_MS = 60_000;
+/** A loaded map on a tile goes back to "tap to load" after this long, once it's locked again. */
+const TILE_MAP_MS = 10 * 60_000;
+
+/**
+ * Live Windy maps animate nonstop, which is heavy for the Pi and makes swipes
+ * stutter, so a map only loads when it's tapped. `loaded` skips the button
+ * (switching layers on a map that's already showing). Tile maps (`unloadAfter`)
+ * close again after a while, once they're locked and not in use.
+ */
+function tapToLoad(load: () => HTMLElement, { loaded = false, unloadAfter = 0 } = {}): HTMLElement {
+  const wrap = h('div', { class: 'wx-map-live' });
+  let timer = 0;
+  const showButton = () =>
+    wrap.replaceChildren(
+      h(
+        'button',
+        {
+          class: 'wx-map-load',
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            showMap();
+          },
+        },
+        h('span', { class: 'wx-map-load-icon' }, '🗺️'),
+        h('span', { class: 'wx-map-load-text' }, 'Tap to load live map'),
+      ),
+    );
+  const showMap = () => {
+    const map = load();
+    wrap.replaceChildren(map);
+    clearTimeout(timer);
+    if (!unloadAfter) return;
+    const check = () => {
+      if (!wrap.isConnected || !wrap.contains(map)) return;
+      if (map.classList.contains('locked')) showButton();
+      else timer = window.setTimeout(check, 60_000);
+    };
+    timer = window.setTimeout(check, unloadAfter);
+  };
+  if (loaded) showMap();
+  else showButton();
+  return wrap;
+}
 
 /**
  * Covers a map on the dashboard so swipes still change pages. Double-tap to
@@ -514,7 +557,9 @@ function splitView(config: WeatherConfig) {
     chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
     if (!place) return;
     shownAt = `${place.location.lat},${place.location.lon},${layer}`;
-    holder.replaceChildren(lockedMap(mapFrame(place, config, layer, 7)));
+    const live = Boolean(holder.querySelector('iframe'));
+    const at = place;
+    holder.replaceChildren(tapToLoad(() => lockedMap(mapFrame(at, config, layer, 7)), { loaded: live, unloadAfter: TILE_MAP_MS }));
   };
   const el = h(
     'div',
@@ -539,7 +584,8 @@ function openMap(d: Forecast, config: WeatherConfig) {
   );
   const show = (layer: MapLayer) => {
     chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
-    holder.replaceChildren(mapFrame(d, config, layer, 7));
+    const live = Boolean(holder.querySelector('iframe'));
+    holder.replaceChildren(tapToLoad(() => mapFrame(d, config, layer, 7), { loaded: live }));
   };
   const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, [
     h('div', { class: 'wx-map-layers' }, ...chips),

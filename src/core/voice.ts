@@ -9,6 +9,7 @@ import type { SettingField } from './types';
 import './voice.css';
 
 interface VoiceSettings {
+  active: boolean;
   enabled: boolean;
   wakeWord: string;
   sensitivity: number;
@@ -112,6 +113,8 @@ export class VoiceUI {
     try {
       this.state = await call<VoiceState>('GET', '/api/voice');
       this.button.classList.toggle('voice-off', !this.state.service.running);
+      // Switched off: no mic button in the top bar (⚙ Settings › Voice control turns it back on).
+      this.button.hidden = this.state.settings.active === false;
       this.renderSheet?.();
     } catch {
       // Server not up yet; the next status event fills this in.
@@ -269,6 +272,32 @@ export class VoiceUI {
         return;
       }
       const svc = s.service;
+      const active = s.settings.active !== false;
+      const power = h(
+        'button',
+        {
+          class: `btn btn-wide voice-power${active ? ' on' : ''}`,
+          onclick: async () => {
+            power.disabled = true;
+            try {
+              this.state = await call<VoiceState>('PUT', '/api/voice/settings', { active: !active });
+              this.button.hidden = !this.state.settings.active;
+            } catch (err) {
+              answer.textContent = (err as Error).message;
+            }
+            render();
+          },
+        },
+        h('span', { class: 'voice-power-label' }, active ? '🎙️ Voice control is on' : '🔇 Voice control is off'),
+        h('span', { class: 'voice-power-action' }, active ? 'Turn off' : 'Turn on'),
+      );
+      if (!active) {
+        sheet.body.replaceChildren(
+          power,
+          h('p', { class: 'voice-hint' }, "The microphone is closed and the 🎙️ button is hidden. Turn it back on here whenever you like."),
+        );
+        return;
+      }
       const wake = s.wakeWords.find((w) => w.id === s.settings.wakeWord)?.label ?? s.settings.wakeWord;
       const status = !svc.running
         ? h('div', { class: 'voice-status bad' }, h('strong', {}, 'Voice service is not running'), h('small', {}, 'It runs on the Pi once the deploy has set it up and a USB microphone is plugged in. You can still type commands here.'))
@@ -300,6 +329,7 @@ export class VoiceUI {
       });
 
       sheet.body.replaceChildren(
+        power,
         status,
         h('h3', {}, 'Type a command'),
         typeRow,
