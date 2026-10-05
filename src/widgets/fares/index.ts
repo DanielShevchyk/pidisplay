@@ -1,6 +1,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
+import { legList, routeMap, type Airport, type Itinerary, type Route } from './map';
 import './fares.css';
 
 interface FaresConfig {
@@ -23,6 +24,7 @@ interface Alternate {
   sameDates: boolean;
   verified?: boolean;
   livePrice?: number | null;
+  itinerary?: Itinerary | null;
 }
 
 interface Low {
@@ -36,6 +38,8 @@ interface Low {
   livePrice: number | null;
   link: string | null;
   alternates?: Alternate[];
+  /** Outbound legs from a live Google check on these dates; added Oct 2026. */
+  itinerary?: Itinerary | null;
 }
 
 interface OriginData {
@@ -72,6 +76,7 @@ interface Deal {
   foundAt: string | null;
   event: string | null;
   alternates?: Alternate[];
+  itinerary?: Itinerary | null;
 }
 
 interface Summary {
@@ -92,6 +97,8 @@ interface Summary {
   destinations: Destination[];
   deals: Deal[];
   recentAlerts: { sentAt: string; title: string; body: string }[];
+  /** Coordinates for every home airport, destination and itinerary airport; added Oct 2026. */
+  airports?: Record<string, Airport>;
 }
 
 type Response = Summary | { available: false };
@@ -112,6 +119,15 @@ const RETRY_MS = 60 * 1000;
 /** Destination rows shown per tile size. */
 const ROWS: Record<Placement, number> = { bar: 0, small: 0, medium: 3, tall: 6, large: 5, xlarge: 6, full: 10 };
 
+/** Sizes that get the route map on the right. */
+const MAP_SIZES: Placement[] = ['large', 'xlarge', 'full'];
+
+/** The destination the map shows; tapping a row picks it, tapping it again opens its details. */
+interface Pick {
+  code: string | null;
+  select: (code: string) => void;
+}
+
 export default defineWidget<FaresConfig>({
   type: 'fares',
   name: 'Fares',
@@ -130,6 +146,7 @@ export default defineWidget<FaresConfig>({
     el.append(root);
     let data: Response | null = null;
     let origin: Origin = 'SFO';
+    let selected: string | null = null;
     let failed = '';
     let timer = 0;
     let alive = true;
@@ -148,7 +165,14 @@ export default defineWidget<FaresConfig>({
         paint();
         saveShared();
       };
-      root.replaceChildren(render(forOrigin(data, origin), config, placement, failed, originSwitch(origin, flip)));
+      const pick: Pick = {
+        code: selected,
+        select: (code) => {
+          selected = code;
+          paint();
+        },
+      };
+      root.replaceChildren(render(forOrigin(data, origin), config, placement, failed, originSwitch(origin, flip), pick));
     };
 
     const saveShared = () => sharedStorage.save({ summary: data, origin } satisfies Shared).catch(() => {});
@@ -285,6 +309,7 @@ function forOrigin(d: Summary, origin: Origin): Summary {
               sameDates: alt.sameDates,
               verified: deal.verified,
               livePrice: deal.livePrice,
+              itinerary: deal.itinerary ?? null,
             },
           ]
         : [],
@@ -305,6 +330,7 @@ function lowFromAlternate(a: Alternate, code: string): Low {
     verified: Boolean(a.verified),
     livePrice: a.livePrice ?? null,
     link: flightsLink(a.origin, code, a.departDate, a.returnDate),
+    itinerary: a.itinerary ?? null,
   };
 }
 
@@ -321,7 +347,14 @@ function dealRatio(x: Deal) {
 
 // ---- Rendering ----------------------------------------------------------
 
-function render(d: Summary, config: FaresConfig, placement: Placement, failed: string, toggle: HTMLElement) {
+function render(
+  d: Summary,
+  config: FaresConfig,
+  placement: Placement,
+  failed: string,
+  toggle: HTMLElement,
+  pick: Pick,
+) {
   const money = moneyFormat(d.currency);
   const deals = d.deals.filter((x) => config.showUnverified || x.verified);
   const featured = config.featured.trim().toUpperCase();
@@ -339,37 +372,97 @@ function render(d: Summary, config: FaresConfig, placement: Placement, failed: s
     );
   }
 
+  const dealCodes = new Set(deals.map((x) => x.code));
+  const rows = [...d.destinations]
+    .sort((a, b) => Number(dealCodes.has(b.code)) - Number(dealCodes.has(a.code)) || ratio(a) - ratio(b))
+    .slice(0, ROWS[placement]);
+
+  // With the map, a tap shows that destination on it; tapping the one shown opens its details.
+  const withMap = MAP_SIZES.includes(placement);
+  const onTile = new Set([...deals.slice(0, 1), ...rows].map((x) => x.code));
+  const shown = withMap
+    ? pick.code && onTile.has(pick.code)
+      ? pick.code
+      : (deals[0]?.code ?? rows[0]?.code ?? null)
+    : null;
+  const tap = (code: string) => () => {
+    const dest = d.destinations.find((x) => x.code === code);
+    if (withMap && code !== shown) pick.select(code);
+    else if (dest) openDetail(dest, d);
+  };
+
   const sections: (HTMLElement | null)[] = [];
   const showHero = placement !== 'medium' && placement !== 'tall';
   if (showHero) {
     sections.push(
       deals[0]
-        ? dealHero(deals[0], money, d, false)
+        ? dealHero(deals[0], money, d, false, tap(deals[0].code))
         : h('div', { class: 'fares-none' }, 'No deals right now. Watching ', String(d.destinations.length), ' destinations.'),
     );
   }
-
-  const dealCodes = new Set(deals.map((x) => x.code));
-  const rows = [...d.destinations]
-    .sort((a, b) => Number(dealCodes.has(b.code)) - Number(dealCodes.has(a.code)) || ratio(a) - ratio(b))
-    .slice(0, ROWS[placement]);
   sections.push(
     h(
       'div',
       { class: 'fares-list' },
-      ...rows.map((dest) => destRow(dest, money, dealCodes.has(dest.code), () => openDetail(dest, d))),
+      ...rows.map((dest) => destRow(dest, money, dealCodes.has(dest.code), tap(dest.code), shown === dest.code)),
     ),
   );
   sections.push(footer);
-  return h('div', { class: 'fares-body' }, ...sections);
+  const body = h('div', { class: 'fares-body' }, ...sections);
+  if (!withMap) return body;
+  return h('div', { class: 'fares-split' }, body, mapPanel(d, deals, shown, money, tap));
 }
 
-function dealHero(deal: Deal, money: (n: number) => string, d: Summary, compact: boolean) {
+/** The right half of the big tiles: the shown fare's route, legs and layovers. */
+function mapPanel(
+  d: Summary,
+  deals: Deal[],
+  code: string | null,
+  money: (n: number) => string,
+  tap: (code: string) => () => void,
+) {
+  const dest = d.destinations.find((x) => x.code === code);
+  // A deal for this destination is the fare the list highlights; otherwise its current low.
+  const deal = deals.find((x) => x.code === code);
+  const fare = deal ?? dest?.currentLow ?? null;
+  const route: Route | null =
+    code && fare
+      ? {
+          origin: fare.origin,
+          code,
+          stops: fare.stops,
+          airline: 'airline' in fare ? fare.airline : null,
+          itinerary: fare.itinerary ?? null,
+        }
+      : null;
+  return h(
+    'div',
+    { class: 'fares-map' },
+    code &&
+      h(
+        'button',
+        { class: 'fares-map-head', onclick: tap(code) },
+        h('span', { class: 'fares-map-title' }, place(deal?.name ?? dest?.name ?? null, code)),
+        fare && h('span', { class: 'fares-map-price' }, money(best(fare))),
+        h('span', { class: 'fares-map-more' }, 'Details ›'),
+      ),
+    routeMap(route, d.airports),
+    legList(route, d.airports),
+  );
+}
+
+function dealHero(
+  deal: Deal,
+  money: (n: number) => string,
+  d: Summary,
+  compact: boolean,
+  onTap?: () => void,
+) {
   const dest = d.destinations.find((x) => x.code === deal.code);
   const under = deal.target ? deal.target - best(deal) : null;
   return h(
     'button',
-    { class: 'fares-hero', onclick: () => dest && openDetail(dest, d) },
+    { class: 'fares-hero', onclick: onTap ?? (() => dest && openDetail(dest, d)) },
     h('div', { class: 'fares-hero-top' }, h('span', { class: 'fares-place' }, place(deal.name, deal.code)), checkedAt(d)),
     h('div', { class: 'fares-price' }, money(best(deal))),
     h(
@@ -394,11 +487,11 @@ function destHero(dest: Destination, money: (n: number) => string, d: Summary) {
   );
 }
 
-function destRow(dest: Destination, money: (n: number) => string, isDeal: boolean, open: () => void) {
+function destRow(dest: Destination, money: (n: number) => string, isDeal: boolean, open: () => void, shown = false) {
   const low = dest.currentLow ? best(dest.currentLow) : null;
   return h(
     'button',
-    { class: `fares-row${isDeal ? ' deal' : ''}`, onclick: open },
+    { class: `fares-row${isDeal ? ' deal' : ''}${shown ? ' shown' : ''}`, onclick: open },
     h('span', { class: 'fares-row-name' }, place(dest.name, dest.code)),
     sparkline(dest.history.slice(-30).map((x) => x.low), dest.target),
     h(
@@ -525,7 +618,7 @@ function alternates(
       { class: `fares-alt${diff < 0 ? ' cheaper' : ''}` },
       h('span', { class: 'fares-alt-origin' }, a.origin),
       ` ${money(best(a))} (${sign})`,
-      !compact && ` · ${a.sameDates ? 'same dates' : dateRange(a.departDate, a.returnDate)}`,
+      !compact && h('span', { class: 'fares-alt-dates' }, ` · ${a.sameDates ? 'same dates' : dateRange(a.departDate, a.returnDate)}`),
     );
   });
 }
