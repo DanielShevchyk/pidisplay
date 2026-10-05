@@ -1301,7 +1301,8 @@ def _origin_view(conn, code, origin, latest, months, cut90, cut30, now, recheck)
         if rows:
             _, price, dep, ret, airline, stops = rows[0]
             dep, ret = (dep or "")[:10] or None, (ret or "")[:10] or None
-            live = _live_for(conn, code, origin, dep, ret, (now - timedelta(days=recheck)).isoformat())
+            # 14 days, like the deal list: a recent live check outranks a stale cached price.
+            live = _live_for(conn, code, origin, dep, ret, (now - timedelta(days=DISPROVED_DAYS)).isoformat())
             current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
                        "stops": stops, "airline": airline, "verified": live is not None, "livePrice": live,
                        "link": google_flights_link(origin, code, {"departure_at": dep, "return_at": ret})}
