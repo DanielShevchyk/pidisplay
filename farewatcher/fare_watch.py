@@ -1362,7 +1362,8 @@ def build_summary(cfg, conn, now=None):
             if rows:
                 month, origin, price, dep, ret, airline, stops = rows[0]
                 dep, ret = (dep or "")[:10] or None, (ret or "")[:10] or None
-                since = (now - timedelta(days=recheck)).isoformat()
+                # 14 days, like the deal list: a recent live check outranks a stale cached price.
+                since = (now - timedelta(days=DISPROVED_DAYS)).isoformat()
                 live = _live_for(conn, code, origin, dep, ret, since)
                 current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
                            "stops": stops, "airline": airline, "verified": live is not None,
