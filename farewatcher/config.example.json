@@ -55,6 +55,22 @@
     "check_every_days": 3.5,
     "horizon_days": 330
   },
+  "_open_jaw_note": "Fly out of a home airport, come back from a different nearby city (e.g. into FRA, home from PAR). Return cities = other destinations within max_km of the arrival city, plus extra_return_from. Priced from one-way fares; a deal needs the total under the target (SMF allowance applies) and at least min_saving below the round trip. live_check confirms the best one as a Google multi-city ticket (1 SerpApi search, taken from max_searches_per_run)",
+  "open_jaw": {
+    "enabled": true,
+    "max_km": 700,
+    "extra_return_from": [],
+    "home": [
+      "SFO",
+      "SMF"
+    ],
+    "nights": [
+      5,
+      21
+    ],
+    "min_saving": 50,
+    "live_check": true
+  },
   "months_ahead": 12,
   "trip": {
     "one_way": false,

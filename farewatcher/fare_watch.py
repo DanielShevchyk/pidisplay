@@ -28,6 +28,7 @@ import re
 import smtplib
 import sqlite3
 import ssl
+import math
 import statistics
 import sys
 import time
@@ -268,6 +269,37 @@ CREATE TABLE IF NOT EXISTS sent_alerts (
     push        TEXT                    -- JSON {tags, priority, icon, attach, filename}
 );
 CREATE INDEX IF NOT EXISTS ix_sent_at ON sent_alerts(sent_at);
+-- Open-jaw trips: one-way fares (home -> city, city -> home), kept apart from the round-trip
+-- tables so medians, history and deals never mix them up.
+CREATE TABLE IF NOT EXISTS oneway_fares (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at  TEXT NOT NULL,
+    origin      TEXT NOT NULL,
+    dest        TEXT NOT NULL,
+    depart_at   TEXT,
+    price       REAL NOT NULL,
+    transfers   INTEGER,
+    airline     TEXT,
+    duration    INTEGER,
+    link        TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_oneway_route ON oneway_fares(origin, dest, checked_at);
+-- Live Google multi-city checks of open-jaw trips (whole-ticket price, outbound legs).
+CREATE TABLE IF NOT EXISTS openjaw_checks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    checked_at   TEXT NOT NULL,
+    origin       TEXT NOT NULL,
+    dest         TEXT NOT NULL,
+    return_from  TEXT NOT NULL,
+    return_to    TEXT NOT NULL,
+    depart_date  TEXT,
+    return_date  TEXT,
+    price        REAL,
+    airline      TEXT,
+    stops        INTEGER,
+    legs_json    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_openjaw_checks ON openjaw_checks(dest, origin, depart_date);
 -- Airport coordinates for the widget's route map: geocoded once, for codes not in AIRPORTS.
 CREATE TABLE IF NOT EXISTS airports (
     code  TEXT PRIMARY KEY,
@@ -422,7 +454,14 @@ def deal_record(d, click):
             "livePrice": d["live_best"][0] if d.get("live_best") else None,
             "stops": used.get("transfers"), "bags": bags_text(used), "weather": d.get("weather_data"),
             "link": click, "event": d.get("event"), "reason": d.get("reason"),
-            "infoOnly": bool(d.get("info_only"))}
+            "infoOnly": bool(d.get("info_only")),
+            "openJaw": _open_jaw_public(d["open_jaw"]) if d.get("open_jaw") else None}
+
+
+def _open_jaw_public(oj, names=None):
+    return {"returnFrom": oj["returnFrom"], "returnFromName": place(oj["returnFrom"], names),
+            "returnTo": oj["returnTo"], "outPrice": oj["outPrice"], "backPrice": oj["backPrice"],
+            "roundTrip": oj["roundTrip"], "saving": oj["saving"]}
 
 
 def record_sent(conn, d, title, body, email_body, click, actions, push, now_iso):
@@ -769,6 +808,22 @@ def live_price(key, origin, dest, fare, currency="usd"):
     if ret:
         params["return_date"] = ret
     d = http_get_json(SERPAPI_URL, params, {}, timeout=60)
+    return _google_flights_result(d, dep, ret)
+
+
+def live_price_multi(key, origin, dest, dep, back_from, back_to, ret, currency="usd"):
+    """Live Google Flights price for an open-jaw ticket: origin -> dest, then back_from -> back_to.
+    One SerpApi search; the price is the whole ticket, the legs are the first (outbound) flight."""
+    trip = [{"departure_id": origin, "arrival_id": CITY_AIRPORTS.get(dest, dest), "date": dep},
+            {"departure_id": CITY_AIRPORTS.get(back_from, back_from), "arrival_id": back_to, "date": ret}]
+    params = {"engine": "google_flights", "type": 3, "multi_city_json": json.dumps(trip, separators=(",", ":")),
+              "currency": currency.upper(), "hl": "en", "gl": "us", "api_key": key}
+    d = http_get_json(SERPAPI_URL, params, {}, timeout=60)
+    return _google_flights_result(d, dep, ret)
+
+
+def _google_flights_result(d, dep, ret):
+    """Cheapest option of a SerpApi Google Flights response: price, airlines, outbound legs."""
     pi = d.get("price_insights") or {}
     res = {"depart": dep, "return": ret or None, "price": None,
            "url": (d.get("search_metadata") or {}).get("google_flights_url"),
@@ -1354,9 +1409,14 @@ def _itinerary(conn, dest, origin, dep, ret, since):
         "SELECT price, legs_json FROM live_checks WHERE dest=? AND origin=? AND depart_date=?"
         " AND return_date IS ? AND checked_at >= ? AND legs_json IS NOT NULL"
         " ORDER BY checked_at DESC LIMIT 1", (dest, origin, dep, ret or None, since)).fetchone()
-    if not row:
+    return _itinerary_json(row[0], row[1]) if row else None
+
+
+def _itinerary_json(price, legs_json):
+    """Export shape of a saved itinerary (live_checks / openjaw_checks legs_json)."""
+    if not legs_json:
         return None
-    it = json.loads(row[1])
+    it = json.loads(legs_json)
     carbon = it.get("carbon_g")
     return {"legs": [{"from": l.get("from"), "fromName": l.get("from_name"), "to": l.get("to"),
                       "toName": l.get("to_name"), "departTime": l.get("depart"), "arriveTime": l.get("arrive"),
@@ -1366,7 +1426,7 @@ def _itinerary(conn, dest, origin, dep, ret, since):
                       "overnight": bool(l.get("overnight"))} for l in it.get("legs") or []],
             "layovers": [{"airport": l.get("id"), "name": l.get("name"), "durationMin": l.get("minutes"),
                           "overnight": bool(l.get("overnight"))} for l in it.get("layovers") or []],
-            "totalDurationMin": it.get("duration"), "price": row[0],
+            "totalDurationMin": it.get("duration"), "price": price,
             "carbonKg": round(carbon / 1000) if carbon else None}
 
 
@@ -1389,6 +1449,46 @@ def _airport_coords(conn, codes, names=None):
             continue
         out[code] = {"name": place(code, names) if code in PLACES or (names or {}).get(code)
                      else (row[0] if row and row[0] else code), "lat": lat, "lon": lon}
+    return out
+
+
+def _open_jaw_options(cfg, conn, names):
+    """Open jaws for the summary, rebuilt from the saved one-way fares: {(origin, dest): option}."""
+    ocfg = open_jaw_cfg(cfg)
+    if not ocfg.get("enabled"):
+        return {}
+    returns = open_jaw_returns(cfg, ocfg)
+    oneway = load_oneway(conn)
+    if not returns or not oneway:
+        return {}
+
+    def rt_low(home, a, month):
+        latest = conn.execute("SELECT MAX(checked_at) FROM observations WHERE dest=?", (a,)).fetchone()[0]
+        if not latest:
+            return None
+        row = conn.execute("SELECT MIN(price) FROM observations WHERE dest=? AND origin=? AND checked_at=?"
+                           " AND month=?", (a, home, latest, month)).fetchone()
+        if not row[0]:
+            row = conn.execute("SELECT MIN(price) FROM observations WHERE dest=? AND origin=? AND checked_at=?",
+                               (a, home, latest)).fetchone()
+        return row[0]
+
+    out = {}
+    for oj in combine_open_jaws(cfg, ocfg, returns, oneway, rt_low):
+        if not oj["saving"] or oj["saving"] <= 0:
+            continue
+        chk = latest_open_jaw_check(conn, oj)
+        out[(oj["origin"], oj["dest"])] = {
+            "origin": oj["origin"], "returnFrom": oj["returnFrom"],
+            "returnFromName": place(oj["returnFrom"], names), "returnTo": oj["returnTo"],
+            "departDate": oj["departDate"], "returnDate": oj["returnDate"], "price": oj["price"],
+            "outPrice": oj["outPrice"], "backPrice": oj["backPrice"], "roundTrip": oj["roundTrip"],
+            "saving": oj["saving"], "target": oj["target"], "isDeal": open_jaw_is_deal(oj, ocfg),
+            "verified": chk is not None, "livePrice": chk[0] if chk else None,
+            "link": None,                     # Google has no stable multi-city URL; see out/backLink
+            "outLink": one_way_link(oj["origin"], oj["dest"], oj["departDate"]),
+            "backLink": one_way_link(oj["returnFrom"], oj["returnTo"], oj["returnDate"]),
+            "itinerary": _itinerary_json(chk[0], chk[2]) if chk else None}
     return out
 
 
@@ -1452,6 +1552,7 @@ def build_summary(cfg, conn, now=None):
         last_run = {"startedAt": at, "finishedAt": at, "ok": None, "error": None, "faresFetched": None,
                     "dealsFound": None, "serpapiUsedThisMonth": None, "serpapiBudget": None}
 
+    oj_by = _open_jaw_options(cfg, conn, names)
     destinations = []
     for code, target in cfg["destinations"].items():
         latest = conn.execute("SELECT MAX(checked_at) FROM observations WHERE dest=?", (code,)).fetchone()[0]
@@ -1490,6 +1591,10 @@ def build_summary(cfg, conn, now=None):
                              "median30": statistics.median(lows30) if lows30 else None,
                              "currentLow": current, "history": history, "monthly": monthly,
                              "byOrigin": by_origin})
+        for o, view in by_origin.items():
+            view["openJaw"] = oj_by.get((o, code))
+        mine = [v for (o, d_), v in oj_by.items() if d_ == code]
+        destinations[-1]["openJaw"] = min(mine, key=lambda v: v["livePrice"] or v["price"]) if mine else None
 
     # Active deals: the latest alert per destination+month inside the re-alert cooldown,
     # departing in the future. Heads-up event checks above target are not deals.
@@ -1526,12 +1631,26 @@ def build_summary(cfg, conn, now=None):
                       "verified": bool(info.get("verified", verified)), "livePrice": info.get("livePrice"),
                       "stops": info.get("stops"), "bags": info.get("bags"), "weather": info.get("weather"),
                       "link": info.get("link") or click, "foundAt": sent_at,
-                      "event": info.get("event") or (events.get(month) or {}).get("name")})
+                      "event": info.get("event") or (events.get(month) or {}).get("name"),
+                      "openJaw": info.get("openJaw")})
     # The latest live check on a deal's dates (from its origin) outranks the price it was sent at.
     checked_since = (now - timedelta(days=DISPROVED_DAYS)).isoformat()
     still = []
     for d in deals:
         row = None
+        if d.get("openJaw"):                     # its own multi-city checks, not round-trip ones
+            ojd = d["openJaw"]
+            chk = latest_open_jaw_check(conn, {"dest": d["code"], "origin": d["origin"],
+                                               "returnFrom": ojd["returnFrom"], "returnTo": ojd["returnTo"],
+                                               "departDate": d["departDate"], "returnDate": d["returnDate"]})
+            if chk and d["target"] is not None and chk[0] > d["target"]:
+                continue
+            if chk:
+                d["livePrice"], d["verified"] = chk[0], True
+            d["itinerary"] = _itinerary_json(chk[0], chk[2]) if chk else None
+            d["alternates"] = []
+            still.append(d)
+            continue
         if d["departDate"] and not d["event"]:
             row = conn.execute(
                 "SELECT price FROM live_checks WHERE dest=? AND origin=? AND depart_date=?"
@@ -1546,6 +1665,8 @@ def build_summary(cfg, conn, now=None):
     deals = still
     live_since = (now - timedelta(days=recheck)).isoformat()
     for d in deals:
+        if d.get("openJaw"):
+            continue
         d["alternates"] = _alternates(conn, cfg, d["code"], d["origin"], d["departDate"], d["returnDate"],
                                       live_since, live_since=since)
     deals.sort(key=lambda d: (d["price"] or 0) / (d["target"] or d["price"] or 1))
@@ -1559,8 +1680,17 @@ def build_summary(cfg, conn, now=None):
         for v in (x.get("byOrigin") or {}).values():
             fares.append((x["code"], v["currentLow"]))
     for d in deals:
-        fares.append((d["code"], d))
+        if not d.get("openJaw"):                 # open jaws already carry their own itinerary
+            fares.append((d["code"], d))
         fares += [(d["code"], a) for a in d.get("alternates") or []]
+        for leg in (d.get("itinerary") or {}).get("legs") or []:
+            codes.update((leg["from"], leg["to"]))
+        if d.get("openJaw"):
+            codes.update((d["openJaw"]["returnFrom"], d["openJaw"]["returnTo"]))
+    for oj in oj_by.values():
+        codes.update((oj["origin"], oj["returnFrom"], oj["returnTo"]))
+        for leg in (oj.get("itinerary") or {}).get("legs") or []:
+            codes.update((leg["from"], leg["to"]))
     for code, f in fares:
         if not f:
             continue
@@ -1597,7 +1727,7 @@ def export_summary(cfg, db_path, path):
 
 
 # ----------------------------------------------------------------- main
-def add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window):
+def add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window, hold_back=0):
     """Attach live Google Flights prices to the best deals, within the SerpApi budget."""
     lcfg = cfg.get("live_check", {})
     now_iso = now.isoformat()
@@ -1614,10 +1744,10 @@ def add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window):
     if not key:
         log("live check skipped: SERPAPI_KEY not set")
         return
-    budget = int(lcfg.get("max_searches_per_run", 6))
+    budget = max(0, int(lcfg.get("max_searches_per_run", 6)) - hold_back)
     left = serpapi_searches_left(key)
     if left is not None:
-        budget = min(budget, max(0, left - int(lcfg.get("reserve_searches", 10))))
+        budget = min(budget, max(0, left - int(lcfg.get("reserve_searches", 10)) - hold_back))
     origins = lcfg.get("origins") or compare
     log("live Google Flights check: budget %d search(es) this run, %s left this month" % (
         budget, "?" if left is None else left))
@@ -1834,6 +1964,242 @@ def check_events(cfg, conn, dry_run, now, drop, window, realert, cooldown, allow
     return out
 
 
+# ----------------------------------------------------------------- open jaw
+# Fly out of a home airport into city A, come back from a nearby city B (Europe mostly):
+# priced from one-way cached fares, verified as one multi-city ticket on Google Flights.
+OPEN_JAW_DEFAULTS = {"enabled": False, "max_km": 700, "extra_return_from": [], "home": ["SFO", "SMF"],
+                     "nights": [5, 21], "min_saving": 50, "live_check": True}
+
+
+def open_jaw_cfg(cfg):
+    return dict(OPEN_JAW_DEFAULTS, **(cfg.get("open_jaw") or {}))
+
+
+def _point(code):
+    return AIRPORTS.get(code) or COORDS.get(code)
+
+
+def km_between(a, b):
+    pa, pb = _point(a), _point(b)
+    if not pa or not pb:
+        return None
+    la1, lo1, la2, lo2 = map(math.radians, (pa[0], pa[1], pb[0], pb[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 6371 * 2 * math.asin(math.sqrt(h))
+
+
+def open_jaw_returns(cfg, ocfg):
+    """{arrival city: [cities to fly home from]}: other watched destinations within max_km,
+    plus extra_return_from (also within max_km). Cities with no neighbour are left out."""
+    dests = list(cfg["destinations"])
+    extra = [c for c in ocfg.get("extra_return_from") or [] if c not in dests]
+    out = {}
+    for a in dests:
+        near = [b for b in dests + extra
+                if b != a and (km_between(a, b) or 1e9) <= float(ocfg["max_km"])]
+        if near:
+            out[a] = near
+    return out
+
+
+def fetch_open_jaw_fares(cfg, ocfg, returns, fetch=fetch_fares):
+    """One-way cached fares for every leg an open jaw could use: {(origin, dest): [fares]}."""
+    ow_cfg = dict(cfg, trip={"one_way": True})
+    pairs = set()
+    for a, bs in returns.items():
+        for home in ocfg["home"]:
+            pairs.add((home, a))
+            pairs.update((b, home) for b in bs)
+    delay = float(cfg.get("request_delay_sec", 0.5))
+    got = {}
+    for o, d in sorted(pairs):
+        try:
+            got[(o, d)] = [f for f in (fetch(ow_cfg, o, d) or []) if f.get("price") and f.get("departure_at")]
+        except Exception as ex:
+            log("open-jaw fetch %s-%s failed: %s" % (o, d, ex))
+            got[(o, d)] = []
+        if delay:
+            time.sleep(delay)
+    return got
+
+
+def record_oneway(conn, fares_by_pair, now_iso):
+    rows = [(now_iso, o, d, f.get("departure_at"), float(f["price"]), f.get("transfers"), f.get("airline"),
+             f.get("duration_to") or f.get("duration"), f.get("link"))
+            for (o, d), fares in fares_by_pair.items() for f in fares]
+    conn.executemany("INSERT INTO oneway_fares (checked_at, origin, dest, depart_at, price, transfers,"
+                     " airline, duration, link) VALUES (?,?,?,?,?,?,?,?,?)", rows)
+
+
+def load_oneway(conn):
+    """The latest one-way fares per (origin, dest) from the database, same shape as the API's."""
+    try:
+        rows = conn.execute(
+            "SELECT f.origin, f.dest, f.depart_at, f.price, f.transfers, f.airline, f.link FROM oneway_fares f"
+            " JOIN (SELECT origin, dest, MAX(checked_at) AS at FROM oneway_fares GROUP BY origin, dest) l"
+            " ON f.origin=l.origin AND f.dest=l.dest AND f.checked_at=l.at").fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    out = {}
+    for o, d, dep, price, transfers, airline, link in rows:
+        out.setdefault((o, d), []).append({"departure_at": dep, "price": price, "transfers": transfers,
+                                           "airline": airline, "link": link})
+    return out
+
+
+def combine_open_jaws(cfg, ocfg, returns, oneway, rt_low, today=None):
+    """Cheapest open jaw per (home airport out, arrival city): out home1 -> A on d1, back B -> home2
+    on d2 with d2-d1 inside `nights`. rt_low(home, A, "YYYY-MM") is the round trip to compare with."""
+    today = (today or date.today()).isoformat()
+    nmin, nmax = (int(x) for x in ocfg["nights"])
+    homes = list(ocfg["home"])
+    allow = origin_allowances(cfg)
+    found = []
+    for a, bs in returns.items():
+        for h1 in homes:
+            outs = [f for f in oneway.get((h1, a)) or [] if f["departure_at"][:10] > today]
+            best = None
+            for b in bs:
+                for h2 in homes:
+                    backs = oneway.get((b, h2)) or []
+                    for f1 in outs:
+                        d1 = date.fromisoformat(f1["departure_at"][:10])
+                        for f2 in backs:
+                            n = (date.fromisoformat(f2["departure_at"][:10]) - d1).days
+                            total = float(f1["price"]) + float(f2["price"])
+                            if nmin <= n <= nmax and (best is None or total < best["price"]):
+                                best = {"origin": h1, "dest": a, "returnFrom": b, "returnTo": h2,
+                                        "departDate": f1["departure_at"][:10],
+                                        "returnDate": f2["departure_at"][:10], "price": total,
+                                        "outPrice": float(f1["price"]), "backPrice": float(f2["price"]),
+                                        "out": f1, "back": f2}
+            if not best:
+                continue
+            rt = rt_low(h1, a, best["departDate"][:7])
+            target = cfg["destinations"].get(a)
+            extra = max(allow.get(h1, 0), allow.get(best["returnTo"], 0))
+            best.update(roundTrip=rt, saving=(rt - best["price"]) if rt else None,
+                        target=(target + extra) if target is not None else None)
+            found.append(best)
+    return found
+
+
+def open_jaw_is_deal(oj, ocfg):
+    return (oj["target"] is not None and oj["price"] <= oj["target"]
+            and oj["saving"] is not None and oj["saving"] >= float(ocfg["min_saving"]))
+
+
+def open_jaw_key(oj):
+    """Dedupe key in the alerts table (dest + month): separate from round trips to the same city."""
+    return "oj:%s-%s:%s" % (oj["origin"], oj["returnFrom"], oj["departDate"][:7])
+
+
+def latest_open_jaw_check(conn, oj, days=None):
+    """(price, checked_at, legs_json) of the newest live check of exactly this open jaw, or None."""
+    since = (datetime.now(timezone.utc) - timedelta(days=days or DISPROVED_DAYS)).isoformat()
+    try:
+        return conn.execute(
+            "SELECT price, checked_at, legs_json FROM openjaw_checks WHERE dest=? AND origin=? AND return_from=?"
+            " AND return_to=? AND depart_date=? AND return_date=? AND checked_at >= ? AND price IS NOT NULL"
+            " ORDER BY checked_at DESC LIMIT 1",
+            (oj["dest"], oj["origin"], oj["returnFrom"], oj["returnTo"], oj["departDate"], oj["returnDate"],
+             since)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+
+
+def record_open_jaw_check(conn, oj, lv, now_iso):
+    legs = None
+    if lv.get("legs"):
+        legs = json.dumps({"legs": lv["legs"], "layovers": lv.get("layovers") or [],
+                           "duration": lv.get("duration"), "carbon_g": lv.get("carbon_g")}, separators=(",", ":"))
+    conn.execute(
+        "INSERT INTO openjaw_checks (checked_at, origin, dest, return_from, return_to, depart_date, return_date,"
+        " price, airline, stops, legs_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (now_iso, oj["origin"], oj["dest"], oj["returnFrom"], oj["returnTo"], oj["departDate"], oj["returnDate"],
+         lv.get("price"), lv.get("airline"), len(lv["via"]) if lv.get("via") is not None else None, legs))
+    for leg in lv.get("legs") or []:
+        for code, name in ((leg.get("from"), leg.get("from_name")), (leg.get("to"), leg.get("to_name"))):
+            try:
+                remember_airport(conn, code, name)
+            except Exception as ex:
+                log("airport lookup %s failed: %s" % (code, ex))
+
+
+def one_way_link(origin, dest, day):
+    return "https://www.google.com/travel/flights?q=" + urllib.parse.quote(
+        "One way flights from %s to %s on %s" % (origin, dest, day))
+
+
+def open_jaw_deals(cfg, conn, ocfg, options, dry_run, live_ok, now, realert, cooldown, budget, names):
+    """Open jaws that beat the target and the round trip, live-checked (multi-city) within `budget`
+    searches; returns deal dicts the send loop understands (d["open_jaw"] marks them)."""
+    now_iso = now.isoformat()
+    cands = sorted((o for o in options if open_jaw_is_deal(o, ocfg)), key=lambda o: o["price"] / o["target"])
+    key = os.environ.get("SERPAPI_KEY", "").strip()
+    out = []
+    for oj in cands:
+        city = place(oj["dest"], names).split(",")[0]
+        prev = latest_open_jaw_check(conn, oj)
+        live = None
+        if prev:                                   # checked recently: trust it, don't spend again
+            live = prev[0]
+        elif live_ok and ocfg.get("live_check", True) and key and budget > 0:
+            budget -= 1
+            try:
+                lv = live_price_multi(key, oj["origin"], oj["dest"], oj["departDate"], oj["returnFrom"],
+                                      oj["returnTo"], oj["returnDate"], cfg.get("currency", "usd"))
+                live = lv.get("price")
+                log("      live open jaw %s->%s / %s->%s: %s" % (oj["origin"], oj["dest"], oj["returnFrom"],
+                                                                oj["returnTo"], "$%d" % live if live else "no flights"))
+                if not dry_run:
+                    record_open_jaw_check(conn, oj, lv, now_iso)
+            except Exception as ex:
+                log("live open-jaw check %s failed: %s" % (oj["dest"], ex))
+        if live is not None and live > oj["target"]:
+            log("held open jaw %s back from %s: cached $%d, live $%d (target $%d)" % (
+                oj["dest"], oj["returnFrom"], oj["price"], live, oj["target"]))
+            continue
+        price = live if live is not None else oj["price"]
+        okey = open_jaw_key(oj)
+        status = should_alert(conn, oj["dest"], okey, price, realert, cooldown, now)
+        if not status or (status == "verify" and live is None):
+            continue
+        reason = "%s, $%d less than the round trip ($%d)" % (
+            "under your $%d target" % oj["target"], oj["roundTrip"] - price, oj["roundTrip"])
+        out.append({"open_jaw": oj, "dest": oj["dest"], "month": okey, "origin": oj["origin"],
+                    "price": price, "threshold": cfg["destinations"].get(oj["dest"]),
+                    "eff_target": oj["target"], "reason": reason, "median": None,
+                    "fare": {"departure_at": oj["departDate"], "return_at": oj["returnDate"]},
+                    "live_best": (live, oj["origin"]) if live is not None else None,
+                    "gf_link": one_way_link(oj["origin"], oj["dest"], oj["departDate"]), "av_link": None,
+                    "city": city})
+    return out
+
+
+def format_open_jaw(d, names, links=True):
+    oj = d["open_jaw"]
+    lines = ["OPEN JAW: %s (%s), home from %s (%s)" % (
+                 place(oj["dest"], names), oj["dest"], place(oj["returnFrom"], names), oj["returnFrom"]),
+             trip_dates(oj["departDate"], oj["returnDate"]), ""]
+    if d.get("live_best"):
+        lines.append("$%d multi-city ticket (live)" % d["live_best"][0])
+    else:
+        lines.append("~$%d as two one-ways (unverified)" % oj["price"])
+    lines += ["  Out %s -> %s %s: $%d" % (oj["origin"], oj["dest"], fmt_day(oj["departDate"]), oj["outPrice"]),
+              "  Back %s -> %s %s: $%d" % (oj["returnFrom"], oj["returnTo"], fmt_day(oj["returnDate"]), oj["backPrice"]),
+              "Round trip to %s: $%d" % (oj["dest"], oj["roundTrip"]),
+              d["reason"][0].upper() + d["reason"][1:],
+              "%s to %s: ~%d km to get there by train/bus" % (oj["dest"], oj["returnFrom"],
+                                                            km_between(oj["dest"], oj["returnFrom"]) or 0)]
+    if d.get("weather"):
+        lines += [""] + list(d["weather"])
+    if links:
+        lines += ["", "Out: " + one_way_link(oj["origin"], oj["dest"], oj["departDate"]),
+                  "Back: " + one_way_link(oj["returnFrom"], oj["returnTo"], oj["returnDate"])]
+    return "\n".join(lines)
+
+
 def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_run=False):
     now = now or datetime.now(timezone.utc).replace(microsecond=0)
     now_iso = now.isoformat()
@@ -1903,6 +2269,32 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
         else:
             log("      no fares found")
 
+    # Open jaw: one-way fares for the nearby-city clusters (Travelpayouts only, no SerpApi).
+    ocfg = open_jaw_cfg(cfg)
+    oj_options = []
+    if ocfg.get("enabled"):
+        oj_returns = open_jaw_returns(cfg, ocfg)
+        if oj_returns:
+            log("open jaw: one-way fares for %s" % ", ".join(
+                "%s (back from %s)" % (a, "/".join(bs)) for a, bs in sorted(oj_returns.items())))
+            oneway = fetch_open_jaw_fares(cfg, ocfg, oj_returns, fetch)
+            if not dry_run:
+                record_oneway(conn, oneway, now_iso)
+
+            def rt_low(home, a, month):
+                same = (by_origin.get((a, month)) or {}).get(home)
+                if same:
+                    return float(same["price"])
+                any_month = [float(v[home]["price"]) for (d_, _), v in by_origin.items() if d_ == a and home in v]
+                return min(any_month) if any_month else None
+            oj_options = combine_open_jaws(cfg, ocfg, oj_returns, oneway, rt_low, now.date())
+            for oj in oj_options:
+                if oj["saving"] and oj["saving"] > 0:
+                    log("      open jaw %s->%s, back %s->%s %s..%s: $%d (round trip $%d)%s" % (
+                        oj["origin"], oj["dest"], oj["returnFrom"], oj["returnTo"], oj["departDate"],
+                        oj["returnDate"], oj["price"], oj["roundTrip"],
+                        "  <-- deal" if open_jaw_is_deal(oj, ocfg) else ""))
+
     log("checking for deals ...")
     deals = []
     allow = origin_allowances(cfg)
@@ -1943,7 +2335,10 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
         if dry_run and not live_in_dry_run:
             log("live check skipped in dry run (add --live to spend SerpApi searches)")
         else:
-            add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window)
+            # One search kept back for the best open jaw, if there is one to check.
+            oj_reserve = 1 if ocfg.get("live_check", True) and any(
+                open_jaw_is_deal(o, ocfg) and not latest_open_jaw_check(conn, o) for o in oj_options) else 0
+            add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window, hold_back=oj_reserve)
             deals = confirm_with_live(cfg, deals, drop, window)
     # Already sent unverified: only worth re-sending once a live check confirms it.
     held = [d for d in deals if d.get("needs_live") and not d.get("live_best")]
@@ -1966,6 +2361,20 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
         else:
             kept.append(d)
     deals = kept
+
+    # Open jaws that beat both the target and the round trip (after round trips, within the cap).
+    if oj_options and len(deals) < max_alerts:
+        live_ok = (not dry_run or live_in_dry_run) and cfg.get("live_check", {}).get("enabled", True)
+        oj_budget = 0
+        if live_ok:
+            used = API_CALLS.get("SerpApi searches", 0)
+            lcfg = cfg.get("live_check", {})
+            oj_budget = max(0, int(lcfg.get("max_searches_per_run", 6)) - used)
+            acct_left = SERPAPI_ACCOUNT.get("total_searches_left")
+            if acct_left is not None:
+                oj_budget = min(oj_budget, max(0, int(acct_left) - used - int(lcfg.get("reserve_searches", 10))))
+        deals += open_jaw_deals(cfg, conn, ocfg, oj_options, dry_run, live_ok, now, realert, cooldown,
+                                min(oj_budget, 1), names)[:max_alerts - len(deals)]
 
     # Fixed-date event trips (e.g. Oktoberfest), checked on Google Flights on their own schedule.
     if cfg.get("events"):
@@ -1991,6 +2400,8 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
     ccfg = cfg.get("charts", {})
     if deals and ccfg.get("enabled", True):
         for d in deals:
+            if d.get("open_jaw"):
+                continue
             d["month_prices"] = {m: {o: float(f["price"]) for o, f in by_origin.get((d["dest"], m), {}).items()}
                                  for m in months}
             try:
@@ -2003,10 +2414,22 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
 
     sent = 0
     for d in deals:
-        body = format_deal(d, compare, names, links=False)
-        actions = deal_actions(d, compare)
+        oj = d.get("open_jaw")
+        if oj:
+            body = format_open_jaw(d, names, links=False)
+            actions = [("Out %s" % oj["origin"], one_way_link(oj["origin"], oj["dest"], oj["departDate"])),
+                       ("Back from %s" % oj["returnFrom"],
+                        one_way_link(oj["returnFrom"], oj["returnTo"], oj["returnDate"]))]
+        else:
+            body = format_deal(d, compare, names, links=False)
+            actions = deal_actions(d, compare)
         city = place(d["dest"], names).split(",")[0]
-        if d.get("info_only"):
+        if oj:
+            title = "Open jaw: %s -> %s, back from %s $%d (round trip $%d)%s" % (
+                oj["origin"], city, place(oj["returnFrom"], names).split(",")[0],
+                d["live_best"][0] if d.get("live_best") else oj["price"], oj["roundTrip"],
+                ", live" if d.get("live_best") else ", unverified")
+        elif d.get("info_only"):
             title = "%s: first prices, $%d from %s (live)" % (d["event"], d["live_best"][0], d["live_best"][1])
         elif d.get("event"):
             title = "%s: $%d from %s (live)" % (d["event"], d["live_best"][0], d["live_best"][1])
@@ -2024,7 +2447,7 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
             continue
         # Record the alert only after a channel confirms delivery, so a failed
         # push doesn't silently suppress tomorrow's retry.
-        email_body = format_deal(d, compare, names)
+        email_body = format_open_jaw(d, names) if oj else format_deal(d, compare, names)
         if send(cfg.get("notify", {}), title, body, click=d["gf_link"], actions=actions,
                 email_body=email_body, push=style):
             if not d.get("info_only"):         # a heads-up mustn't block the real deal alert

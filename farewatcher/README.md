@@ -12,6 +12,8 @@ Each run (stdlib-only Python 3, `fare_watch.py`):
 
 Fixed-date trips (`events` in the config, e.g. Oktoberfest) are checked directly on Google Flights on their own schedule.
 
+Open jaws (`open_jaw` in the config): fly out of SFO/SMF into one city and home from a nearby one (e.g. into Frankfurt, home from Paris). Return cities are the other watched destinations within `max_km` (today London, Paris, Amsterdam, Munich and Frankfurt) plus `extra_return_from`. Each run fetches one-way fares for those legs from Travelpayouts (about 20 extra calls, saved in `oneway_fares`, apart from the round-trip tables) and pairs them within `nights`. An open jaw becomes a deal when the total is under the arrival city's target (plus the SMF allowance) and at least `min_saving` below the round trip; the best one is confirmed as a Google Flights multi-city ticket (one SerpApi search, held back from the round-trip budget; results in `openjaw_checks`). The summary exports `openJaw` on destinations, `byOrigin` entries and deals.
+
 ## On the Pi
 
 | What | Where |
