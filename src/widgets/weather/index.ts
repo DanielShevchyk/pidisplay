@@ -144,7 +144,7 @@ export default defineWidget<WeatherConfig>({
     { key: 'mapLayer', label: 'Map layer', type: 'select', options: MAP_LAYERS.map(({ value, label }) => ({ value, label })) },
   ],
 
-  mount(el, { config, placement, storage, sharedStorage }) {
+  mount(el, { config, placement, storage, sharedStorage, saveConfig }) {
     const root = h('div', { class: `wx size-${placement}` });
     el.append(root);
     const own = config.location.trim();
@@ -163,7 +163,11 @@ export default defineWidget<WeatherConfig>({
 
     const paint = () => {
       if (!location) {
-        root.replaceChildren(placement === 'bar' ? '' : message('⛅', 'Set a location in ⚙ settings'));
+        root.replaceChildren(
+          placement === 'bar'
+            ? ''
+            : h('button', { class: 'wx-set-location', onclick: pick }, message('📍', 'Tap to set a location')),
+        );
         return;
       }
       if (mapTile && data) {
@@ -181,15 +185,21 @@ export default defineWidget<WeatherConfig>({
           root.replaceChildren(split.el);
           root.classList.add('wx-split-mode');
         }
-        split.left.replaceChildren(render(data, config, 'tall', Boolean(failed), splitDays));
+        split.left.replaceChildren(render(data, config, 'tall', Boolean(failed), splitDays, pick));
         split.setPlace(data);
         return;
       }
       split = null;
       root.classList.remove('wx-split-mode');
       root.replaceChildren(
-        data ? render(data, config, placement, Boolean(failed)) : failed ? message('⚠️', failed) : message('', 'Loading…'),
+        data ? render(data, config, placement, Boolean(failed), undefined, pick) : failed ? message('⚠️', failed) : message('', 'Loading…'),
       );
+    };
+
+    // Tapping the place name changes this tile's location without going through ⚙.
+    const pick = (e?: Event) => {
+      e?.stopPropagation();
+      pickLocation(own, location, (next) => saveConfig({ location: next }));
     };
 
     const refresh = async () => {
@@ -273,11 +283,50 @@ export default defineWidget<WeatherConfig>({
   },
 });
 
+/** Sheet for typing a new location. Blank means "same as the other weather tiles". */
+function pickLocation(own: string, current: string, save: (location: string) => void) {
+  const input = h('input', {
+    type: 'text',
+    class: 'wx-location-input',
+    value: own || current,
+    placeholder: 'e.g. Citrus Heights, CA or 38.7,-121.3',
+    autocomplete: 'off',
+  });
+  const done = (loc: string) => {
+    sheet.close();
+    if (loc !== own) save(loc);
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && input.value.trim()) done(input.value.trim());
+  });
+  const sheet = openSheet('📍 Weather location', [
+    h('p', { class: 'wx-location-help' }, 'City and state, city and country, or lat,lon.'),
+    input,
+    h(
+      'div',
+      { class: 'wx-location-actions' },
+      h('button', { class: 'btn btn-primary', onclick: () => input.value.trim() && done(input.value.trim()) }, 'Save'),
+      own && h('button', { class: 'btn', onclick: () => done('') }, 'Use the other weather tiles\' location'),
+    ),
+  ]);
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 50);
+}
+
 function message(icon: string, text: string) {
   return h('div', { class: 'wx-message' }, icon && h('div', { class: 'wx-message-icon' }, icon), text);
 }
 
-function render(d: Forecast, config: WeatherConfig, placement: Placement, offline: boolean, daysOverride?: number) {
+function render(
+  d: Forecast,
+  config: WeatherConfig,
+  placement: Placement,
+  offline: boolean,
+  daysOverride?: number,
+  onPlace?: (e: Event) => void,
+) {
   const tz = validZone(d.timezone);
   const deg = (n: number | null) => (n === null ? '–' : `${n}°`);
   const today = d.daily[0];
@@ -303,7 +352,13 @@ function render(d: Forecast, config: WeatherConfig, placement: Placement, offlin
     h(
       'div',
       { class: 'wx-now-text' },
-      h('div', { class: 'wx-place' }, place, offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠')),
+      h(
+        onPlace ? 'button' : 'div',
+        { class: 'wx-place', onclick: onPlace, title: onPlace && 'Change location' },
+        onPlace && '📍 ',
+        place,
+        offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠'),
+      ),
       h('div', { class: 'wx-cond' }, describe(cur.code)),
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
       pills(d, place, aq, placement !== 'small' && placement !== 'medium'),

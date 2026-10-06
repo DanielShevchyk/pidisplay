@@ -338,3 +338,12 @@ button.wx-aqi { cursor: pointer; }
 .wx-map-load:active { background: var(--surface); }
 .wx-map-load-icon { font-size: clamp(28px, 22cqh, 72px); line-height: 1; }
 .wx-map-load-text { font-size: clamp(14px, 7cqh, 22px); font-weight: 600; }
+
+/* ---- Location picker ---- */
+
+button.wx-place { padding: 0; border: 0; background: none; font: inherit; color: var(--text-dim); text-transform: inherit; letter-spacing: inherit; text-align: inherit; cursor: pointer; max-width: 100%; }
+.wx-set-location { width: 100%; height: 100%; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.wx-location-help { margin: 0; color: var(--text-dim); font-size: 18px; }
+.wx-location-input { width: 100%; min-height: 56px; padding: 0 16px; font-size: 22px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); }
+.wx-location-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
+.wx-location-actions .btn { min-height: 52px; font-size: 18px; }

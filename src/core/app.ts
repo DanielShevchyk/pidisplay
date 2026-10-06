@@ -263,6 +263,7 @@ export class App {
       get editing() {
         return app.editing;
       },
+      saveConfig: (patch) => app.saveConfig(id, patch),
     };
   }
 
@@ -508,6 +509,15 @@ export class App {
       if (index >= 0) return { page, index, tile: page.tiles[index] };
     }
     return null;
+  }
+
+  /** Settings changed from inside a widget, e.g. the weather tile's location picker. */
+  private saveConfig(id: string, patch: WidgetConfig) {
+    const item =
+      this.findTile(id)?.tile ?? [...this.layout.topBar.left, ...this.layout.topBar.right].find((i) => i.id === id);
+    if (!item) return;
+    item.config = { ...item.config, ...patch };
+    this.changed();
   }
 
   private changed() {

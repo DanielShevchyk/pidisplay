@@ -115,6 +115,8 @@ export interface WidgetContext<C extends WidgetConfig = WidgetConfig> {
   on<T = unknown>(event: string, handler: (data: T) => void): () => void;
   /** True while the user is rearranging the dashboard. */
   readonly editing: boolean;
+  /** Merges into this tile's saved settings (same as editing them in ⚙); the widget remounts. */
+  saveConfig(patch: Partial<C>): void;
 }
 
 export interface WidgetInstance {
