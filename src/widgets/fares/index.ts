@@ -1,7 +1,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
-import { legList, routeMap, type Airport, type Itinerary, type Route } from './map';
+import { legList, routeMap, type Airport, type Itinerary, type OpenJawRoute, type Route } from './map';
 import './fares.css';
 
 interface FaresConfig {
@@ -42,11 +42,38 @@ interface Low {
   itinerary?: Itinerary | null;
 }
 
+/** Fly into one city and home from a nearby one; added Oct 2026. */
+interface OpenJaw {
+  returnFrom: string;
+  returnFromName: string | null;
+  /** SFO or SMF, not always the airport you left from. */
+  returnTo: string;
+  /** The two one-way fares the cached price adds up. */
+  outPrice: number | null;
+  backPrice: number | null;
+  /** The round trip to the arrival city it's compared with. */
+  roundTrip: number | null;
+  saving: number | null;
+}
+
+/** A destination's cheapest open jaw: the trip plus where you fly home from. */
+interface OpenJawOption extends OpenJaw {
+  origin: string;
+  departDate: string | null;
+  returnDate: string | null;
+  price: number;
+  verified: boolean;
+  livePrice: number | null;
+  link: string | null;
+  itinerary?: Itinerary | null;
+}
+
 interface OriginData {
   currentLow: Low | null;
   median30: number | null;
   history: { date: string; low: number }[];
   monthly: { month: string; low: number | null }[];
+  openJaw?: OpenJawOption | null;
 }
 
 interface Destination extends OriginData {
@@ -77,6 +104,8 @@ interface Deal {
   event: string | null;
   alternates?: Alternate[];
   itinerary?: Itinerary | null;
+  /** Set on open-jaw deals: code is the arrival city, the flight home leaves from returnFrom. */
+  openJaw?: OpenJaw | null;
 }
 
 interface Summary {
@@ -274,13 +303,15 @@ function originSwitch(current: Origin, flip: (o: Origin) => void) {
 function forOrigin(d: Summary, origin: Origin): Summary {
   const destinations = d.destinations.map((dest): Destination => {
     const own = dest.byOrigin?.[origin];
-    if (own) return { ...dest, ...own };
+    const openJaw = own?.openJaw !== undefined ? own.openJaw : dest.openJaw?.origin === origin ? dest.openJaw : null;
+    if (own) return { ...dest, ...own, openJaw };
     // Older summary: use the overall low when it's from here, else its same-trip alternate.
     const low = dest.currentLow;
     const alt = low?.alternates?.find((a) => a.origin === origin);
     return {
       ...dest,
       currentLow: low?.origin === origin ? low : alt ? lowFromAlternate(alt, dest.code) : null,
+      openJaw,
     };
   });
 
@@ -422,17 +453,20 @@ function mapPanel(
   tap: (code: string) => () => void,
 ) {
   const dest = d.destinations.find((x) => x.code === code);
-  // A deal for this destination is the fare the list highlights; otherwise its current low.
+  // A deal for this destination is the fare the list highlights; otherwise the same fare as its row.
   const deal = deals.find((x) => x.code === code);
-  const fare = deal ?? dest?.currentLow ?? null;
+  const own = dest ? rowFare(dest) : null;
+  const fare: Fare | null = deal ?? own;
+  const jaw: OpenJaw | null = deal ? (deal.openJaw ?? null) : own && 'returnFrom' in own ? own : null;
   const route: Route | null =
     code && fare
       ? {
           origin: fare.origin,
           code,
-          stops: fare.stops,
-          airline: 'airline' in fare ? fare.airline : null,
+          stops: fare.stops ?? null,
+          airline: fare.airline ?? null,
           itinerary: fare.itinerary ?? null,
+          openJaw: jaw && openJawRoute(jaw, fare.livePrice != null),
         }
       : null;
   return h(
@@ -443,11 +477,54 @@ function mapPanel(
         'button',
         { class: 'fares-map-head', onclick: tap(code) },
         h('span', { class: 'fares-map-title' }, place(deal?.name ?? dest?.name ?? null, code)),
+        jaw && h('span', { class: 'fares-map-jaw' }, `↩ ${jaw.returnFrom}`),
         fare && h('span', { class: 'fares-map-price' }, money(best(fare))),
         h('span', { class: 'fares-map-more' }, 'Details ›'),
       ),
     routeMap(route, d.airports),
-    legList(route, d.airports),
+    legList(route, d.airports, money),
+  );
+}
+
+/** What the map needs from any of the fare shapes: a deal, a round-trip low or an open jaw. */
+interface Fare {
+  origin: string | null;
+  price: number;
+  livePrice?: number | null;
+  stops?: number | null;
+  airline?: string | null;
+  itinerary?: Itinerary | null;
+}
+
+/** The fare a destination row shows: its round-trip low, or its open jaw when that's cheaper. */
+function rowFare(dest: Destination): Low | OpenJawOption | null {
+  const low = dest.currentLow;
+  const jaw = dest.openJaw;
+  return jaw && (!low || best(jaw) < best(low)) ? jaw : low;
+}
+
+function openJawRoute(jaw: OpenJaw, priced: boolean): OpenJawRoute {
+  // Once Google priced the whole ticket, the one-way fares it replaced would only confuse.
+  return {
+    returnFrom: jaw.returnFrom,
+    returnTo: jaw.returnTo,
+    outPrice: priced ? null : jaw.outPrice,
+    backPrice: priced ? null : jaw.backPrice,
+  };
+}
+
+/** "↩ Back from Paris (PAR) · $90 less than the round trip"; compact drops the saving. */
+function openJawLine(jaw: OpenJaw, origin: string | null, money: (n: number) => string, compact = false) {
+  return h(
+    'div',
+    { class: 'fares-jaw' },
+    '↩ Back from ',
+    h('span', { class: 'fares-jaw-city' }, place(jaw.returnFromName, jaw.returnFrom)),
+    jaw.returnTo !== origin ? ` to ${jaw.returnTo}` : '',
+    !compact &&
+      jaw.saving &&
+      jaw.saving > 0 &&
+      h('span', { class: 'fares-jaw-saving' }, ` · ${money(jaw.saving)} less than the round trip`),
   );
 }
 
@@ -470,6 +547,7 @@ function dealHero(
       { class: 'fares-meta' },
       [deal.origin, dateRange(deal.departDate, deal.returnDate)].filter(Boolean).join(' · '),
     ),
+    deal.openJaw && openJawLine(deal.openJaw, deal.origin, money, compact),
     !compact && deal.event && h('div', { class: 'fares-meta' }, `🎟 ${deal.event}`),
     under !== null && under > 0 && h('div', { class: 'fares-under' }, `${money(under)} under target`),
     ...alternates(deal, money, compact),
@@ -488,11 +566,17 @@ function destHero(dest: Destination, money: (n: number) => string, d: Summary) {
 }
 
 function destRow(dest: Destination, money: (n: number) => string, isDeal: boolean, open: () => void, shown = false) {
-  const low = dest.currentLow ? best(dest.currentLow) : null;
+  const fare = rowFare(dest);
+  const low = fare ? best(fare) : null;
   return h(
     'button',
     { class: `fares-row${isDeal ? ' deal' : ''}${shown ? ' shown' : ''}`, onclick: open },
-    h('span', { class: 'fares-row-name' }, place(dest.name, dest.code)),
+    h(
+      'span',
+      { class: 'fares-row-name' },
+      place(dest.name, dest.code),
+      fare && 'returnFrom' in fare && h('span', { class: 'fares-row-jaw' }, ` ↩ ${fare.returnFrom}`),
+    ),
     sparkline(dest.history.slice(-30).map((x) => x.low), dest.target),
     h(
       'span',
@@ -530,6 +614,28 @@ function openDetail(dest: Destination, d: Summary) {
       : null,
   ];
 
+  const jaw = dest.openJaw;
+  if (jaw) {
+    content.push(
+      h('h3', {}, 'Home from a nearby city'),
+      h(
+        'div',
+        { class: 'fares-deal' },
+        h('div', { class: 'fares-deal-top' }, h('strong', {}, money(best(jaw))), badge(jaw.verified)),
+        h('div', { class: 'fares-meta' }, [jaw.origin, dateRange(jaw.departDate, jaw.returnDate)].filter(Boolean).join(' · ')),
+        openJawLine(jaw, jaw.origin, money),
+        jaw.outPrice && jaw.backPrice && jaw.livePrice == null
+          ? h('div', { class: 'fares-meta' }, `One-way fares: ${money(jaw.outPrice)} out + ${money(jaw.backPrice)} home`)
+          : null,
+        jaw.link &&
+          tickets(
+            jaw.link,
+            `${place(dest.name, dest.code)}, home from ${jaw.returnFrom}, ${money(best(jaw))} from ${jaw.origin}, ${dateRange(jaw.departDate, jaw.returnDate)}`,
+          ),
+      ),
+    );
+  }
+
   if (dest.history.length > 1) {
     content.push(h('h3', {}, 'Price history'), historyChart(dest.history, dest.target, money));
   }
@@ -566,6 +672,7 @@ function openDetail(dest: Destination, d: Summary) {
             { class: 'fares-meta' },
             [x.origin, dateRange(x.departDate, x.returnDate), stops(x.stops), x.bags].filter(Boolean).join(' · '),
           ),
+          x.openJaw && openJawLine(x.openJaw, x.origin, money),
           ...alternates(x, money),
           x.event && h('div', { class: 'fares-meta' }, `🎟 ${x.event}`),
           x.link &&

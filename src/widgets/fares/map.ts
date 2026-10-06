@@ -49,6 +49,16 @@ export interface Route {
   stops: number | null;
   airline: string | null;
   itinerary: Itinerary | null;
+  /** Open jaw: the flight home leaves from another city, which you get to on your own. */
+  openJaw?: OpenJawRoute | null;
+}
+
+export interface OpenJawRoute {
+  returnFrom: string;
+  returnTo: string;
+  /** The two one-way fares it adds up; null once Google priced the whole ticket. */
+  outPrice: number | null;
+  backPrice: number | null;
 }
 
 // ---- Panel pieces ---------------------------------------------------------
@@ -57,6 +67,7 @@ export interface Route {
 export function routeMap(route: Route | null, airports: Record<string, Airport> | undefined) {
   const canvas = h('div', { class: 'fares-map-canvas' });
   const stops = route && routeStops(route, airports);
+  const back = stops && route.openJaw ? returnStops(route.openJaw, airports) : null;
   if (!stops) {
     canvas.append(h('div', { class: 'fares-map-empty' }, airports ? 'No map position for this route' : 'Map needs a newer Farewatcher'));
     return canvas;
@@ -68,7 +79,7 @@ export function routeMap(route: Route | null, airports: Record<string, Airport> 
     if (w < 40 || hgt < 40 || drawn === `${w}x${hgt}`) return;
     drawn = `${w}x${hgt}`;
     loadWorld().then((world) => {
-      if (canvas.isConnected) canvas.replaceChildren(draw(world, stops, w, hgt, !route.itinerary));
+      if (canvas.isConnected) canvas.replaceChildren(draw(world, stops, back, w, hgt, !route.itinerary));
     });
   });
   observer.observe(canvas);
@@ -76,20 +87,30 @@ export function routeMap(route: Route | null, airports: Record<string, Airport> 
 }
 
 /** Legs, layovers and total time under the map; a note when the fare hasn't been live-checked. */
-export function legList(route: Route | null, airports: Record<string, Airport> | undefined) {
+export function legList(
+  route: Route | null,
+  airports: Record<string, Airport> | undefined,
+  money: (n: number) => string,
+) {
   const list = h('div', { class: 'fares-legs' });
   if (!route) return list;
   const it = route.itinerary;
+  const jaw = route.openJaw;
   if (!it?.legs.length) {
     list.append(
       h(
         'div',
         { class: 'fares-leg-top' },
         h('span', { class: 'fares-leg-route' }, `${route.origin ?? '?'} → ${route.code}`),
-        h('span', { class: 'fares-leg-dur' }, [stopsText(route.stops), route.airline].filter(Boolean).join(' · ')),
+        h(
+          'span',
+          { class: 'fares-leg-dur' },
+          [stopsText(route.stops), route.airline, jaw?.outPrice ? money(jaw.outPrice) : ''].filter(Boolean).join(' · '),
+        ),
       ),
       h('div', { class: 'fares-leg-note' }, 'Flights and layovers show up once Farewatcher checks this fare live on Google.'),
     );
+    if (jaw) list.append(...homeFromElsewhere(jaw, route.code, airports, money));
     return list;
   }
   it.legs.forEach((leg, i) => {
@@ -122,6 +143,7 @@ export function legList(route: Route | null, airports: Record<string, Airport> |
       );
     }
   });
+  if (jaw) list.append(...homeFromElsewhere(jaw, it.legs[it.legs.length - 1].to, airports, money));
   list.append(
     h(
       'div',
@@ -132,13 +154,40 @@ export function legList(route: Route | null, airports: Record<string, Airport> |
   return list;
 }
 
+/** The open jaw's ground hop ("Frankfurt to Paris on your own") and its flight home. */
+function homeFromElsewhere(
+  jaw: OpenJawRoute,
+  arrival: string,
+  airports: Record<string, Airport> | undefined,
+  money: (n: number) => string,
+) {
+  const a = airports?.[arrival];
+  const b = airports?.[jaw.returnFrom];
+  const km = a && b ? Math.round(distanceKm(a, b) / 10) * 10 : null;
+  return [
+    h(
+      'div',
+      { class: 'fares-ground' },
+      `🚆 ${cityName(arrival, airports)} to ${cityName(jaw.returnFrom, airports)} on your own`,
+      km ? ` · about ${km} km` : '',
+    ),
+    h(
+      'div',
+      { class: 'fares-leg-top fares-back' },
+      h('span', { class: 'fares-leg-route' }, `${jaw.returnFrom} → ${jaw.returnTo}`),
+      h('span', { class: 'fares-leg-dur' }, ['Flight home', jaw.backPrice ? money(jaw.backPrice) : ''].filter(Boolean).join(' · ')),
+    ),
+  ];
+}
+
 // ---- Geometry -------------------------------------------------------------
 
 interface Stop {
   code: string;
   lat: number;
   lon: number;
-  kind: 'origin' | 'layover' | 'dest';
+  /** 'return' and 'home' are an open jaw's flight home. */
+  kind: 'origin' | 'layover' | 'dest' | 'return' | 'home';
   /** Layover length, shown under the code. */
   note: string | null;
 }
@@ -159,6 +208,23 @@ function routeStops(route: Route, airports: Record<string, Airport> | undefined)
   });
   const ends = stops.map((s) => s.kind);
   return ends[0] === 'origin' && ends[ends.length - 1] === 'dest' ? stops : null;
+}
+
+function returnStops(jaw: OpenJawRoute, airports: Record<string, Airport> | undefined): Stop[] | null {
+  const from = airports?.[jaw.returnFrom];
+  const to = airports?.[jaw.returnTo];
+  if (!from || !to) return null;
+  return [
+    { code: jaw.returnFrom, lat: from.lat, lon: from.lon, kind: 'return', note: null },
+    { code: jaw.returnTo, lat: to.lat, lon: to.lon, kind: 'home', note: null },
+  ];
+}
+
+function distanceKm(a: Airport, b: Airport) {
+  const dLat = (b.lat - a.lat) * RAD;
+  const dLon = (b.lon - a.lon) * RAD;
+  const q = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.asin(Math.sqrt(q));
 }
 
 type Ring = Float32Array;
@@ -234,7 +300,7 @@ function svg(tag: string, attrs: Record<string, string | number>, text?: string)
  * Equirectangular map fitted around the route. Longitudes are unwrapped from the origin so
  * a route across the Pacific stays in one piece.
  */
-function draw(world: World, stops: Stop[], w: number, hgt: number, guessed: boolean) {
+function draw(world: World, stops: Stop[], back: Stop[] | null, w: number, hgt: number, guessed: boolean) {
   let prev = stops[0].lon;
   const legs = stops.slice(1).map((stop, i) =>
     greatCircle(stops[i], stop).map(([lon, lat]): [number, number] => {
@@ -243,8 +309,16 @@ function draw(world: World, stops: Stop[], w: number, hgt: number, guessed: bool
     }),
   );
   const at = stops.map((s, i) => (i === 0 ? ([s.lon, s.lat] as [number, number]) : legs[i - 1][legs[i - 1].length - 1]));
+  // An open jaw's flight home, unwrapped next to the arrival city so both sit on the same map.
+  prev = at[at.length - 1][0];
+  const home = back
+    ? greatCircle(back[0], back[1]).map(([lon, lat]): [number, number] => {
+        prev = unwrap(lon, prev);
+        return [prev, lat];
+      })
+    : [];
 
-  const all = legs.flat();
+  const all = [...legs.flat(), ...home];
   const lons = all.map((p) => p[0]);
   const lats = all.map((p) => p[1]);
   const lon0 = (Math.min(...lons) + Math.max(...lons)) / 2;
@@ -293,10 +367,19 @@ function draw(world: World, stops: Stop[], w: number, hgt: number, guessed: bool
     return d;
   }
 
+  const px = at.map(([lon, lat]) => [x(lon), y(lat)]);
+  const line = (pts: [number, number][]) => pts.map(([lon, lat]) => `${x(lon).toFixed(1)},${y(lat).toFixed(1)}`).join(' ');
+  if (home.length) {
+    const [ax, ay] = px[px.length - 1];
+    map.append(
+      svg('line', { x1: ax, y1: ay, x2: x(home[0][0]), y2: y(home[0][1]), class: 'fares-map-ground' }),
+      svg('polyline', { points: line(home), class: 'fares-map-route back' }),
+    );
+  }
   for (const leg of legs) {
     map.append(
       svg('polyline', {
-        points: leg.map(([lon, lat]) => `${x(lon).toFixed(1)},${y(lat).toFixed(1)}`).join(' '),
+        points: line(leg),
         class: `fares-map-route${guessed ? ' guessed' : ''}`,
       }),
     );
@@ -304,15 +387,39 @@ function draw(world: World, stops: Stop[], w: number, hgt: number, guessed: bool
 
   // Labels sit on the outside of the route: behind the origin, past the destination, and
   // beside a layover, away from the line.
-  const px = at.map(([lon, lat]) => [x(lon), y(lat)]);
-  stops.forEach((stop, i) => {
+  // Each mark: the stop, where it is, and which way its label goes.
+  const marks: [Stop, number, number, number, number][] = stops.map((stop, i) => {
     const [cx, cy] = px[i];
-    let [dx, dy] =
+    const [dx, dy] =
       stop.kind === 'origin'
         ? [cx - px[1][0], cy - px[1][1]]
         : stop.kind === 'dest'
           ? [cx - px[i - 1][0], cy - px[i - 1][1]]
           : [-(px[i + 1][1] - px[i - 1][1]), px[i + 1][0] - px[i - 1][0]];
+    return [stop, cx, cy, dx, dy];
+  });
+  if (back && home.length) {
+    // The city you fly home from is labelled away from the arrival city; a different home
+    // airport (in SFO, back to SMF) gets its own label past the end of the line.
+    const [ax, ay] = px[px.length - 1];
+    const [bx, by] = [x(home[0][0]), y(home[0][1])];
+    marks.push([back[0], bx, by, bx - ax, by - ay]);
+    if (back[1].code !== stops[0].code) {
+      const [hx, hy] = [x(home[home.length - 1][0]), y(home[home.length - 1][1])];
+      const [qx, qy] = [x(home[home.length - 2][0]), y(home[home.length - 2][1])];
+      const homeMark: [Stop, number, number, number, number] = [back[1], hx, hy, hx - qx, hy - qy];
+      // SFO and SMF sit close together: put their labels on opposite sides.
+      const [, ox, oy] = marks[0];
+      if (Math.hypot(hx - ox, hy - oy) < 60) {
+        const side = ox >= hx ? 1 : -1;
+        marks[0] = [marks[0][0], ox, oy, side, 0];
+        [homeMark[3], homeMark[4]] = [-side, 0];
+      }
+      marks.push(homeMark);
+    }
+  }
+  for (const [stop, cx, cy, dx0, dy0] of marks) {
+    let [dx, dy] = [dx0, dy0];
     if (stop.kind === 'layover' && dy > 0) [dx, dy] = [-dx, -dy]; // prefer above the line
     const len = Math.hypot(dx, dy) || 1;
     [dx, dy] = [dx / len, dy / len];
@@ -332,7 +439,7 @@ function draw(world: World, stops: Stop[], w: number, hgt: number, guessed: bool
     if (stop.note) {
       map.append(svg('text', { x: lx, y: ly + 15, 'text-anchor': anchor, class: 'fares-map-note' }, stop.note));
     }
-  });
+  }
   return map;
 }
 
@@ -376,4 +483,9 @@ function clock(d: Date) {
 function city(code: string, name: string | null, airports: Record<string, Airport> | undefined) {
   const known = airports?.[code]?.name?.split(',')[0].trim();
   return `${known || name || code} (${code})`;
+}
+
+/** "Frankfurt", or the code when the airports table doesn't know it. */
+function cityName(code: string, airports: Record<string, Airport> | undefined) {
+  return airports?.[code]?.name?.split(',')[0].trim() || code;
 }

@@ -221,3 +221,20 @@
 .fares-layover { color: var(--warning); font-size: 0.85em; padding-left: 2px; }
 .fares-leg-total { color: var(--text-dim); font-size: 0.85em; border-top: 1px solid var(--border); padding-top: 4px; }
 .fares-leg-note { color: var(--text-dim); font-size: 0.82em; }
+
+/* ---- Open jaw (home from a nearby city) ---- */
+
+.fares-jaw { color: var(--text-dim); font-size: 0.85em; }
+.fares-jaw-city { font-weight: 600; color: var(--text); }
+.fares-row-jaw,
+.fares-map-jaw { color: var(--text-dim); font-size: 0.8em; font-weight: 500; }
+.fares-map-jaw { flex: none; }
+.fares { --fares-back: #b48cff; }
+:root[data-theme='light'] .fares { --fares-back: #6a3dbd; }
+.fares-map-route.back { stroke: var(--fares-back); stroke-dasharray: 10 6; }
+.size-large .fares-split .fares-jaw-saving { display: none; }
+.fares-map-ground { stroke: var(--text); stroke-width: 2; stroke-dasharray: 1 6; stroke-linecap: round; opacity: 0.8; }
+.fares-map-stop.return { fill: var(--fares-back); }
+.fares-map-stop.home { fill: var(--accent); }
+.fares-ground { color: var(--text-dim); font-size: 0.85em; }
+.fares-legs .fares-back .fares-leg-route { color: var(--fares-back); }
