@@ -1,5 +1,17 @@
 # PiDisplay
 
+Yeah this is mainly just Claude generated. But I'll take the moment here to point out some of the design intentions/limitations. Primarily the airline fare watcher. The free API used is fairly limited in terms of monthly rates but I was only interested in certain flights so it works out. It has a historical storing functionality for the trend lines and incorporates a caching functionality to not fall back on if the change in price wasn't significant.
+
+Auto sleep is also ass if you dont have control on how the display behaves with no signal. So you may want to adjust that depending on the screen.
+
+Stocks are api limited too, but aint too bad if you keep your list small. Trends are historized to an extent.
+
+Details rain/wind/etc maps for the weather app disabled on initial preview. Found them to be laggy on my setup, your experience may vary.
+
+Got the display on ebay for like 90$... Eh. Found it pulling to much power at some points when adjusting the screen settings but it gets the job done. Speakers are ass but fine for kitchen alarms etc. 
+
+Enjoy. I'll probably through some total Token used rates for the project. Just on the $20 pro. Had to wait a few times for resets. Mainly Opus 5.5 Medium. Pushed it up to high/Extra at some points.
+
 **A customizable touch dashboard for a wall-mounted Raspberry Pi.**
 
 Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotify, YouTube on your TV and more on one always-on touchscreen, with pages that rotate on their own, tiles you can drag and resize right on the screen, and offline voice control. Built for a Raspberry Pi 4 driving a 15.6" 1080p touchscreen, and it runs in any browser.
