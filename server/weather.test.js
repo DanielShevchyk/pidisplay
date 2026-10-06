@@ -174,3 +174,13 @@ test('builds a cached AQI grid for the air quality map', async () => {
   assert.equal(urls.length, 1);
   await assert.rejects(w.airMap('x', '1'), { status: 400 });
 });
+
+test('suggests places with labels that resolve back to the same place', async () => {
+  const fetchImpl = mockFetch();
+  const w = createWeather({ fetchImpl });
+  const list = await w.search('Springf');
+  assert.deepEqual(list.map((p) => p.label), ['Springfield, Illinois', 'Springfield, Missouri']);
+  assert.deepEqual(await w.search('s'), []);
+  const data = await w.get(list[1].label);
+  assert.equal(data.location.region, 'Missouri');
+});

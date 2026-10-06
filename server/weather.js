@@ -200,7 +200,31 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
     }
   }
 
-  return { get, airMap };
+  const searches = new Map(); // query -> suggestions
+
+  /** Place suggestions for the location picker, each with a "City, Region" label that get() resolves. */
+  async function search(q) {
+    const key = String(q ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (key.length < 2) return [];
+    if (key.length > 80) throw new WeatherError(400, 'query is too long');
+    if (searches.has(key)) return searches.get(key);
+    const url = `${GEOCODE_URL}?${new URLSearchParams({ name: key.split(',')[0].trim(), count: '8', language: 'en', format: 'json' })}`;
+    const results = (await getJson(url)).results ?? [];
+    const seen = new Set();
+    const list = [];
+    for (const r of results) {
+      const parts = [r.name, r.admin1, r.country_code === 'US' ? null : r.country].filter(Boolean);
+      const label = parts.join(', ');
+      if (seen.has(label)) continue;
+      seen.add(label);
+      list.push({ label, name: r.name, region: r.admin1 ?? '', country: r.country ?? '', lat: r.latitude, lon: r.longitude });
+    }
+    if (searches.size > 200) searches.clear();
+    searches.set(key, list);
+    return list;
+  }
+
+  return { get, airMap, search };
 }
 
 function normalize(raw, place, units) {

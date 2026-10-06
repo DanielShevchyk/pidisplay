@@ -472,6 +472,15 @@ export function createServer({
       return send(res, 200, { sent: true });
     }
 
+    if (resource === 'weather' && key === 'places' && req.method === 'GET') {
+      try {
+        return send(res, 200, await weather.search(url.searchParams.get('q')));
+      } catch (err) {
+        if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'weather' && key === 'airmap' && req.method === 'GET') {
       try {
         return send(res, 200, await weather.airMap(url.searchParams.get('lat'), url.searchParams.get('lon')));

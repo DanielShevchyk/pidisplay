@@ -299,9 +299,47 @@ function pickLocation(own: string, current: string, save: (location: string) => 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && input.value.trim()) done(input.value.trim());
   });
+
+  // Matching places drop down as you type; tapping one saves it.
+  const list = h('div', { class: 'wx-suggest' });
+  let timer = 0;
+  let asked = '';
+  const suggest = async () => {
+    const q = input.value.trim();
+    asked = q;
+    if (q.length < 2) return list.replaceChildren();
+    try {
+      const res = await fetch(`/api/weather/places?${new URLSearchParams({ q })}`);
+      const places: { label: string }[] = res.ok ? await res.json() : [];
+      if (asked !== q || !list.isConnected) return;
+      list.replaceChildren(
+        ...(places.length
+          ? places.slice(0, 6).map((p) =>
+              h(
+                'button',
+                {
+                  class: 'wx-suggest-item',
+                  // Keep focus in the field so the keyboard doesn't jump the list before the tap lands.
+                  onmousedown: (e: Event) => e.preventDefault(),
+                  onclick: () => done(p.label),
+                },
+                `📍 ${p.label}`,
+              ),
+            )
+          : [h('div', { class: 'wx-suggest-empty' }, 'No matching places')]),
+      );
+    } catch {
+      list.replaceChildren();
+    }
+  };
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(suggest, 250);
+  });
   const sheet = openSheet('📍 Weather location', [
     h('p', { class: 'wx-location-help' }, 'City and state, city and country, or lat,lon.'),
     input,
+    list,
     h(
       'div',
       { class: 'wx-location-actions' },
