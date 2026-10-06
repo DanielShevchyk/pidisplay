@@ -1649,6 +1649,8 @@ def build_summary(cfg, conn, now=None):
                 d["livePrice"], d["verified"] = chk[0], True
             d["itinerary"] = _itinerary_json(chk[0], chk[2]) if chk else None
             d["alternates"] = []
+            ojd["outLink"] = one_way_link(d["origin"], d["code"], d["departDate"])
+            ojd["backLink"] = one_way_link(ojd["returnFrom"], ojd["returnTo"], d["returnDate"])
             still.append(d)
             continue
         if d["departDate"] and not d["event"]:
