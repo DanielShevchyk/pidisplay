@@ -4,6 +4,7 @@ import { call } from '../../core/api';
 import { showBluetooth } from '../../core/connections';
 import { h } from '../../core/dom';
 import { openSheet, type SheetHandle } from '../../core/sheet';
+import { spotifyLogo } from './logo';
 import { spotify, type Device, type SpotifyStatus } from './store';
 
 interface Output {
@@ -269,7 +270,7 @@ export function openLibrarySheet() {
     h(
       'button',
       { class: 'spt-card', onclick },
-      image ? h('img', { src: image, alt: '', loading: 'lazy', draggable: false }) : h('div', { class: 'spt-card-empty' }, '🎵'),
+      image ? h('img', { src: image, alt: '', loading: 'lazy', draggable: false }) : h('div', { class: 'spt-card-empty' }, spotifyLogo()),
       h('div', { class: 'spt-card-name' }, name),
       sub ? h('div', { class: 'spt-card-sub' }, sub) : null,
     );
@@ -308,7 +309,7 @@ export function openLibrarySheet() {
                 // Play inside its album so music keeps going after the song.
                 onclick: () => void play(t.albumUri ? { contextUri: t.albumUri, offsetUri: t.uri } : { uris: [t.uri] }),
               },
-              t.thumb ? h('img', { src: t.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'spt-card-empty' }, '🎵'),
+              t.thumb ? h('img', { src: t.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'spt-card-empty' }, spotifyLogo()),
               h('span', { class: 'spt-track-text' }, h('span', { class: 'spt-track-name' }, t.name), h('span', { class: 'spt-track-artist' }, t.artists.join(', '))),
             ),
           ),

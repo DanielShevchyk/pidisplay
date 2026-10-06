@@ -131,6 +131,8 @@ export interface WidgetDefinition<C extends WidgetConfig = WidgetConfig> {
   description: string;
   /** An emoji or short glyph shown in the widget picker. */
   icon: string;
+  /** Optional SVG markup shown in the widget picker instead of icon, e.g. a brand logo. */
+  logo?: string;
   /** Tile sizes this widget looks good at. */
   sizes: TileSize[];
   defaultSize: TileSize;

@@ -588,7 +588,9 @@ export class App {
                   this.changed();
                 },
               },
-              h('span', { class: 'picker-icon' }, def.icon),
+              def.logo
+                ? Object.assign(h('span', { class: 'picker-icon picker-logo' }), { innerHTML: def.logo })
+                : h('span', { class: 'picker-icon' }, def.icon),
               h('strong', {}, def.name),
               h('small', {}, def.description),
             ),

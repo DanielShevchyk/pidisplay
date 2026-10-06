@@ -3,6 +3,7 @@
 import { h } from '../../core/dom';
 import type { Placement } from '../../core/types';
 import { openLibrarySheet, openSetupSheet, openSpeakersSheet } from './sheets';
+import { spotifyLogo } from './logo';
 import { formatTime, spotify } from './store';
 
 const ICONS = {
@@ -38,7 +39,7 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
 
   // ---- Pieces, built once ------------------------------------------------
   const art = h('img', { class: 'spt-art-img', alt: '', draggable: false });
-  const artBox = h('div', { class: 'spt-art' }, art, h('div', { class: 'spt-art-empty' }, '🎵'));
+  const artBox = h('div', { class: 'spt-art' }, art, h('div', { class: 'spt-art-empty' }, spotifyLogo()));
   const title = h('div', { class: 'spt-title' });
   const artist = h('div', { class: 'spt-artist' });
   const album = h('div', { class: 'spt-album' });
@@ -122,23 +123,23 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
   );
 
   // ---- Other states --------------------------------------------------------
-  const message = (iconText: string, text: string, ...actions: HTMLElement[]) =>
-    h('div', { class: 'spt-message' }, h('div', { class: 'spt-message-icon' }, iconText), text ? h('div', {}, text) : null, ...actions);
+  const message = (iconEl: string | HTMLElement, text: string, ...actions: HTMLElement[]) =>
+    h('div', { class: 'spt-message' }, h('div', { class: 'spt-message-icon' }, iconEl), text ? h('div', {}, text) : null, ...actions);
 
   const setupView = () =>
     placement === 'bar'
-      ? h('button', { class: 'spt-bar-empty', onclick: (e: Event) => (e.stopPropagation(), openSetupSheet()) }, '🎵')
+      ? h('button', { class: 'spt-bar-empty', onclick: (e: Event) => (e.stopPropagation(), openSetupSheet()) }, spotifyLogo())
       : message(
-          '🎵',
+          spotifyLogo(),
           placement === 'small' ? '' : 'Connect your Spotify account',
           h('button', { class: 'btn btn-primary', onclick: (e: Event) => (e.stopPropagation(), openSetupSheet()) }, 'Set up Spotify'),
         );
 
   const idleView = () => {
-    if (placement === 'bar') return h('button', { class: 'spt-bar-empty', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, '🎵');
-    if (placement === 'small') return message('🎵', '', h('button', { class: 'btn btn-primary', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, 'Play'));
+    if (placement === 'bar') return h('button', { class: 'spt-bar-empty', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, spotifyLogo());
+    if (placement === 'small') return message(spotifyLogo(), '', h('button', { class: 'btn btn-primary', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, 'Play'));
     return message(
-      '🎵',
+      spotifyLogo(),
       'Nothing playing',
       h(
         'div',
@@ -162,8 +163,8 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
       if (mode === 'player') root.replaceChildren(playerView, errorLine);
       else if (mode === 'setup') root.replaceChildren(setupView());
       else if (mode === 'idle') root.replaceChildren(idleView(), errorLine);
-      else if (mode === 'error') root.replaceChildren(placement === 'bar' ? h('span', {}, '🎵') : message('⚠️', spotify.loadError));
-      else root.replaceChildren(placement === 'bar' ? h('span', {}, '🎵') : message('', 'Loading…'));
+      else if (mode === 'error') root.replaceChildren(placement === 'bar' ? h('span', { class: 'spt-bar-empty' }, spotifyLogo()) : message('⚠️', spotify.loadError));
+      else root.replaceChildren(placement === 'bar' ? h('span', { class: 'spt-bar-empty' }, spotifyLogo()) : message('', 'Loading…'));
     }
     errorLine.textContent = spotify.error;
     errorLine.hidden = !spotify.error;

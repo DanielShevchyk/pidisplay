@@ -4,6 +4,8 @@
 
 .spt-icon { display: inline-flex; width: 1em; height: 1em; }
 .spt-icon svg { width: 100%; height: 100%; }
+.spt-logo { display: inline-flex; width: 1em; height: 1em; }
+.spt-logo svg { width: 100%; height: 100%; }
 
 /* ---- Player layout ---- */
 
@@ -22,7 +24,7 @@
 }
 .spt-art-img { width: 100%; height: 100%; object-fit: cover; display: none; }
 .spt-art.has-art .spt-art-img { display: block; }
-.spt-art-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 40cqh; opacity: 0.5; }
+.spt-art-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 35cqh; }
 .spt-art.has-art .spt-art-empty { display: none; }
 
 .spt-info { min-width: 0; }

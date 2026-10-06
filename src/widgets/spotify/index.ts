@@ -1,6 +1,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget } from '../../core/types';
+import { SPOTIFY_LOGO } from './logo';
 import { mountPlayer } from './player';
 import './spotify.css';
 
@@ -17,6 +18,7 @@ export default defineWidget({
   name: 'Spotify',
   description: 'Now playing and controls for your Spotify, on this display or any speaker',
   icon: '🎵',
+  logo: SPOTIFY_LOGO,
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
   supportsBar: true,
