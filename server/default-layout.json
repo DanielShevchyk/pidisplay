@@ -170,6 +170,18 @@
       ]
     },
     {
+      "id": "tv",
+      "name": "TV",
+      "tiles": [
+        {
+          "id": "youtube-full",
+          "widget": "youtube",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "clock",
       "name": "Clock",
       "tiles": [

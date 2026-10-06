@@ -2,7 +2,7 @@
 
 **A customizable touch dashboard for a wall-mounted Raspberry Pi.**
 
-Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotify and more on one always-on touchscreen, with pages that rotate on their own, tiles you can drag and resize right on the screen, and offline voice control. Built for a Raspberry Pi 4 driving a 15.6" 1080p touchscreen, and it runs in any browser.
+Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotify, YouTube on your TV and more on one always-on touchscreen, with pages that rotate on their own, tiles you can drag and resize right on the screen, and offline voice control. Built for a Raspberry Pi 4 driving a 15.6" 1080p touchscreen, and it runs in any browser.
 
 ![PiDisplay home page with clock, weather, calendar, to-do list, stocks and news tiles](docs/screenshots/home.png)
 
@@ -33,6 +33,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 | 📰 **News** | Top world, U.S., state and local headlines, with related coverage from other outlets. | None (Google News RSS) |
 | 🖼️ **Photos** | Crossfading slideshow of uploaded photos or Google Photos shared albums, with a thumbnail browser. | [docs/PHOTOS.md](docs/PHOTOS.md) |
 | 🎵 **Spotify** | Now playing, playback controls, playlists and search. Plays on the display itself (a Spotify Connect receiver) or any speaker. | A Spotify developer Client ID ([docs/SPOTIFY.md](docs/SPOTIFY.md)) |
+| 📺 **YouTube** | Search YouTube on the display and play videos on your smart TV, with a remote for what is on (pause, skip, seek, volume), recently played and saved videos. | None. Link the TV once with its YouTube "Link with TV code" ([docs/YOUTUBE.md](docs/YOUTUBE.md)) |
 | ✈️ **Fares** | Cheap-flight deals with price history and a route map, fed by the bundled [Farewatcher](farewatcher/README.md). | Farewatcher's API keys |
 | 🖥️ **System** | CPU, memory, disk, temperature, throttling and undervoltage on the Pi. | None |
 
@@ -205,11 +206,15 @@ docs/                Widget guide and per-feature setup notes
 | PUT / POST | `/api/spotify/client` | `{ "clientId" }` (or `?clientId=`) saves the Spotify app's Client ID; empty clears it. POST `/api/spotify/logout` signs out. |
 | GET | `/api/spotify/player` · `playlists` · `search?q=` | Now playing plus Spotify Connect devices · your playlists · songs, artists, albums and playlists (10 each). |
 | POST | `/api/spotify/player/play` · `pause` · `next` · `previous` · `seek` · `volume` · `shuffle` · `repeat` · `transfer` | `{ "contextUri"?, "offsetUri"?, "uris"?, "deviceId"? }` (no device: the active one, else PiDisplay) · `{}` · `{}` · `{}` · `{ "positionMs" }` · `{ "percent" }` · `{ "on" }` · `{ "mode": "off" \| "context" \| "track" }` · `{ "deviceId", "play"? }`. |
+| GET | `/api/youtube[?connect]` | YouTube widget state: linked TVs, what the TV is playing (state, position, volume), recently played. `connect` opens the session to the TV so its updates arrive. |
+| GET | `/api/youtube/search?q=` · `discover` | Videos from YouTube's web search (no key; a link or video id also works) · TVs on the network that answer DIAL. |
+| POST | `/api/youtube/pair` · `link` · `select` | `{ "code" }` from the TV's "Link with TV code" · `{ "udn" }` of a discovered TV (opens YouTube on it if needed) · `{ "id" }` picks which linked TV to use. DELETE `/api/youtube/screens/:id` forgets one, DELETE `/api/youtube/history` clears the history. |
+| POST | `/api/youtube/play` · `queue` · `control` | `{ "videoId", "title"?, "channel"? }` plays now · adds to the TV's queue · `{ "action": "play" \| "pause" \| "next" \| "previous" \| "seek" \| "volume", "value"? }`. |
 | GET | `/api/audio` | The Pi's sound outputs (PipeWire via `pactl`): display speakers over HDMI, headphone jack, connected Bluetooth speakers, with the default marked. |
 | POST | `/api/audio/select` · `volume` | `{ "name" }` makes it the default and moves anything playing to it · `{ "name", "volume" }` (0-100). |
 | GET | `/api/voice` | Voice control state: settings, whether the voice service and microphone are working, wake words, example phrases, recent commands. |
 | PUT / POST | `/api/voice/settings` · `/api/voice/command` · `listen` · `cancel` | `{ "enabled", "wakeWord", "sensitivity", "speak", "speechVolume", "chime", "duck" }` · `{ "text" }` runs a command as if spoken and returns `{ reply, action?, expectReply }` · tap to talk · stop listening. |
-| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`, `reminders`, `reminder-sound`, `stocks`, `stocks-alert`, `sleep`, `spotify`, `voice`. |
+| GET | `/api/events` | SSE stream: `notification`, `notifications-cleared`, `layout`, `store`, `timers`, `reminders`, `reminder-sound`, `stocks`, `stocks-alert`, `sleep`, `spotify`, `youtube`, `voice`. |
 
 </details>
 

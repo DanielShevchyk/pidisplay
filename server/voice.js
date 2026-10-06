@@ -131,6 +131,10 @@ export const EXAMPLES = [
     ],
   },
   {
+    group: 'YouTube on the TV',
+    items: ['Play cat videos on the TV', 'Play lofi music on YouTube', 'Pause the TV / Resume the TV'],
+  },
+  {
     group: 'Stocks, news & more',
     items: [
       'How is Apple stock doing?',
@@ -164,6 +168,7 @@ const WIDGET_WORDS = [
   ['todo', /\b(lists?|to ?do|todos?|tasks?|grocer(y|ies)|shopping)\b/],
   ['spotify', /\b(music|spotify|player|songs?|now playing)\b/],
   ['stocks', /\b(stocks?|market|portfolio|shares)\b/],
+  ['youtube', /\b(youtube|you tube|tv|television|videos?)\b/],
   ['news', /\b(news|headlines)\b/],
   ['photos', /\b(photos?|pictures?|slideshow|gallery)\b/],
   ['system', /\b(system|stats|cpu|pi health)\b/],
@@ -178,6 +183,7 @@ const WIDGET_NAMES = {
   todo: 'your lists',
   spotify: 'the music player',
   stocks: 'your stocks',
+  youtube: 'YouTube',
   news: 'the news',
   photos: 'your photos',
   system: 'system stats',
@@ -241,6 +247,7 @@ export function createVoice({
   spotify,
   audio,
   stocks,
+  youtube = null,
   weather,
   news,
   calendar,
@@ -1220,6 +1227,44 @@ export function createVoice({
     return say(`${p.isPlaying ? 'This is' : 'Paused on'} ${p.item.name}${by}${p.device?.name && p.device.name !== 'PiDisplay' ? `, on ${p.device.name}` : ''}.`);
   }
 
+  // ---- YouTube on the TV ----
+
+  async function tvReady() {
+    if (!youtube) return fail("YouTube isn't available.");
+    const st = await youtube.status();
+    if (!st.current) return fail('Link your TV first, from the TV button on the YouTube tile.');
+    return null;
+  }
+
+  async function tvPlay(query) {
+    const q = String(query ?? '')
+      .replace(/\b(please|for me)\b/g, '')
+      .replace(/ (on|from) (youtube|you tube)$/, '')
+      .trim();
+    if (!q) return null;
+    const notReady = await tvReady();
+    if (notReady) return notReady;
+    try {
+      const video = (await youtube.search(q)).results[0];
+      if (!video) return fail(`I couldn't find ${q} on YouTube.`);
+      await youtube.play({ videoId: video.id, title: video.title, channel: video.channel });
+      return say(`Playing ${video.title} on the TV.`);
+    } catch (err) {
+      return fail(`That didn't work: ${err.message}`);
+    }
+  }
+
+  async function tvControl(action) {
+    const notReady = await tvReady();
+    if (notReady) return notReady;
+    try {
+      await youtube.control({ action });
+      return say(action === 'pause' ? 'Paused.' : 'OK.', { quiet: true });
+    } catch (err) {
+      return fail(`The TV didn't respond: ${err.message}`);
+    }
+  }
+
   async function musicControl(action, body = {}, reply = 'OK.') {
     const notReady = await spotifyReady();
     if (notReady) return notReady;
@@ -1626,6 +1671,14 @@ export function createVoice({
       },
     },
     { match: re(/^what lists do i have$|^(?:what are )?my lists$/), run: () => readList(null) },
+
+    // YouTube on the TV, before music so "play cat videos on the TV" isn't a speaker switch.
+    {
+      match: re(/^(?:play|put on|put|watch|show|cast|start) (.+?) (?:on|to|onto) (?:the )?(?:tv|t v|television|youtube|you tube)$/),
+      run: (m) => (/^(the |my )?(music|audio|sound|spotify|it|this|everything|songs?)$/.test(m[1]) ? null : tvPlay(m[1])),
+    },
+    { match: re(/^(?:play|watch|put on) (.+?) (?:on|from) (?:youtube|you tube) (?:on|to) (?:the )?(?:tv|t v|television)$|^(?:search )?(?:youtube|you tube) (?:for )?(.+)$/), run: (m) => tvPlay(m[1] ?? m[2]) },
+    { match: re(/^(pause|stop|resume|unpause|continue|play|skip|next) (?:on )?(?:the )?(?:tv|t v|television|youtube|you tube|video)$/), run: (m) => tvControl({ stop: 'pause', resume: 'play', unpause: 'play', continue: 'play', skip: 'next' }[m[1]] ?? m[1]) },
 
     // Music (before weather: "play purple rain"). Theme first: "switch to dark mode".
     { match: re(/\b(dark|night) (mode|theme)\b|\b(switch|change|go) to dark\b|\bturn on dark\b|\bturn off light\b/), run: () => setTheme('dark') },

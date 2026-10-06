@@ -42,7 +42,7 @@ afterEach(() => {
   for (const x of running.splice(0)) x.stop();
 });
 
-function setup({ layout, spotifyConnected = true } = {}) {
+function setup({ layout, spotifyConnected = true, tvLinked = true } = {}) {
   let t = START;
   const now = () => t;
   const store = new Map();
@@ -86,10 +86,17 @@ function setup({ layout, spotifyConnected = true } = {}) {
       outputs.find((o) => o.name === name).volume = volume;
     },
   };
+  const youtube = {
+    status: async () => ({ current: tvLinked ? 'tv1' : null }),
+    search: async (q) => ({ results: q === 'zzz' ? [] : [{ id: 'abcdefghijk', title: `Best ${q}`, channel: 'Someone' }] }),
+    play: async (video) => calls.push(['youtube', 'play', video.videoId]),
+    control: async (body) => calls.push(['youtube', body.action]),
+  };
   const voice = createVoice({
     timers,
     reminders,
     spotify,
+    youtube,
     audio,
     stocks: {
       handle: async () => ({
@@ -156,6 +163,24 @@ function setup({ layout, spotifyConnected = true } = {}) {
     advance: (ms) => (t += ms),
   };
 }
+
+test('youtube: play on the TV and control it, without stealing music phrases', async () => {
+  const v = setup();
+  assert.equal(await v.say('play cat videos on the tv'), 'Playing Best cat videos on the TV.');
+  assert.deepEqual(v.calls.at(-1), ['youtube', 'play', 'abcdefghijk']);
+  assert.equal(await v.say('play lofi beats on youtube'), 'Playing Best lofi beats on the TV.');
+  assert.equal(await v.say('watch the news on youtube on the tv'), 'Playing Best the news on the TV.');
+  assert.equal(await v.say('youtube cooking pasta'), 'Playing Best cooking pasta on the TV.');
+  assert.equal(await v.say('pause the tv'), 'Paused.');
+  assert.deepEqual(v.calls.at(-1), ['youtube', 'pause']);
+  assert.equal(await v.say('resume the tv'), 'OK.');
+  assert.deepEqual(v.calls.at(-1), ['youtube', 'play']);
+  assert.equal(await v.say('play zzz on the tv'), "I couldn't find zzz on YouTube.");
+  // Music phrases still go to Spotify.
+  assert.equal(await v.say('play music on the kitchen speaker'), 'Playing on Kitchen Speaker.');
+  assert.equal(await v.say('play fleetwood mac'), 'Playing Fleetwood Mac.');
+  assert.equal(await setup({ tvLinked: false }).say('play cats on the tv'), 'Link your TV first, from the TV button on the YouTube tile.');
+});
 
 test('timers: set, ask, check, add, pause and cancel', async () => {
   const v = setup();

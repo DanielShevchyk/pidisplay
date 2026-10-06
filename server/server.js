@@ -22,6 +22,7 @@ import { createStocks, StocksError } from './stocks.js';
 import { createPhotos, PhotosError } from './photos.js';
 import { createVoice, VoiceError } from './voice.js';
 import { createSleep, SleepError } from './sleep.js';
+import { createYouTube, YouTubeError } from './youtube.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -135,6 +136,7 @@ export function createServer({
   stocksAutoStart = true,
   photos = undefined,
   sleep = undefined,
+  youtube = undefined,
   startSleep = false,
   // Farewatcher's own config: the ntfy topic used by "Send to phone" for ticket links.
   faresConfigFile = process.env.FAREWATCHER_CONFIG || path.join(os.homedir(), 'fare_watch', 'config.json'),
@@ -249,6 +251,15 @@ export function createServer({
     autoStart: stocksAutoStart,
   });
 
+  // Linked TVs (YouTube lounge tokens) and play history in youtube.json; see docs/YOUTUBE.md.
+  const youtubeFile = path.join(dataDir, 'youtube.json');
+  youtube ??= createYouTube({
+    load: () => readJson(youtubeFile, null),
+    save: (value) => writeJson(youtubeFile, value),
+    fetchImpl,
+    broadcast: (snapshot) => broadcast('youtube', snapshot),
+  });
+
   // Voice commands (from voice/pidisplay_voice.py on the Pi, or typed on a screen) change
   // widget data the way a screen would, then tell every screen; settings in voice.json.
   const storeFile = (key) => path.join(storeDir, `${key}.json`);
@@ -258,6 +269,7 @@ export function createServer({
     spotify,
     audio,
     stocks,
+    youtube,
     weather,
     news,
     calendar,
@@ -380,6 +392,16 @@ export function createServer({
         return await handleSpotify(req, res, url, parts, key);
       } catch (err) {
         if (err instanceof SpotifyError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'youtube') {
+      try {
+        const body = req.method === 'GET' || req.method === 'DELETE' ? null : await readBody(req);
+        return send(res, 200, await youtube.handle(req.method, parts, body, url.searchParams));
+      } catch (err) {
+        if (err instanceof YouTubeError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -658,6 +680,7 @@ export function createServer({
     stocks.stop();
     voice.stop();
     sleep.stop();
+    youtube.stop();
     for (const res of clients) res.end();
   });
 
