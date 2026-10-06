@@ -54,6 +54,9 @@ interface OpenJaw {
   /** The round trip to the arrival city it's compared with. */
   roundTrip: number | null;
   saving: number | null;
+  /** Google Flights searches for the two one-ways, for booking them separately. */
+  outLink?: string | null;
+  backLink?: string | null;
 }
 
 /** A destination's cheapest open jaw: the trip plus where you fly home from. */
@@ -627,11 +630,7 @@ function openDetail(dest: Destination, d: Summary) {
         jaw.outPrice && jaw.backPrice && jaw.livePrice == null
           ? h('div', { class: 'fares-meta' }, `One-way fares: ${money(jaw.outPrice)} out + ${money(jaw.backPrice)} home`)
           : null,
-        jaw.link &&
-          tickets(
-            jaw.link,
-            `${place(dest.name, dest.code)}, home from ${jaw.returnFrom}, ${money(best(jaw))} from ${jaw.origin}, ${dateRange(jaw.departDate, jaw.returnDate)}`,
-          ),
+        ...jawTickets(jaw, jaw.link, `${place(dest.name, dest.code)} from ${jaw.origin}, ${dateRange(jaw.departDate, jaw.returnDate)}`),
       ),
     );
   }
@@ -675,8 +674,12 @@ function openDetail(dest: Destination, d: Summary) {
           x.openJaw && openJawLine(x.openJaw, x.origin, money),
           ...alternates(x, money),
           x.event && h('div', { class: 'fares-meta' }, `🎟 ${x.event}`),
-          x.link &&
-            tickets(x.link, `${place(x.name, x.code)} ${money(best(x))} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`),
+          ...(x.openJaw
+            ? jawTickets(x.openJaw, null, `${place(x.name, x.code)} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`, x.link)
+            : [
+                x.link &&
+                  tickets(x.link, `${place(x.name, x.code)} ${money(best(x))} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`),
+              ]),
           x.weather &&
             h(
               'div',
@@ -735,7 +738,7 @@ function alternates(
  * link isn't opened on the screen: it expands a QR code to scan and a "Send to my phone"
  * button that pushes the link through Farewatcher's ntfy topic.
  */
-function tickets(link: string, title: string) {
+function tickets(link: string, title: string, label = '🎫 Tickets') {
   const status = h('div', { class: 'fares-tickets-status' });
   const sendBtn = h('button', { class: 'btn btn-primary' }, '📲 Send to my phone') as HTMLButtonElement;
   sendBtn.onclick = async () => {
@@ -770,13 +773,25 @@ function tickets(link: string, title: string) {
       status,
     ),
   );
-  const toggle = h('button', { class: 'btn fares-tickets-btn' }, '🎫 Tickets') as HTMLButtonElement;
+  const toggle = h('button', { class: 'btn fares-tickets-btn' }, label) as HTMLButtonElement;
   toggle.onclick = () => {
     panel.hidden = !panel.hidden;
     const img = panel.querySelector('img');
     if (!panel.hidden && img && !img.getAttribute('src')) img.setAttribute('src', qr); // load on first open
   };
   return h('div', { class: 'fares-tickets' }, toggle, panel);
+}
+
+/**
+ * Tickets for an open jaw: one button when there's a link for the whole trip, else the two
+ * one-ways it adds up, booked separately ("Flight out", "Flight home").
+ */
+function jawTickets(jaw: OpenJaw, link: string | null, title: string, outLink = jaw.outLink) {
+  if (link) return [tickets(link, `${title}, home from ${jaw.returnFrom}`)];
+  return [
+    outLink && tickets(outLink, `${title}: flight out`, '🎫 Flight out'),
+    jaw.backLink && tickets(jaw.backLink, `${title}: flight home from ${jaw.returnFrom}`, '🎫 Flight home'),
+  ];
 }
 
 function badge(verified: boolean) {
