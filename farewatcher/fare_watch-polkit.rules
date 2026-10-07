@@ -1,0 +1,13 @@
+// Installed by deploy/update.sh as /etc/polkit-1/rules.d/50-pidisplay-farewatcher.rules.
+// Lets the PiDisplay server (running as dan) start a Farewatcher run from the Fares
+// widget's "Check now" button. Only starting fare_watch.service is allowed: not stopping,
+// editing or enabling it, and no other unit.
+polkit.addRule(function (action, subject) {
+  if (subject.user !== "dan") return polkit.Result.NOT_HANDLED;
+  if (action.id === "org.freedesktop.systemd1.manage-units" &&
+      action.lookup("unit") === "fare_watch.service" &&
+      action.lookup("verb") === "start") {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});

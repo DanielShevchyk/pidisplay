@@ -27,6 +27,18 @@ sudo modprobe i2c-dev || true
 
 # Narrow permissions for the gear menu's Wi-Fi and Bluetooth screens (see the files).
 sudo install -m 644 -o root -g root deploy/pidisplay-network.rules /etc/polkit-1/rules.d/50-pidisplay-network.rules
+# Lets the Fares widget's "Check now" button start a Farewatcher run (see the file).
+sudo install -m 644 -o root -g root farewatcher/fare_watch-polkit.rules /etc/polkit-1/rules.d/50-pidisplay-farewatcher.rules
+# Keep Farewatcher's script in step with the widget that edits its settings.
+if [ -d "$HOME/fare_watch" ]; then
+  tr -d '\r' < farewatcher/fare_watch.py > "$HOME/fare_watch/fare_watch.py.new"
+  if python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$HOME/fare_watch/fare_watch.py.new"; then
+    mv "$HOME/fare_watch/fare_watch.py.new" "$HOME/fare_watch/fare_watch.py"
+  else
+    rm -f "$HOME/fare_watch/fare_watch.py.new"
+    echo "WARNING: fare_watch.py did not compile; kept the old one."
+  fi
+fi
 # Strip Windows line endings (sudo rejects them) and only install a file visudo accepts.
 tr -d '\r' < deploy/pidisplay-sudoers > /tmp/pidisplay-sudoers
 sudo visudo -cqf /tmp/pidisplay-sudoers

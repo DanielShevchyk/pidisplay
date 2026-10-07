@@ -23,6 +23,7 @@ import { createPhotos, PhotosError } from './photos.js';
 import { createVoice, VoiceError } from './voice.js';
 import { createSleep, SleepError } from './sleep.js';
 import { createYouTube, YouTubeError } from './youtube.js';
+import { createFaresConfig, FaresConfigError } from './fares-config.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -142,12 +143,20 @@ export function createServer({
   startSleep = false,
   // Farewatcher's own config: the ntfy topic used by "Send to phone" for ticket links.
   faresConfigFile = process.env.FAREWATCHER_CONFIG || path.join(os.homedir(), 'fare_watch', 'config.json'),
+  faresSettings = undefined,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
   const storeDir = path.join(dataDir, 'store');
   // Written by Farewatcher (Python, systemd timer) after each run; read-only here.
   const faresFile = path.join(dataDir, 'farewatcher.json');
+  // Editing that config from the Fares widget; earlier versions kept for undo.
+  faresSettings ??= createFaresConfig({
+    configFile: faresConfigFile,
+    historyDir: path.join(dataDir, 'farewatcher-config-history'),
+    summaryFile: faresFile,
+    readSummary: () => readJson(faresFile, null),
+  });
   const clients = new Set();
   const weather = createWeather({ fetchImpl });
   const news = createNews({ fetchImpl });
@@ -461,6 +470,27 @@ export function createServer({
     if (resource === 'fares' && !key && req.method === 'GET') {
       const summary = await readJson(faresFile, null).catch(() => null);
       return send(res, 200, summary ? { available: true, ...summary } : { available: false });
+    }
+
+    if (resource === 'fares' && (key === 'config' || key === 'check')) {
+      try {
+        if (key === 'config' && !parts[2] && req.method === 'GET') return send(res, 200, await faresSettings.get());
+        if (key === 'config' && !parts[2] && req.method === 'PUT') {
+          const saved = await faresSettings.save(await readBody(req));
+          broadcast('fares-config', { clientId });
+          return send(res, 200, saved);
+        }
+        if (key === 'config' && parts[2] === 'undo' && req.method === 'POST') {
+          const restored = await faresSettings.undo();
+          broadcast('fares-config', { clientId });
+          return send(res, 200, restored);
+        }
+        if (key === 'check' && req.method === 'GET') return send(res, 200, await faresSettings.status());
+        if (key === 'check' && req.method === 'POST') return send(res, 202, await faresSettings.checkNow());
+      } catch (err) {
+        if (err instanceof FaresConfigError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
     }
 
     // Push a ticket link to the phone via Farewatcher's ntfy topic (the kiosk can't open sites).

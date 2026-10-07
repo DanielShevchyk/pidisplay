@@ -322,7 +322,12 @@ CREATE TABLE IF NOT EXISTS runs (
     fares_fetched  INTEGER,
     deals_found    INTEGER,
     serpapi_used   INTEGER,             -- searches used this month (SerpApi account)
-    serpapi_budget INTEGER              -- searches per month on the plan
+    serpapi_budget INTEGER,             -- searches per month on the plan
+    -- What this run itself used, for the settings wizard's usage meter (added Oct 2026)
+    run_seconds    REAL,
+    tp_calls       INTEGER,             -- Travelpayouts requests
+    serpapi_searches INTEGER,           -- SerpApi searches, events included
+    event_searches INTEGER              -- of which for fixed-date events
 );
 -- Aviasales URL -> Travelpayouts partner link, so each link is converted once.
 CREATE TABLE IF NOT EXISTS affiliate_links (
@@ -355,7 +360,9 @@ def open_db(path, read_only=False):
     # Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.
     for table, col, typ in (("fares", "checked_bags", "INTEGER"), ("fares", "bag_kg", "INTEGER"),
                             ("alerts", "verified", "INTEGER"), ("sent_alerts", "deal_json", "TEXT"),
-                            ("live_checks", "legs_json", "TEXT")):
+                            ("live_checks", "legs_json", "TEXT"), ("runs", "run_seconds", "REAL"),
+                            ("runs", "tp_calls", "INTEGER"), ("runs", "serpapi_searches", "INTEGER"),
+                            ("runs", "event_searches", "INTEGER")):
         if col not in [r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)]:
             conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, col, typ))
     return conn
@@ -1454,16 +1461,19 @@ def format_deal(d, compare_origins=(), names=None, links=True):
 # ----------------------------------------------------------------- PiDisplay summary
 # A JSON snapshot of fares.db for the PiDisplay widget, rewritten after every run
 # (and by --export-summary). Reads only; no API calls.
-def record_run(db_path, started, ok, error):
+def record_run(db_path, started, ok, error, seconds=None):
     acct = SERPAPI_ACCOUNT
     per_month, left = acct.get("searches_per_month"), acct.get("total_searches_left")
     conn = open_db(db_path)
     conn.execute(
         "INSERT INTO runs (started_at, finished_at, ok, error, fares_fetched, deals_found,"
-        " serpapi_used, serpapi_budget) VALUES (?,?,?,?,?,?,?,?)",
+        " serpapi_used, serpapi_budget, run_seconds, tp_calls, serpapi_searches, event_searches)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (started, datetime.now(timezone.utc).replace(microsecond=0).isoformat(), 1 if ok else 0, error,
          RUN_STATS.get("fares_fetched"), RUN_STATS.get("deals_found"),
-         per_month - left if per_month is not None and left is not None else None, per_month))
+         per_month - left if per_month is not None and left is not None else None, per_month,
+         None if seconds is None else round(seconds, 1), API_CALLS.get("Travelpayouts", 0),
+         API_CALLS.get("SerpApi searches", 0), RUN_STATS.get("event_searches", 0)))
     conn.commit()
     conn.close()
 
@@ -1823,7 +1833,105 @@ def build_summary(cfg, conn, now=None):
         "SELECT sent_at, title, message FROM sent_alerts ORDER BY id DESC LIMIT 20")]
     return {"generatedAt": now.isoformat(), "currency": cfg.get("currency", "usd").upper(),
             "lastRun": last_run, "destinations": destinations, "deals": deals, "recentAlerts": recent,
-            "airports": _airport_coords(conn, codes, names)}
+            "airports": _airport_coords(conn, codes, names), "usage": usage_history(conn, now),
+            "places": place_catalog(names)}
+
+
+def usage_history(conn, now, days=35):
+    """Recent runs' API usage and fares per home airport, for the settings wizard's meter."""
+    since = (now - timedelta(days=days)).isoformat()
+    try:
+        rows = conn.execute(
+            "SELECT started_at, ok, run_seconds, tp_calls, serpapi_searches, event_searches, serpapi_used,"
+            " serpapi_budget FROM runs WHERE started_at >= ? ORDER BY id", (since,)).fetchall()
+    except sqlite3.OperationalError:
+        rows = []
+    runs = [{"startedAt": r[0], "ok": bool(r[1]), "seconds": r[2], "travelpayouts": r[3], "serpapi": r[4],
+             "eventSearches": r[5]} for r in rows]
+    last = rows[-1] if rows else None
+    cut30 = (now - timedelta(days=30)).isoformat()
+    fares_by_origin = {o: n for o, n in conn.execute(
+        "SELECT origin, COUNT(*) FROM fares WHERE checked_at >= ? GROUP BY origin", (cut30,))}
+    return {"runs": runs, "faresByOrigin": fares_by_origin,
+            "serpapiUsedThisMonth": last[6] if last else None, "serpapiPlan": last[7] if last else None}
+
+
+def place_catalog(names=None):
+    """{code: {name, lat, lon}} for every place fare_watch.py knows, for picking destinations.
+    Coordinates are the ones open_jaw_returns() uses (lat/lon null when unknown)."""
+    out = {}
+    for code in sorted(set(PLACES) | set(AIRPORTS) | set(COORDS) | set(names or {})):
+        pt = _point(code)
+        out[code] = {"name": place(code, names), "lat": pt[0] if pt else None, "lon": pt[1] if pt else None}
+    return out
+
+
+# ----------------------------------------------------------------- usage estimate
+# Python twin of server/fares-usage.js (the wizard's meter); keep the two in step.
+DAYS_PER_MONTH = 30.4
+SERPAPI_FREE_PLAN = 250
+
+
+def estimate_usage(cfg, runs=(), plan=None, today=None):
+    """Expected API usage for a config: Travelpayouts lookups per run, SerpApi searches a month."""
+    today = today or datetime.now(timezone.utc)
+    plan = plan or SERPAPI_FREE_PLAN
+    origins, dests = cfg.get("origins") or [], list(cfg.get("destinations") or {})
+    round_trip = len(dests) * len(origins) * (int(cfg.get("months_ahead", 6)) if per_month_queries(cfg) else 1)
+    ocfg = open_jaw_cfg(cfg)
+    pairs = set()
+    if ocfg.get("enabled"):
+        for a, bs in open_jaw_returns(cfg, ocfg).items():
+            for home in ocfg["home"]:
+                pairs.add((home, a))
+                pairs.update((b, home) for b in bs)
+    lc = cfg.get("live_check", {})
+    live_on = lc.get("enabled", True)
+    per_run = max(0, int(lc.get("max_searches_per_run", 6))) if live_on else 0
+    reserve = max(0, int(lc.get("reserve_searches", 10))) if live_on else 0
+    since = today - timedelta(days=30)
+    recent = [r for r in runs if r.get("startedAt") and datetime.fromisoformat(r["startedAt"]) >= since]
+    days = (today - min(datetime.fromisoformat(r["startedAt"]) for r in recent)).total_seconds() / 86400 \
+        if recent else 0
+    runs_per_month = max(DAYS_PER_MONTH, len(recent) / max(1, days) * DAYS_PER_MONTH) if days >= 7 \
+        else DAYS_PER_MONTH
+    deal_checks = round(runs_per_month * per_run)
+    es = cfg.get("event_settings", {})
+    every = max(0.5, float(es.get("check_every_days", 3.5)))
+    live_origins = lc.get("origins") or cfg.get("compare_origins") or ["SFO"]
+    events = []
+    for ev in cfg.get("events") or []:
+        past = datetime.fromisoformat(ev["depart"] + "T00:00:00+00:00") <= today
+        events.append({"name": ev["name"],
+                       "perMonth": 0 if past else round(DAYS_PER_MONTH * len(live_origins) / every)})
+    event_checks = sum(e["perMonth"] for e in events)
+    worst = deal_checks + event_checks
+    share = (worst + reserve) / plan
+    return {"travelpayouts": {"perRun": round_trip + len(pairs), "roundTrip": round_trip, "openJaw": len(pairs)},
+            "serpapi": {"plan": plan, "reserve": reserve, "perRun": per_run, "dealChecks": deal_checks,
+                        "events": events, "eventChecks": event_checks, "worst": worst, "share": share,
+                        "level": "over" if share > 1 else "warn" if share > 0.7 else "ok"}}
+
+
+def print_estimate(cfg, db_path, as_json=False):
+    runs, plan = [], None
+    if os.path.exists(db_path):
+        conn = open_db(db_path, read_only=True)
+        hist = usage_history(conn, datetime.now(timezone.utc))
+        runs, plan = hist["runs"], hist["serpapiPlan"]
+        conn.close()
+    est = estimate_usage(cfg, runs, plan)
+    if as_json:
+        print(json.dumps(est, indent=1))
+        return
+    tp, sp = est["travelpayouts"], est["serpapi"]
+    print("Travelpayouts: %d lookups per run (%d round trip + %d open jaw), no monthly cap"
+          % (tp["perRun"], tp["roundTrip"], tp["openJaw"]))
+    print("SerpApi, most it could use in a month: %d searches + %d reserve of %d (%d%%, %s)"
+          % (sp["worst"], sp["reserve"], sp["plan"], round(sp["share"] * 100), sp["level"]))
+    print("  deal checks: %d per run x daily = %d" % (sp["perRun"], sp["dealChecks"]))
+    for e in sp["events"]:
+        print("  %s: %d a month" % (e["name"], e["perMonth"]))
 
 
 def export_summary(cfg, db_path, path, convert_links=False):
@@ -2058,6 +2166,7 @@ def check_events(cfg, conn, dry_run, now, drop, window, realert, cooldown, allow
                 continue
             if left is not None:
                 left -= 1
+            RUN_STATS["event_searches"] = RUN_STATS.get("event_searches", 0) + 1
             live[o] = lv
             log("      live %s->%s: %s" % (o, ev["dest"], "$%d" % lv["price"] if lv["price"] else "no flights"))
             if not dry_run:
@@ -2670,6 +2779,8 @@ def main():
                    help="write a dated backup of fares.db into DIR (keeps 14) and exit; no config needed")
     p.add_argument("--notify-failure", metavar="UNIT",
                    help="push a 'run failed' alert for this systemd unit and exit (used by OnFailure)")
+    p.add_argument("--estimate", nargs="?", const="text", choices=("text", "json"),
+                   help="print the expected API usage for this config (no API calls); 'json' for the raw numbers")
     p.add_argument("--hold", type=int, default=0,
                    help="keep the console window open this many seconds after finishing")
     args = p.parse_args()
@@ -2687,7 +2798,7 @@ def main():
     started_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     summary_path = os.environ.get("FARE_WATCH_SUMMARY", "").strip()
     normal_run = not (args.export_summary or args.list_sent is not None or args.resend
-                      or args.test_notify or args.dry_run or args.notify_failure)
+                      or args.test_notify or args.dry_run or args.notify_failure or args.estimate)
     cfg, error = None, None
     if args.backup:
         try:
@@ -2697,8 +2808,10 @@ def main():
             sys.exit(1)
         sys.exit(0)
     try:
-        cfg = load_config(args.config, need_token=not (args.export_summary or args.notify_failure))
-        if args.notify_failure:
+        cfg = load_config(args.config, need_token=not (args.export_summary or args.notify_failure or args.estimate))
+        if args.estimate:
+            print_estimate(cfg, args.db, args.estimate == "json")
+        elif args.notify_failure:
             ok = notify_failure(cfg, args.notify_failure, os.path.join(HERE, "fare_watch.log"))
             code = 0 if ok else 1
         elif args.export_summary:
@@ -2730,14 +2843,14 @@ def main():
         import traceback
         log("CRASHED:\n" + traceback.format_exc())
         code, error = 1, "%s: %s" % (type(ex).__name__, ex)
-    if not args.list_sent and not args.export_summary and not args.notify_failure:
+    if not args.list_sent and not args.export_summary and not args.notify_failure and not args.estimate:
         try:
             usage_summary(started)
         except Exception as ex:               # never let the summary hide the real result
             log("usage summary failed: %s" % ex)
     if normal_run:                            # status + widget snapshot, even after a failure
         try:
-            record_run(args.db, started_iso, code == 0, error)
+            record_run(args.db, started_iso, code == 0, error, time.time() - started)
             if summary_path and cfg:
                 export_summary(cfg, args.db, summary_path, convert_links=True)
         except Exception as ex:

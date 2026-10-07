@@ -1,0 +1,146 @@
+/* Farewatcher settings wizard (settings.ts). Lives in a sheet, so sized for fingers. */
+
+/* The wizard needs more room than the standard sheet: a wider one, nearly full height. */
+.sheet:has(.fw-wizard) { width: min(1100px, 100%); height: 94%; max-height: 94%; }
+
+.fw { display: flex; flex-direction: column; gap: 12px; font-size: 19px; }
+.fw-dim { color: var(--text-dim); font-size: 16px; }
+.fw-warn { color: var(--warning); }
+.fw-intro { margin: 4px 0 8px; color: var(--text-dim); font-size: 18px; line-height: 1.4; }
+.fw-loading, .fw-error { padding: 32px 0; text-align: center; color: var(--text-dim); }
+.fw-error { color: var(--danger); }
+.fw-note { margin: 8px 0; color: var(--accent); }
+
+.fw-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.fw-tab {
+  flex: none;
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 24px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 16px;
+}
+.fw-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.fw-content { display: flex; flex-direction: column; gap: 6px; min-height: 260px; }
+.fw-content h3 { margin: 16px 0 4px; }
+
+.fw-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 72px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.fw-row-text { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fw-cost { flex: none; color: var(--text-dim); font-size: 16px; font-variant-numeric: tabular-nums; }
+
+.fw-stepper { display: flex; align-items: center; gap: 6px; flex: none; }
+.fw-stepper .btn { min-width: 56px; min-height: 52px; font-size: 26px; padding: 0; }
+.fw-num {
+  width: 96px;
+  min-height: 52px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.fw-num::-webkit-inner-spin-button, .fw-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.fw-unit { color: var(--text-dim); font-size: 16px; }
+
+.fw-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fw input[type='text'], .fw input[type='date'] {
+  min-height: 52px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+.fw-search { flex: 1 1 320px; }
+.fw .fw-code-input { width: 120px; text-transform: uppercase; }
+.fw .fw-code-input::placeholder { text-transform: none; }
+.fw .fw-add-airport { width: 240px; }
+.fw-results { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.fw-chip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 120px; padding: 8px 18px; }
+.fw-chip small { font-size: 13px; opacity: 0.8; }
+
+.fw-card { padding: 12px 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-2); margin-top: 8px; }
+.fw-card .fw-row:last-child { border-bottom: 0; }
+.fw-card-title { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.fw-card-title .fw-event-name { flex: 1; font-weight: 600; }
+.fw-event-grid { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-top: 10px; align-items: flex-end; }
+.fw-event-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 15px; color: var(--text-dim); }
+
+.fw-dests { display: flex; flex-direction: column; }
+.fw-dest { display: flex; align-items: center; gap: 12px; min-height: 72px; border-bottom: 1px solid var(--border); }
+.fw-remove { min-width: 52px; min-height: 52px; font-size: 22px; color: var(--danger); }
+
+.fw-pairs { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; font-size: 17px; }
+
+.fw-changes { margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 6px; }
+.fw-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.fw-more { align-self: flex-start; margin-top: 8px; }
+
+/* ---- Footer: usage meter + navigation, pinned to the bottom of the sheet ---- */
+
+.fw-footer {
+  position: sticky;
+  bottom: -28px;
+  margin: 8px -28px -28px;
+  padding: 14px 28px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.fw-nav { display: flex; align-items: center; gap: 12px; }
+.fw-nav .btn { min-width: 130px; }
+.fw-nav-state { flex: 1; text-align: center; }
+
+.fw-meter { --level: var(--accent); display: flex; flex-direction: column; gap: 6px; }
+.fw-meter.level-warn { --level: var(--warning); }
+.fw-meter.level-over { --level: var(--danger); }
+.fw-meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 17px; }
+.fw-meter-total { color: var(--level); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fw-bar { position: relative; height: 16px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.fw-bar-fill { position: absolute; inset: 0 auto 0 0; background: var(--level); transition: width 0.2s; }
+.fw-bar-reserve {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, var(--level) 0 4px, transparent 4px 8px);
+  opacity: 0.6;
+}
+.fw-bar-likely { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: var(--text); }
+.fw-bar-warn { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--text-dim); }
+.fw-meter-lines { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
+.fw-meter-msg { color: var(--level); font-size: 16px; }
+.fw-meter.level-ok .fw-meter-msg { color: var(--text-dim); }
+.fw-tp { color: var(--text-dim); }
+.fw-tp.level-warn { color: var(--warning); }
+.fw-tp.level-over { color: var(--danger); }
+.fw-delta { color: var(--text); }
+/* With the on-screen keyboard up, keep the meter to its bar and headline. */
+body.osk-open .fw-meter-lines > :not(.fw-meter-msg) { display: none; }
+
+/* Settings button on the tile's footer. */
+.fares .fares-settings-btn {
+  flex: none;
+  min-width: 40px;
+  min-height: 36px;
+  text-align: center;
+  font-size: 18px;
+  color: var(--text-dim);
+}

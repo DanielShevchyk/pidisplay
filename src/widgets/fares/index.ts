@@ -2,6 +2,7 @@ import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import { legList, routeMap, type Airport, type Itinerary, type OpenJawRoute, type Route } from './map';
+import { FARES_CHANGED, type SettingsSummary, openFaresSettings, openTargetEditor } from './settings';
 import './fares.css';
 
 interface FaresConfig {
@@ -137,6 +138,9 @@ interface Summary {
   recentAlerts: { sentAt: string; title: string; body: string }[];
   /** Coordinates for every home airport, destination and itinerary airport; added Oct 2026. */
   airports?: Record<string, Airport>;
+  /** For the settings wizard: places Farewatcher knows, and recent runs' API usage. */
+  places?: SettingsSummary['places'];
+  usage?: SettingsSummary['usage'];
 }
 
 type Response = Summary | { available: false };
@@ -266,6 +270,11 @@ export default defineWidget<FaresConfig>({
         .catch(() => {});
     });
 
+    // Settings saved here or on another screen: the summary was rewritten for the new list.
+    const onChanged = () => void refresh();
+    window.addEventListener(FARES_CHANGED, onChanged);
+    const offConfig = on('fares-config', onChanged);
+
     // Farewatcher posts a notification at the end of a run that found deals.
     on('notification', (n: { source?: string }) => {
       if (n?.source === 'Farewatcher') refresh();
@@ -276,6 +285,8 @@ export default defineWidget<FaresConfig>({
         alive = false;
         clearTimeout(timer);
         offShared();
+        offConfig();
+        window.removeEventListener(FARES_CHANGED, onChanged);
       },
     };
   },
@@ -398,7 +409,25 @@ function render(
   const money = moneyFormat(d.currency);
   const deals = d.deals.filter((x) => config.showUnverified || x.verified);
   const featured = config.featured.trim().toUpperCase();
-  const footer = h('div', { class: 'fares-footer' }, status(d, failed), toggle);
+  const footer = h(
+    'div',
+    { class: 'fares-footer' },
+    status(d, failed),
+    toggle,
+    placement !== 'small' &&
+      h(
+        'button',
+        {
+          class: 'fares-settings-btn',
+          'aria-label': 'Farewatcher settings',
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void openFaresSettings({ summary: d });
+          },
+        },
+        '⚙',
+      ),
+  );
 
   if (placement === 'small') {
     const deal = (featured && deals.find((x) => x.code.toUpperCase() === featured)) || (!featured && deals[0]);
@@ -701,7 +730,19 @@ function openDetail(dest: Destination, d: Summary) {
       ),
     );
   }
-  content.push(status(d, ''));
+  content.push(
+    h(
+      'div',
+      { class: 'fw-actions' },
+      h(
+        'button',
+        { class: 'btn', onclick: () => void openTargetEditor(dest.code, place(dest.name, dest.code), { summary: d }) },
+        '✏️ Change target',
+      ),
+      h('button', { class: 'btn btn-ghost', onclick: () => void openFaresSettings({ summary: d }) }, '⚙ Farewatcher settings'),
+    ),
+    status(d, ''),
+  );
   openSheet(`✈️ ${place(dest.name, dest.code)}`, content.filter(Boolean) as HTMLElement[]);
 }
 

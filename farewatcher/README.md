@@ -14,6 +14,20 @@ Fixed-date trips (`events` in the config, e.g. Oktoberfest) are checked directly
 
 Open jaws (`open_jaw` in the config): fly out of SFO/SMF into one city and home from a nearby one (e.g. into Frankfurt, home from Paris). Return cities are the other watched destinations within `max_km` (today London, Paris, Amsterdam, Munich and Frankfurt) plus `extra_return_from`. Each run fetches one-way fares for those legs from Travelpayouts (about 20 extra calls, saved in `oneway_fares`, apart from the round-trip tables) and pairs them within `nights`. An open jaw becomes a deal when the total is under the arrival city's target (plus the SMF allowance) and at least `min_saving` below the round trip; the best one is confirmed as a Google Flights multi-city ticket (one SerpApi search, held back from the round-trip budget; results in `openjaw_checks`). The summary exports `openJaw` on destinations, `byOrigin` entries and deals.
 
+## Settings from the touchscreen
+
+The Fares widget's ⚙ button (and **Change target** on a destination's details) edits `config.json` through PiDisplay (`/api/fares/config`, `server/fares-config.js`): home airports, destinations and targets, live checks, events, open jaws and alert rules. API keys, the ntfy topic and email settings stay SSH-only. Each save keeps the previous version in `~/pidisplay-data/farewatcher-config-history/` (last 10) for **Undo**, and rewrites the widget summary from the database so the list updates at once. Settings take effect at the next run.
+
+A meter under every step shows the expected API usage for the settings on screen (`server/fares-usage.js`): Travelpayouts lookups per run, and SerpApi searches per month against the plan (green up to 70%, amber up to 100%, red over, with the day of the month the searches would run out). Saving a red setup asks once more. The same estimate is available on the Pi:
+
+```bash
+python3 fare_watch.py --estimate        # or --estimate json
+```
+
+Each run records its own Travelpayouts calls, SerpApi searches and run time in the `runs` table; the summary's `usage` block feeds the meter's "lately" figure.
+
+**Check now** starts `fare_watch.service` once (at most once an hour). `fare_watch-polkit.rules`, installed by `deploy/update.sh`, lets the PiDisplay server start that one unit and nothing else.
+
 ## On the Pi
 
 | What | Where |
@@ -34,7 +48,7 @@ Affiliate links (optional): set `FARE_WATCH_TP_MARKER` (your Travelpayouts partn
 
 ## Updating
 
-Edit `fare_watch.py` here, commit, then copy it to the Pi:
+`deploy/update.sh` (run by `deploy.ps1`) copies `fare_watch.py` into `/home/dan/fare_watch/` if it parses. To update it by hand instead:
 
 ```bash
 scp farewatcher/fare_watch.py dan@piboy:/home/dan/fare_watch/
