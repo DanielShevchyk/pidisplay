@@ -111,6 +111,8 @@ function usageContext(summary: SettingsSummary | null) {
       return a ? [a.lat, a.lon] : null;
     },
     history: summary?.usage ?? null,
+    // One clock for the whole session, so the meter only moves when a setting does.
+    today: new Date(),
     plan: summary?.usage?.serpapiPlan ?? summary?.lastRun?.serpapiBudget ?? null,
   };
 }
@@ -193,7 +195,9 @@ function stepper(
   set: (v: number) => void,
 ) {
   const scale = opts.scale ?? 1;
-  const clamp = (v: number) => Math.min(opts.max, Math.max(opts.min, Math.round(v / opts.step) * opts.step));
+  const limit = (v: number) => Math.min(opts.max, Math.max(opts.min, v));
+  // − and + move in whole steps; a typed number is kept as typed (within limits).
+  const clamp = (v: number) => limit(Math.round(v / opts.step) * opts.step);
   const shown = (v: number) => String(Math.round(v * scale * 100) / 100);
   const input = h('input', {
     type: 'number',
@@ -202,7 +206,8 @@ function stepper(
     value: shown(value),
     onchange: (e: Event) => {
       const n = Number((e.target as HTMLInputElement).value);
-      if (Number.isFinite(n)) set(clamp(n / scale));
+      if (Number.isFinite(n)) set(limit(Math.round((n / scale) * 1e4) / 1e4));
+      else (e.target as HTMLInputElement).value = shown(value);
     },
   });
   return h(
@@ -351,6 +356,43 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     return h('div', { class: `fw-picker ${opts.class ?? ''}` }, input, list);
   }
 
+  // An airport's other settings (compare, live check, allowance, open-jaw home), remembered
+  // when it's switched off so switching it back on restores them, meter included.
+  type OriginSettings = { compare: boolean; live: boolean; allowance: number | undefined; jawHome: boolean };
+  const removedOrigins = new Map<string, OriginSettings>();
+  const originSettings = (d: FwConfig, code: string): OriginSettings => ({
+    compare: d.compare_origins.includes(code),
+    live: d.live_check.origins.includes(code),
+    allowance: d.origin_allowance[code],
+    jawHome: d.open_jaw.home.includes(code),
+  });
+  const without = (list: string[], code: string) => list.filter((c) => c !== code);
+
+  function removeOrigin(d: FwConfig, code: string) {
+    if (d.origins.length === 1 || !d.origins.includes(code)) return;
+    if (d === draft) removedOrigins.set(code, originSettings(d, code));
+    d.origins = without(d.origins, code);
+    d.compare_origins = without(d.compare_origins, code);
+    // These lists need at least one airport each; the last one stays.
+    if (d.live_check.origins.length > 1) d.live_check.origins = without(d.live_check.origins, code);
+    if (d.open_jaw.home.length > 1) d.open_jaw.home = without(d.open_jaw.home, code);
+    delete d.origin_allowance[code];
+  }
+
+  function addOrigin(d: FwConfig, code: string) {
+    if (d.origins.includes(code)) return;
+    // Back to how it was: switched off this session, else as saved, else a plain new airport.
+    const prev = removedOrigins.get(code) ?? (saved.origins.includes(code) ? originSettings(saved, code) : null);
+    const add = (list: string[]) => (list.includes(code) ? list : [...list, code]);
+    d.origins = add(d.origins);
+    if (!prev) return;
+    if (prev.compare) d.compare_origins = add(d.compare_origins);
+    if (prev.live) d.live_check.origins = add(d.live_check.origins);
+    if (prev.jawHome) d.open_jaw.home = add(d.open_jaw.home);
+    if (prev.allowance) d.origin_allowance[code] = prev.allowance;
+    if (d === draft) removedOrigins.delete(code);
+  }
+
   const tabs = h('div', { class: 'fw-tabs', role: 'tablist' });
   const content = h('div', { class: 'fw-content' });
   const footer = h('div', { class: 'fw-footer' });
@@ -361,8 +403,17 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     confirmOver = false;
     render();
   };
+  // Airport lists keep their saved order, so turning something off and back on is no change.
+  const inSavedOrder = (list: string[], ref: string[]) => {
+    const rank = (c: string) => (ref.includes(c) ? ref.indexOf(c) : ref.length);
+    return [...list].sort((a, b) => rank(a) - rank(b));
+  };
   const edit = (fn: (d: FwConfig) => void) => {
     fn(draft);
+    draft.origins = inSavedOrder(draft.origins, saved.origins);
+    draft.compare_origins = inSavedOrder(draft.compare_origins, saved.compare_origins);
+    draft.live_check.origins = inSavedOrder(draft.live_check.origins, saved.live_check.origins);
+    draft.open_jaw.home = inSavedOrder(draft.open_jaw.home, saved.open_jaw.home);
     note = '';
     update();
   };
@@ -434,32 +485,28 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
 
   // ---- 1. Home airports
   function airportsStep(): Parts {
-    const base = estimate(draft).travelpayouts.perRun;
+    const est = estimate(draft);
     const fares = ctx.summary?.usage?.faresByOrigin ?? {};
     const all = [...new Set([...HOME_CANDIDATES, ...draft.origins])];
     const chip = (code: string) => {
       const on = draft.origins.includes(code);
-      const without = clone(draft);
-      without.origins = on ? draft.origins.filter((o) => o !== code) : [...draft.origins, code];
-      const diff = estimate(without).travelpayouts.perRun - base;
+      const other = clone(draft);
+      if (on) removeOrigin(other, code);
+      else addOrigin(other, code);
+      const otherEst = estimate(other);
+      const lookups = otherEst.travelpayouts.perRun - est.travelpayouts.perRun;
+      const searches = otherEst.serpapi.worst - est.serpapi.worst;
       return h(
         'button',
         {
           class: `chip fw-chip${on ? ' active' : ''}`,
           'aria-pressed': String(on),
-          onclick: () =>
-            edit((d) => {
-              if (on && d.origins.length === 1) return;
-              d.origins = on ? d.origins.filter((o) => o !== code) : [...d.origins, code];
-              if (on) {
-                d.compare_origins = d.compare_origins.filter((o) => o !== code);
-                if (d.live_check.origins.length > 1) d.live_check.origins = d.live_check.origins.filter((o) => o !== code);
-                delete d.origin_allowance[code];
-              }
-            }),
+          disabled: on && draft.origins.length === 1,
+          onclick: () => edit((d) => (on ? removeOrigin(d, code) : addOrigin(d, code))),
         },
         h('strong', {}, code),
-        h('small', {}, `${on ? '−' : '+'}${Math.abs(diff)} lookups`),
+        // What tapping would change: removing shows a saving, adding a cost.
+        h('small', {}, [signed(lookups, 'lookups'), searches ? signed(searches, 'searches/mo') : null].filter(Boolean).join(' · ')),
         fares[code] != null ? h('small', {}, `${fares[code]} fares in 30 days`) : null,
       );
     };
@@ -467,7 +514,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
       placeholder: 'Add an airport: city or code',
       class: 'fw-add-airport',
       exclude: (c) => draft.origins.includes(c),
-      onPick: (code) => edit((d) => d.origins.push(code)),
+      onPick: (code) => edit((d) => addOrigin(d, code)),
     });
 
     return [
