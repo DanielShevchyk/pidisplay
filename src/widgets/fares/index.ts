@@ -37,6 +37,8 @@ interface Low {
   verified: boolean;
   livePrice: number | null;
   link: string | null;
+  /** Aviasales affiliate link for booking, when Farewatcher has a partner ID set up. */
+  bookLink?: string | null;
   alternates?: Alternate[];
   /** Outbound legs from a live Google check on these dates; added Oct 2026. */
   itinerary?: Itinerary | null;
@@ -57,6 +59,9 @@ interface OpenJaw {
   /** Google Flights searches for the two one-ways, for booking them separately. */
   outLink?: string | null;
   backLink?: string | null;
+  /** Aviasales affiliate links for booking the two one-ways, when set up. */
+  bookOutLink?: string | null;
+  bookBackLink?: string | null;
 }
 
 /** A destination's cheapest open jaw: the trip plus where you fly home from. */
@@ -103,6 +108,7 @@ interface Deal {
   bags: string | null;
   weather: { summary: string | null; highF: number | null; lowF: number | null } | null;
   link: string | null;
+  bookLink?: string | null;
   foundAt: string | null;
   event: string | null;
   alternates?: Alternate[];
@@ -615,6 +621,9 @@ function openDetail(dest: Destination, d: Summary) {
     low?.link
       ? tickets(low.link, `${place(dest.name, dest.code)} ${money(best(low))} from ${low.origin ?? '?'}, ${dateRange(low.departDate, low.returnDate)}`)
       : null,
+    low?.bookLink
+      ? book(low.bookLink, `${place(dest.name, dest.code)} from ${low.origin ?? '?'}, ${dateRange(low.departDate, low.returnDate)}`)
+      : null,
   ];
 
   const jaw = dest.openJaw;
@@ -679,6 +688,8 @@ function openDetail(dest: Destination, d: Summary) {
             : [
                 x.link &&
                   tickets(x.link, `${place(x.name, x.code)} ${money(best(x))} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`),
+                x.bookLink &&
+                  book(x.bookLink, `${place(x.name, x.code)} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`),
               ]),
           x.weather &&
             h(
@@ -787,11 +798,21 @@ function tickets(link: string, title: string, label = '🎫 Tickets') {
  * one-ways it adds up, booked separately ("Flight out", "Flight home").
  */
 function jawTickets(jaw: OpenJaw, link: string | null, title: string, outLink = jaw.outLink) {
-  if (link) return [tickets(link, `${title}, home from ${jaw.returnFrom}`)];
+  const booking = [
+    jaw.bookOutLink && book(jaw.bookOutLink, `${title}: flight out`, '🛒 Book flight out'),
+    jaw.bookBackLink && book(jaw.bookBackLink, `${title}: flight home from ${jaw.returnFrom}`, '🛒 Book flight home'),
+  ];
+  if (link) return [tickets(link, `${title}, home from ${jaw.returnFrom}`), ...booking];
   return [
     outLink && tickets(outLink, `${title}: flight out`, '🎫 Flight out'),
     jaw.backLink && tickets(jaw.backLink, `${title}: flight home from ${jaw.returnFrom}`, '🎫 Flight home'),
+    ...booking,
   ];
+}
+
+/** Book on Aviasales through Farewatcher's Travelpayouts affiliate link; same QR/send panel as Tickets. */
+function book(link: string, title: string, label = '🛒 Book on Aviasales') {
+  return tickets(link, `Book ${title}`, label);
 }
 
 function badge(verified: boolean) {

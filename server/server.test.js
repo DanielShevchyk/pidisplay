@@ -90,6 +90,9 @@ test('sends Farewatcher ticket links to the phone only for flight sites, once nt
   );
   assert.equal((await fetch(`${base}/api/fares/send`, json('POST', { url: 'https://evil.example/x' }))).status, 400);
   assert.equal((await fetch(`${base}/api/fares/send`, json('POST', { url: 'not a url' }))).status, 400);
+  assert.equal((await fetch(`${base}/api/fares/send`, json('POST', { url: 'https://evil.example/aviasales.tp.st' }))).status, 400);
+  res = await fetch(`${base}/api/fares/send`, json('POST', { url: 'https://aviasales.tp.st/AbC123', title: 'Book Tokyo' }));
+  assert.equal(res.status, 200);
   res = await fetch(`${base}/api/fares/send`, json('POST', { url, title: 'Tokyo $589' }));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { sent: true });

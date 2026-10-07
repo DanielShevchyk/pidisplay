@@ -28,6 +28,8 @@ Timers: `fare_watch.timer` runs the check daily at 08:00, and `fare_watch-backup
 
 Environment variables (`/etc/fare_watch.env`): `TRAVELPAYOUTS_TOKEN`, `SERPAPI_KEY`, optional `FARE_WATCH_SMTP_PASSWORD`, `PIDISPLAY_URL` (`http://127.0.0.1:8080`), `FARE_WATCH_SUMMARY` (the widget JSON path).
 
+Affiliate links (optional): set `FARE_WATCH_TP_MARKER` (your Travelpayouts partner ID) and `FARE_WATCH_TP_TRS` (the Travelpayouts project joined to the Aviasales program) in the same file. Each normal run then turns the booking links into Travelpayouts partner links through the Links API, saves them in fares.db so each one is converted once, and the Fares widget shows a Book on Aviasales button next to Tickets. Without them nothing changes.
+
 `config.json` is not in git; `config.example.json` has the same structure with placeholders. Use a long random ntfy topic, because anyone who knows it can read the alerts.
 
 ## Updating

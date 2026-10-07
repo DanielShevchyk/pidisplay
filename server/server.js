@@ -30,7 +30,9 @@ const MAX_NOTIFICATIONS = 100;
 const STORE_KEY = /^[a-zA-Z0-9._-]{1,120}$/;
 const LEVELS = new Set(['info', 'success', 'warning', 'alert']);
 // Ticket links the Fares widget may push to the phone.
-const TICKET_HOSTS = new Set(['www.google.com', 'google.com', 'www.aviasales.com', 'aviasales.com']);
+const TICKET_HOSTS = new Set(['www.google.com', 'google.com', 'www.aviasales.com', 'aviasales.com', 'tp.media']);
+// Travelpayouts short affiliate links: <brand>.tp.st, e.g. aviasales.tp.st/AbC123.
+const isTicketHost = (host) => TICKET_HOSTS.has(host) || host.endsWith('.tp.st');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -470,7 +472,7 @@ export function createServer({
       } catch {
         throw new HttpError(400, 'url is required');
       }
-      if (link.protocol !== 'https:' || !TICKET_HOSTS.has(link.hostname)) {
+      if (link.protocol !== 'https:' || !isTicketHost(link.hostname)) {
         throw new HttpError(400, 'Only Google Flights and Aviasales links can be sent');
       }
       const config = await readJson(faresConfigFile, null).catch(() => null);

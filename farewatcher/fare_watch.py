@@ -18,6 +18,11 @@ Usage:
 
 PiDisplay (optional, env): PIDISPLAY_URL also shows alerts on the display;
 FARE_WATCH_SUMMARY is where the widget's summary JSON is written after every run.
+
+Affiliate links (optional, env): FARE_WATCH_TP_MARKER and FARE_WATCH_TP_TRS (your Travelpayouts
+partner ID and the project joined to the Aviasales program) turn the booking links into
+Travelpayouts partner links. Without them the push has its plain Aviasales link and the
+widget shows no Book button.
 """
 import argparse
 import base64
@@ -318,6 +323,12 @@ CREATE TABLE IF NOT EXISTS runs (
     deals_found    INTEGER,
     serpapi_used   INTEGER,             -- searches used this month (SerpApi account)
     serpapi_budget INTEGER              -- searches per month on the plan
+);
+-- Aviasales URL -> Travelpayouts partner link, so each link is converted once.
+CREATE TABLE IF NOT EXISTS affiliate_links (
+    url          TEXT PRIMARY KEY,
+    partner_url  TEXT NOT NULL,
+    created_at   TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS alerts (
     dest        TEXT NOT NULL,
@@ -1115,6 +1126,113 @@ def aviasales_link(fare):
     return "https://www.aviasales.com" + link if link else None
 
 
+def aviasales_search_link(origin, dest, dep, ret=None):
+    """Aviasales search for a route and dates, e.g. /search/SFO1503NRT22031 (DDMM, 1 adult)."""
+    if not (origin and dest and dep):
+        return None
+    ddmm = lambda day: day[8:10] + day[5:7]
+    return "https://www.aviasales.com/search/%s%s%s%s1" % (origin, ddmm(dep), dest, ddmm(ret) if ret else "")
+
+
+# ----------------------------------------------------------------- affiliate links
+LINKS_API_URL = "https://api.travelpayouts.com/links/v1/create"
+
+
+def affiliate_ids():
+    """(marker, trs) from the environment, or None when affiliate links aren't set up."""
+    marker = os.environ.get("FARE_WATCH_TP_MARKER", "").strip()
+    trs = os.environ.get("FARE_WATCH_TP_TRS", "").strip()
+    return (marker, trs) if marker and trs else None
+
+
+def affiliate_links(cfg, conn, urls, convert=True):
+    """{url: partner link} for the urls already converted, after converting the missing ones
+    through the Travelpayouts Links API (10 per request) when convert is set.
+    Failures are logged and leave that url out; nothing here stops a run."""
+    urls = sorted({u for u in urls if u})
+    ids = affiliate_ids()
+    if not urls or not ids:
+        return {}
+    have = {}
+    for i in range(0, len(urls), 500):
+        chunk = urls[i:i + 500]
+        have.update(conn.execute("SELECT url, partner_url FROM affiliate_links WHERE url IN (%s)"
+                                 % ",".join("?" * len(chunk)), chunk).fetchall())
+    missing = [u for u in urls if u not in have]
+    if not convert or not missing or not cfg.get("travelpayouts_token"):
+        return have
+    marker, trs = ids
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    for i in range(0, len(missing), 10):
+        batch = missing[i:i + 10]
+        body = {"trs": int(trs) if trs.isdigit() else trs, "marker": int(marker) if marker.isdigit() else marker,
+                "shorten": True,
+                "links": [{"url": u, "sub_id": "farewatcher_" + _link_route(u)} for u in batch]}
+        req = urllib.request.Request(LINKS_API_URL, data=json.dumps(body).encode("utf-8"), headers={
+            "Content-Type": "application/json", "X-Access-Token": cfg["travelpayouts_token"]})
+        try:
+            count_call(LINKS_API_URL)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                res = json.loads(r.read().decode("utf-8"))
+        except Exception as ex:
+            log("affiliate links failed: %s" % ex)
+            break
+        for l in (res.get("result") or {}).get("links") or []:
+            if l.get("code") == "success" and l.get("partner_url"):
+                have[l["url"]] = l["partner_url"]
+                conn.execute("INSERT OR REPLACE INTO affiliate_links (url, partner_url, created_at)"
+                             " VALUES (?,?,?)", (l["url"], l["partner_url"], now))
+            else:
+                log("affiliate link not made for %s: %s" % (l.get("url"), l.get("message") or l.get("code")))
+    conn.commit()
+    return have
+
+
+def _link_route(url):
+    """Short route tag for the partner dashboard's sub_id, e.g. SFO_NRT."""
+    m = re.search(r"/search/([A-Z]{3})\d{4}([A-Z]{3})", url or "")
+    return "%s_%s" % m.groups() if m else "deal"
+
+
+def _bookable(summary):
+    """(fare dict, field, origin, dest, depart, return) for every fare the widget can book."""
+    out = []
+
+    def add(f, dest):
+        if f:
+            out.append((f, "bookLink", f.get("origin"), dest, f.get("departDate"), f.get("returnDate")))
+            for a in f.get("alternates") or []:
+                add(a, dest)
+
+    def add_jaw(oj, dest, trip=None):
+        if oj:
+            trip = trip or oj                    # a deal keeps origin and dates on itself
+            out.append((oj, "bookOutLink", trip.get("origin"), dest, trip.get("departDate"), None))
+            out.append((oj, "bookBackLink", oj.get("returnFrom"), oj.get("returnTo"), trip.get("returnDate"), None))
+
+    for x in summary.get("destinations") or []:
+        add(x.get("currentLow"), x["code"])
+        add_jaw(x.get("openJaw"), x["code"])
+        for v in (x.get("byOrigin") or {}).values():
+            add(v.get("currentLow"), x["code"])
+            add_jaw(v.get("openJaw"), x["code"])
+    for d in summary.get("deals") or []:
+        if d.get("openJaw"):
+            add_jaw(d["openJaw"], d["code"], d)
+        else:
+            add(d, d["code"])
+    return out
+
+
+def attach_book_links(cfg, conn, summary, convert=False):
+    """Set bookLink (bookOutLink/bookBackLink on open jaws) to a partner link on every fare
+    in the summary, None where there is none. Converts missing links only when convert is set."""
+    rows = [(f, field, aviasales_search_link(o, d, dep, ret)) for f, field, o, d, dep, ret in _bookable(summary)]
+    have = affiliate_links(cfg, conn, [u for _, _, u in rows], convert)
+    for f, field, url in rows:
+        f[field] = have.get(url)
+
+
 # ----------------------------------------------------------------- notify
 def notify_ntfy(ncfg, title, body, click=None, actions=None, tags=None, priority=4, icon=None,
                 attach=None, filename=None):
@@ -1708,16 +1826,22 @@ def build_summary(cfg, conn, now=None):
             "airports": _airport_coords(conn, codes, names)}
 
 
-def export_summary(cfg, db_path, path):
-    """Write the summary JSON atomically (tmp file + rename) so the widget never reads half a file."""
+def export_summary(cfg, db_path, path, convert_links=False):
+    """Write the summary JSON atomically (tmp file + rename) so the widget never reads half a file.
+    convert_links (normal runs) may call the Links API and save new partner links; otherwise reads only."""
     if not os.path.exists(db_path):
         log("summary skipped: no %s yet" % db_path)
         return False
     conn = open_db(db_path)                 # adds any missing tables/columns, then reads only
     conn.commit()
-    conn.execute("PRAGMA query_only = ON")
+    if not convert_links:
+        conn.execute("PRAGMA query_only = ON")
     try:
         summary = build_summary(cfg, conn)
+        try:
+            attach_book_links(cfg, conn, summary, convert=convert_links)
+        except Exception as ex:             # booking links are extras; never lose the summary
+            log("affiliate links skipped: %s" % ex)
     finally:
         conn.close()
     tmp = path + ".tmp"
@@ -2326,6 +2450,8 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
             c["by_origin"] = by_origin.get((dest, month), {})
             c["gf_link"] = google_flights_link(c["origin"], dest, c["fare"])
             c["av_link"] = aviasales_link(c["fare"])
+            if c["av_link"] and affiliate_ids() and not dry_run:
+                c["av_link"] = affiliate_links(cfg, conn, [c["av_link"]]).get(c["av_link"], c["av_link"])
             c["allow"] = allow
             deals.append(c)
 
@@ -2613,7 +2739,7 @@ def main():
         try:
             record_run(args.db, started_iso, code == 0, error)
             if summary_path and cfg:
-                export_summary(cfg, args.db, summary_path)
+                export_summary(cfg, args.db, summary_path, convert_links=True)
         except Exception as ex:
             log("PiDisplay summary failed: %s" % ex)
     if args.hold:
