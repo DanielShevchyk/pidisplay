@@ -129,6 +129,8 @@
 .fares-chart { width: 100%; height: auto; display: block; }
 .fares-grid { stroke: var(--border); stroke-width: 1; }
 .fares-axis { fill: var(--text-dim); font-size: 14px; }
+.fares-typical { fill: var(--text-dim); opacity: 0.12; }
+.fares-google { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
 
 .fares-months { display: flex; gap: 6px; height: 160px; }
 .fares-month { flex: 1 1 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }

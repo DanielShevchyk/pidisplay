@@ -13,6 +13,14 @@ interface FaresConfig {
 }
 
 /** Mirrors farewatcher.json, written by fare_watch.py and served by GET /api/fares. */
+/** Google's daily price for one trip's exact dates (~60 days), from a live check; added Oct 2026. */
+interface GoogleHistory {
+  checkedAt: string;
+  points: { date: string; price: number }[];
+  typicalLow: number | null;
+  typicalHigh: number | null;
+}
+
 /** The same trip from another home airport (e.g. SMF for an SFO deal). */
 interface Alternate {
   origin: string;
@@ -26,6 +34,7 @@ interface Alternate {
   verified?: boolean;
   livePrice?: number | null;
   itinerary?: Itinerary | null;
+  googleHistory?: GoogleHistory | null;
 }
 
 interface Low {
@@ -43,6 +52,7 @@ interface Low {
   alternates?: Alternate[];
   /** Outbound legs from a live Google check on these dates; added Oct 2026. */
   itinerary?: Itinerary | null;
+  googleHistory?: GoogleHistory | null;
 }
 
 /** Fly into one city and home from a nearby one; added Oct 2026. */
@@ -114,6 +124,7 @@ interface Deal {
   event: string | null;
   alternates?: Alternate[];
   itinerary?: Itinerary | null;
+  googleHistory?: GoogleHistory | null;
   /** Set on open-jaw deals: code is the arrival city, the flight home leaves from returnFrom. */
   openJaw?: OpenJaw | null;
 }
@@ -382,6 +393,7 @@ function lowFromAlternate(a: Alternate, code: string): Low {
     livePrice: a.livePrice ?? null,
     link: flightsLink(a.origin, code, a.departDate, a.returnDate),
     itinerary: a.itinerary ?? null,
+    googleHistory: a.googleHistory ?? null,
   };
 }
 
@@ -666,6 +678,7 @@ function openDetail(dest: Destination, d: Summary) {
     low?.bookLink
       ? book(low.bookLink, `${place(dest.name, dest.code)} from ${low.origin ?? '?'}, ${dateRange(low.departDate, low.returnDate)}`)
       : null,
+    low?.googleHistory ? googleChart(low.googleHistory, dest.target, money) : null,
   ];
 
   const jaw = dest.openJaw;
@@ -739,6 +752,8 @@ function openDetail(dest: Destination, d: Summary) {
               { class: 'fares-meta' },
               `Typical weather: ${[x.weather.summary, temps(x.weather.highF, x.weather.lowF)].filter(Boolean).join(', ')}`,
             ),
+          // The same trip as the cheapest fare already shows its chart above.
+          x.googleHistory && !sameTrip(x, low) && googleChart(x.googleHistory, x.target, money),
         ),
       ),
     );
@@ -905,16 +920,53 @@ function sparkline(values: number[], target: number | null) {
   return box;
 }
 
-function historyChart(history: { date: string; low: number }[], target: number | null, money: (n: number) => string) {
+function sameTrip(a: Deal, b: Low | null) {
+  return !!b && a.origin === b.origin && a.departDate === b.departDate && a.returnDate === b.returnDate;
+}
+
+/** Google's price for one trip's exact dates over the last ~60 days, with its typical range. */
+function googleChart(g: GoogleHistory, target: number | null, money: (n: number) => string) {
+  const band = g.typicalLow != null && g.typicalHigh != null ? ([g.typicalLow, g.typicalHigh] as const) : null;
+  return h(
+    'div',
+    { class: 'fares-google' },
+    h('div', { class: 'fares-detail-label' }, `Google price for these dates, last ${g.points.length} days`),
+    historyChart(
+      g.points.map((p) => ({ date: p.date, low: p.price })),
+      target,
+      money,
+      band,
+    ),
+    h(
+      'div',
+      { class: 'fares-meta' },
+      [band && `Google calls ${money(band[0])}–${money(band[1])} typical`, `checked ${shortDate(g.checkedAt.slice(0, 10))}`]
+        .filter(Boolean)
+        .join(' · '),
+    ),
+  );
+}
+
+function historyChart(
+  history: { date: string; low: number }[],
+  target: number | null,
+  money: (n: number) => string,
+  band: readonly [number, number] | null = null,
+) {
   const w = 600;
   const hgt = 200;
   const pad = { l: 64, r: 8, t: 10, b: 24 };
   const values = history.map((x) => x.low);
-  const lo = Math.min(...values, target ?? Infinity) * 0.95;
-  const hi = Math.max(...values, target ?? -Infinity) * 1.05;
+  const lo = Math.min(...values, target ?? Infinity, band?.[0] ?? Infinity) * 0.95;
+  const hi = Math.max(...values, target ?? -Infinity, band?.[1] ?? -Infinity) * 1.05;
   const x = (i: number) => pad.l + (i / (history.length - 1)) * (w - pad.l - pad.r);
   const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo || 1)) * (hgt - pad.t - pad.b);
   const s = svg('svg', { viewBox: `0 0 ${w} ${hgt}`, class: 'fares-chart' });
+  if (band) {
+    s.append(
+      svg('rect', { x: pad.l, width: w - pad.l - pad.r, y: y(band[1]), height: y(band[0]) - y(band[1]), class: 'fares-typical' }),
+    );
+  }
   for (const v of [hi / 1.05, (hi / 1.05 + lo / 0.95) / 2, lo / 0.95]) {
     s.append(svg('line', { x1: pad.l, x2: w - pad.r, y1: y(v), y2: y(v), class: 'fares-grid' }));
     const label = svg('text', { x: pad.l - 8, y: y(v) + 5, 'text-anchor': 'end', class: 'fares-axis' });

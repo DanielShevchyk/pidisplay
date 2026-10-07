@@ -360,7 +360,8 @@ def open_db(path, read_only=False):
     # Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.
     for table, col, typ in (("fares", "checked_bags", "INTEGER"), ("fares", "bag_kg", "INTEGER"),
                             ("alerts", "verified", "INTEGER"), ("sent_alerts", "deal_json", "TEXT"),
-                            ("live_checks", "legs_json", "TEXT"), ("runs", "run_seconds", "REAL"),
+                            ("live_checks", "legs_json", "TEXT"), ("live_checks", "history_json", "TEXT"),
+                            ("runs", "run_seconds", "REAL"),
                             ("runs", "tp_calls", "INTEGER"), ("runs", "serpapi_searches", "INTEGER"),
                             ("runs", "event_searches", "INTEGER")):
         if col not in [r[1] for r in conn.execute("PRAGMA table_info(%s)" % table)]:
@@ -408,13 +409,16 @@ def record_live(conn, origin, dest, lv, cached_price, now_iso):
         legs = json.dumps({"legs": lv["legs"], "layovers": lv.get("layovers") or [],
                            "duration": lv.get("duration"), "carbon_g": lv.get("carbon_g")},
                           separators=(",", ":"))
+    # Google's daily price for these dates over the last ~60 days: [[unix_seconds, price], ...]
+    history = json.dumps(lv["history"], separators=(",", ":")) if lv.get("history") else None
     conn.execute(
         "INSERT INTO live_checks (checked_at, origin, dest, depart_date, return_date, price,"
-        " cached_price, airline, stops, duration, price_level, typical_low, typical_high, legs_json)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " cached_price, airline, stops, duration, price_level, typical_low, typical_high, legs_json,"
+        " history_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (now_iso, origin, dest, lv.get("depart"), lv.get("return"), lv.get("price"), cached_price,
          lv.get("airline"), len(lv["via"]) if lv.get("via") is not None else None,
-         lv.get("duration"), lv.get("price_level"), typ[0], typ[1] if len(typ) > 1 else None, legs))
+         lv.get("duration"), lv.get("price_level"), typ[0], typ[1] if len(typ) > 1 else None, legs,
+         history))
     for leg in lv.get("legs") or []:
         for code, name in ((leg.get("from"), leg.get("from_name")), (leg.get("to"), leg.get("to_name"))):
             try:
@@ -1540,6 +1544,25 @@ def _itinerary(conn, dest, origin, dep, ret, since):
     return _itinerary_json(row[0], row[1]) if row else None
 
 
+def _google_history(conn, dest, origin, dep, ret, since):
+    """Google's price history for these exact dates from the latest live check that had one
+    (saved since Oct 2026), or None: one price per day plus Google's typical range."""
+    if not dep or not origin:
+        return None
+    row = conn.execute(
+        "SELECT checked_at, history_json, typical_low, typical_high FROM live_checks WHERE dest=?"
+        " AND origin=? AND depart_date=? AND return_date IS ? AND checked_at >= ?"
+        " AND history_json IS NOT NULL ORDER BY checked_at DESC LIMIT 1",
+        (dest, origin, dep, ret or None, since)).fetchone()
+    if not row:
+        return None
+    by_day = {datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d"): p for t, p in json.loads(row[1])}
+    if len(by_day) < 2:
+        return None
+    return {"checkedAt": row[0], "points": [{"date": d_, "price": by_day[d_]} for d_ in sorted(by_day)],
+            "typicalLow": row[2], "typicalHigh": row[3]}
+
+
 def _itinerary_json(price, legs_json):
     """Export shape of a saved itinerary (live_checks / openjaw_checks legs_json)."""
     if not legs_json:
@@ -1826,6 +1849,8 @@ def build_summary(cfg, conn, now=None):
             continue
         it = _itinerary(conn, code, f.get("origin"), f.get("departDate"), f.get("returnDate"), legs_since)
         f["itinerary"] = it
+        f["googleHistory"] = _google_history(conn, code, f.get("origin"), f.get("departDate"),
+                                             f.get("returnDate"), legs_since)
         for leg in (it or {}).get("legs") or []:
             codes.update((leg["from"], leg["to"]))
 
