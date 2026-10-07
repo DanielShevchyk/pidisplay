@@ -274,6 +274,83 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     maximumFractionDigits: 0,
   });
 
+  /**
+   * A code field with a suggestions dropdown: type a city or airport name, or a code, and pick.
+   * A 3-letter code Farewatcher doesn't know is offered as is.
+   */
+  function placePicker(opts: { placeholder: string; value?: string; exclude?: (code: string) => boolean; onPick: (code: string) => void; class?: string }) {
+    const input = h('input', {
+      type: 'text',
+      class: 'fw-picker-input',
+      placeholder: opts.placeholder,
+      value: opts.value ?? '',
+      autocomplete: 'off',
+      'aria-label': opts.placeholder,
+    });
+    const list = h('div', { class: 'fw-picker-list', role: 'listbox', hidden: true });
+    let options: string[] = [];
+    const pick = (code: string) => {
+      list.hidden = true;
+      input.value = code;
+      opts.onPick(code);
+    };
+    const suggest = () => {
+      const q = input.value.trim().toLowerCase();
+      if (!q || q === opts.value?.toLowerCase()) {
+        list.hidden = true;
+        return;
+      }
+      const rank = (code: string, name: string) => {
+        const c = code.toLowerCase();
+        const n = name.toLowerCase();
+        if (c === q) return 0;
+        if (n.startsWith(q)) return 1;
+        if (c.startsWith(q)) return 2;
+        if (n.split(/[\s,]+/).some((w) => w.startsWith(q))) return 3;
+        return n.includes(q) ? 4 : 9;
+      };
+      const matches = Object.entries(places)
+        .filter(([code]) => !opts.exclude?.(code))
+        .map(([code, p]) => ({ code, name: p.name, r: rank(code, p.name) }))
+        .filter((m) => m.r < 9)
+        .sort((a, b) => a.r - b.r || a.name.localeCompare(b.name))
+        .slice(0, 8);
+      const raw = q.toUpperCase();
+      options = matches.map((m) => m.code);
+      const rows: Node[] = matches.map((m) => option(m.code, m.name));
+      if (/^[A-Z]{3}$/.test(raw) && !places[raw] && !opts.exclude?.(raw)) {
+        options.push(raw);
+        rows.push(option(raw, 'Use this code'));
+      }
+      if (!rows.length) rows.push(h('div', { class: 'fw-picker-empty' }, 'No match. Try a city name or a 3-letter code.'));
+      list.replaceChildren(...rows);
+      list.hidden = false;
+    };
+    const option = (code: string, name: string) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'fw-picker-option',
+          role: 'option',
+          // pointerdown, so the pick lands before the field loses focus and the keyboard drops.
+          onpointerdown: (e: Event) => {
+            e.preventDefault();
+            pick(code);
+          },
+        },
+        h('strong', {}, code),
+        h('span', {}, name),
+      );
+    input.addEventListener('input', suggest);
+    input.addEventListener('focus', () => input.select());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && options[0]) pick(options[0]);
+    });
+    input.addEventListener('blur', () => setTimeout(() => (list.hidden = true), 150));
+    return h('div', { class: `fw-picker ${opts.class ?? ''}` }, input, list);
+  }
+
   const tabs = h('div', { class: 'fw-tabs', role: 'tablist' });
   const content = h('div', { class: 'fw-content' });
   const footer = h('div', { class: 'fw-footer' });
@@ -386,22 +463,19 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
         fares[code] != null ? h('small', {}, `${fares[code]} fares in 30 days`) : null,
       );
     };
-    const addInput = h('input', { type: 'text', class: 'fw-code-input fw-add-airport', placeholder: 'Airport code, e.g. LAX', maxlength: 3 });
-    const add = () => {
-      const code = addInput.value.trim().toUpperCase();
-      if (!/^[A-Z]{3}$/.test(code)) return;
-      edit((d) => {
-        if (!d.origins.includes(code)) d.origins.push(code);
-      });
-    };
-    addInput.addEventListener('keydown', (e) => e.key === 'Enter' && add());
+    const addAirport = placePicker({
+      placeholder: 'Add an airport: city or code',
+      class: 'fw-add-airport',
+      exclude: (c) => draft.origins.includes(c),
+      onPick: (code) => edit((d) => d.origins.push(code)),
+    });
 
     return [
       intro(
         'Airports Farewatcher searches from. Each one adds a cached-fare lookup for every destination on every run. An airport that returns few fares costs lookups for little.',
       ),
       h('div', { class: 'chips fw-chips' }, ...all.map(chip)),
-      h('div', { class: 'fw-inline' }, addInput, h('button', { class: 'btn', onclick: add }, 'Add')),
+      h('div', { class: 'fw-inline' }, addAirport),
       h('h3', {}, 'Per airport'),
       ...draft.origins.map((o) =>
         h(
@@ -447,28 +521,18 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     const base = estimate(draft).travelpayouts.perRun;
     const known = new Map((ctx.summary?.destinations ?? []).map((d) => [d.code, d]));
     const codes = Object.keys(draft.destinations);
-    const results = h('div', { class: 'fw-results' });
-    const search = h('input', { type: 'text', class: 'fw-search', placeholder: 'Add a city: name or code' });
     const addDest = (code: string) => {
       const low = known.get(code)?.median30 ?? known.get(code)?.currentLow?.price ?? null;
       edit((d) => {
         d.destinations[code] = low ? Math.max(50, Math.round((low * 0.85) / 25) * 25) : 700;
       });
     };
-    const showResults = () => {
-      const q = search.value.trim().toLowerCase();
-      if (!q) return results.replaceChildren();
-      const matches = Object.entries(places)
-        .filter(([code, p]) => !draft.destinations[code] && (code.toLowerCase().startsWith(q) || p.name.toLowerCase().includes(q)))
-        .slice(0, 8);
-      const raw = q.toUpperCase();
-      const offerRaw = /^[A-Z]{3}$/.test(raw) && !draft.destinations[raw] && !places[raw];
-      const found: Node[] = matches.map(([code, p]) => h('button', { class: 'chip', onclick: () => addDest(code) }, `+ ${p.name} (${code})`));
-      if (offerRaw) found.push(h('button', { class: 'chip', onclick: () => addDest(raw) }, `+ ${raw}`));
-      if (!found.length) found.push(h('span', { class: 'fw-dim' }, 'No match. Type a 3-letter airport or city code.'));
-      results.replaceChildren(...found);
-    };
-    search.addEventListener('input', showResults);
+    const search = placePicker({
+      placeholder: 'Add a city: name or code',
+      class: 'fw-search',
+      exclude: (c) => c in draft.destinations,
+      onPick: addDest,
+    });
 
     const one = estimate({ ...draft, destinations: { ...draft.destinations, ZZZ: 1 } }).travelpayouts.perRun - base;
     return [
@@ -476,7 +540,6 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
         `Cities to watch and the round-trip price that counts as a deal. Each city adds ${one} lookups a run (one per home airport). The low and median are from recent runs, to help pick a target.`,
       ),
       h('div', { class: 'fw-inline' }, search),
-      results,
       h(
         'div',
         { class: 'fw-dests' },
@@ -599,16 +662,11 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
           h(
             'div',
             { class: 'fw-event-grid' },
-            h('label', {}, 'To', h('input', {
-              type: 'text',
-              class: 'fw-code-input',
+            h('label', {}, 'To', placePicker({
+              placeholder: 'City or code',
               value: ev.dest,
-              maxlength: 3,
-              onchange: (e: Event) => {
-                const v = (e.target as HTMLInputElement).value.trim().toUpperCase();
-                if (/^[A-Z]{3}$/.test(v)) set((x) => (x.dest = v));
-                else render();
-              },
+              class: 'fw-event-dest',
+              onPick: (code) => set((x) => (x.dest = code)),
             })),
             h('label', {}, 'Leave', h('input', {
               type: 'date',
@@ -656,12 +714,11 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     const oj = draft.open_jaw;
     const returns = openJawReturns(draft, usageCtx.coords);
     const set = (fn: (o: FwConfig['open_jaw']) => void) => edit((d) => fn(d.open_jaw));
-    const extra = h('input', { type: 'text', class: 'fw-code-input', placeholder: 'Code', maxlength: 3 });
-    const addExtra = () => {
-      const code = extra.value.trim().toUpperCase();
-      if (/^[A-Z]{3}$/.test(code) && !oj.extra_return_from.includes(code)) set((o) => o.extra_return_from.push(code));
-    };
-    extra.addEventListener('keydown', (e) => e.key === 'Enter' && addExtra());
+    const extra = placePicker({
+      placeholder: 'Add a city: name or code',
+      exclude: (c) => oj.extra_return_from.includes(c),
+      onPick: (code) => set((o) => o.extra_return_from.push(code)),
+    });
     return [
       intro(
         'Fly into one city and home from a nearby one. Priced from one-way cached fares (more lookups, no monthly cap); the best one gets one live search per run, taken out of the deal-check budget.',
@@ -713,7 +770,6 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
                 h('button', { class: 'chip active', onclick: () => set((o) => (o.extra_return_from = o.extra_return_from.filter((x) => x !== c))) }, `${c} ✕`),
               ),
               extra,
-              h('button', { class: 'btn', onclick: addExtra }, 'Add'),
             ),
           ]
         : []),

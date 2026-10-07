@@ -66,11 +66,48 @@
   color: var(--text);
   font: inherit;
 }
-.fw-search { flex: 1 1 320px; }
-.fw .fw-code-input { width: 120px; text-transform: uppercase; }
-.fw .fw-code-input::placeholder { text-transform: none; }
-.fw .fw-add-airport { width: 240px; }
-.fw-results { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* City/code field with a suggestions dropdown (placePicker). */
+.fw-picker { position: relative; }
+.fw .fw-picker-input { width: 100%; }
+.fw-search { flex: 1 1 360px; }
+.fw-add-airport { width: 400px; max-width: 100%; }
+.fw-event-dest { width: 220px; }
+.fw-picker-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: max(100%, 360px);
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.fw-picker-list[hidden] { display: none; }
+.fw-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.fw-picker-option:first-child { background: var(--surface-2); }
+.fw-picker-option:active { background: var(--accent); color: #fff; }
+.fw-picker-option, .fw-picker-input { font-size: 18px; }
+.fw-picker-option strong { min-width: 48px; }
+.fw-picker-empty { padding: 12px 14px; color: var(--text-dim); font-size: 16px; }
 
 .fw-chip { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 120px; padding: 8px 18px; }
 .fw-chip small { font-size: 13px; opacity: 0.8; }
