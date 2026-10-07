@@ -472,7 +472,7 @@ function render(
   sections.push(
     h(
       'div',
-      { class: 'fares-list' },
+      { class: 'fares-list', style: `--fares-price-w: ${priceWidth(rows, money)}ch` },
       ...rows.map((dest) => destRow(dest, money, dealCodes.has(dest.code), tap(dest.code), shown === dest.code)),
     ),
   );
@@ -601,6 +601,19 @@ function destHero(dest: Destination, money: (n: number) => string, d: Summary) {
     h('div', { class: 'fares-price dim' }, low ? money(best(low)) : '–'),
     h('div', { class: 'fares-meta' }, dest.target ? `Target ${money(dest.target)}` : 'No deals right now'),
   );
+}
+
+/** Width of the widest row price, in ch, so every row's sparkline sits in the same column. */
+function priceWidth(rows: Destination[], money: (n: number) => string) {
+  let widest = 1;
+  for (const dest of rows) {
+    const fare = rowFare(dest);
+    const price = fare ? money(best(fare)) : '–';
+    // The target is drawn at 0.8em.
+    const target = dest.target ? ` / ${money(dest.target)}`.length * 0.8 : 0;
+    widest = Math.max(widest, price.length + target);
+  }
+  return Math.ceil(widest * 10) / 10;
 }
 
 function destRow(dest: Destination, money: (n: number) => string, isDeal: boolean, open: () => void, shown = false) {

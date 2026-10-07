@@ -105,7 +105,7 @@
 }
 .fares-row.deal { box-shadow: inset 4px 0 0 var(--success); }
 .fares-row-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fares-row-price { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; }
+.fares-row-price { font-variant-numeric: tabular-nums; font-weight: 500; white-space: nowrap; min-width: var(--fares-price-w, 0); text-align: right; }
 .fares-row.deal .fares-row-price { color: var(--success); }
 .fares-row-target { color: var(--text-dim); font-weight: 400; font-size: 0.8em; }
 
