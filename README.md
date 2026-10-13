@@ -43,6 +43,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 | ✅ **To-do** | Several named checklists, such as To-do and Groceries, kept in sync on every screen. | None |
 | ⏱️ **Timers & alarms** | Countdown timers and repeating wake-up alarms with sounds, snooze and fade-in. | None |
 | 📌 **Reminders** | One-off and repeating reminders that pop up with Done and Snooze buttons and a chime. | None |
+| ☀️ **Morning check-in** | A 30-second survey each morning (sleep, hours slept, energy, mood, stress, body, optional yes/no habits and your own questions), kept per day with trend charts and a CSV export. | None |
 | 📈 **Stocks** | Watchlist with sparklines, 1D to 5Y charts you can scrub with a finger, and price alerts. | None for Yahoo Finance, or a free Twelve Data key ([docs/STOCKS.md](docs/STOCKS.md)) |
 | 📰 **News** | Top world, U.S., state and local headlines, with related coverage from other outlets. | None (Google News RSS) |
 | 🖼️ **Photos** | Crossfading slideshow of uploaded photos or Google Photos shared albums, with a thumbnail browser. | [docs/PHOTOS.md](docs/PHOTOS.md) |
@@ -209,6 +210,7 @@ docs/                Widget guide and per-feature setup notes
 | PUT | `/api/timers/settings` | `{ "snoozeMinutes", "sound", "volume" (0-100), "ringMinutes" (stop ringing after), "fadeIn" }` |
 | POST / PUT / DELETE | `/api/alarms[/:id]` | `{ "hour", "minute", "days": [0-6, 0 = Sunday; empty = once], "label", "sound", "enabled" }`, in the Pi's time zone. POST `/api/alarms/:id/snooze` · `dismiss`. |
 | GET / POST / PUT / DELETE | `/api/reminders[/:id]` | Reminders: `{ "title", "notes", "date", "hour", "minute", "repeat": "none" \| "hourly" \| "daily" \| "weekly" \| "monthly" \| "yearly", "interval", "days", "until", "sound", "enabled" }`. POST `/api/reminders/:id/done` · `snooze`. The server fires them with a popup and chime on every screen. |
+| GET / PUT / POST / DELETE | `/api/checkin` | Morning check-in. GET returns `{ today, questions, settings, entries, skipped }`. PUT `/api/checkin/entries/:date` `{ "answers": { "sleep": 4, "hours": 7.5, "alcohol": false }, "note" }` · DELETE it. POST `/api/checkin/skip` (Later, for today). PUT `/api/checkin/settings` · `/api/checkin/questions`. GET `/api/checkin/export.csv`. |
 | GET/PUT/POST | `/api/sleep`, `/api/sleep/settings`, `/api/sleep/now`, `/api/sleep/wake` | Screen sleep: status, the awake hours and idle times (saved in `sleep.json`), turn off now, wake. SSE `sleep` tells screens when it changes. |
 | POST | `/api/kiosk/exit` | "Exit to desktop" from the gear menu: drops `$XDG_RUNTIME_DIR/pidisplay-desktop` (which `deploy/kiosk.sh` waits on) and closes the kiosk Chromium. The PiDisplay desktop/menu launcher (`deploy/open-dashboard.sh`) or a reboot brings it back. 501 off the Pi. |
 | GET | `/api/wifi[?rescan]` | Wi-Fi adapter state, current network and IP, nearby networks, saved networks (nmcli). |

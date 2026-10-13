@@ -24,6 +24,7 @@ import { createVoice, VoiceError } from './voice.js';
 import { createSleep, SleepError } from './sleep.js';
 import { createYouTube, YouTubeError } from './youtube.js';
 import { createFaresConfig, FaresConfigError } from './fares-config.js';
+import { createCheckin, CheckinError } from './checkin.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -245,6 +246,15 @@ export function createServer({
     tickMs: timerTickMs,
   });
 
+  // Morning check-in questions, settings and every day's answers.
+  const checkinFile = path.join(dataDir, 'checkin.json');
+  const checkin = createCheckin({
+    load: () => readJson(checkinFile, null),
+    save: (value) => writeJson(checkinFile, value),
+    broadcast: (snapshot) => broadcast('checkin', snapshot),
+  });
+  checkin.start();
+
   // Watchlist and alerts in stocks.json; the optional Twelve Data key in stocks-key.json
   // (a secret, written by deploy/stocks.ps1, never sent to the browser).
   const stocksFile = path.join(dataDir, 'stocks.json');
@@ -384,6 +394,25 @@ export function createServer({
         return send(res, 200, await timers.handle(req.method, parts, body));
       } catch (err) {
         if (err instanceof TimersError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'checkin') {
+      try {
+        if (key === 'export.csv' && req.method === 'GET') {
+          const csv = await checkin.exportCsv();
+          res.writeHead(200, {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="checkin.csv"',
+            'Cache-Control': 'no-store',
+          });
+          return res.end(csv);
+        }
+        const body = req.method === 'GET' || req.method === 'DELETE' ? null : await readBody(req);
+        return send(res, 200, await checkin.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof CheckinError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -709,6 +738,7 @@ export function createServer({
     clearInterval(heartbeat);
     timers.stop();
     reminders.stop();
+    checkin.stop();
     stocks.stop();
     voice.stop();
     sleep.stop();

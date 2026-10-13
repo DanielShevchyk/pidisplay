@@ -4,6 +4,7 @@ import { api, createStorage, onServerEvent } from './api';
 import { h, uid } from './dom';
 import { Alerts } from './alerts';
 import { ReminderAlerts } from './reminder-alerts';
+import { CheckinPrompt } from './checkin-prompt';
 import { Notifications } from './notifications';
 import { initStockAlertSounds } from './stocks';
 import { allWidgets, getWidget } from './registry';
@@ -86,6 +87,7 @@ export class App {
     const alerts = new Alerts(document.body);
     initStockAlertSounds();
     const reminderAlerts = new ReminderAlerts(document.body);
+    const checkinPrompt = new CheckinPrompt(document.body);
     this.voice = new VoiceUI(document.body, {
       goTo: (i) => this.goTo(i),
       step: (delta) => this.goTo(this.page + delta),
@@ -138,7 +140,7 @@ export class App {
         { class: 'topbar' },
         this.barLeft,
         h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
-        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, this.voice.button, this.notifications.button, editBtn, menuBtn),
+        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, checkinPrompt.chip, this.voice.button, this.notifications.button, editBtn, menuBtn),
       ),
       this.main,
       toolbar,

@@ -146,6 +146,18 @@
       ]
     },
     {
+      "id": "checkin",
+      "name": "Check-in",
+      "tiles": [
+        {
+          "id": "checkin-main",
+          "widget": "checkin",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "stocks",
       "name": "Stocks",
       "tiles": [
