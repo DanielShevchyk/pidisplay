@@ -72,7 +72,9 @@ export type SettingField =
   | { key: string; label: string; type: 'boolean' }
   | { key: string; label: string; type: 'text'; placeholder?: string }
   | { key: string; label: string; type: 'number'; min?: number; max?: number; step?: number }
-  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[] };
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[] }
+  /** A place code (airport, city...) typed with a suggestions dropdown; stored as the code, '' when cleared. */
+  | { key: string; label: string; type: 'place'; placeholder?: string; places: () => Promise<Record<string, { name: string }>> };
 
 export type NotificationLevel = 'info' | 'success' | 'warning' | 'alert';
 

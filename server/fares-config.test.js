@@ -96,6 +96,7 @@ test('bad settings are refused with a readable message', () => {
     { events: [{ name: 'Trip', dest: 'MUC', depart: '2027-09-20', return: '2027-09-10', target: 900 }] },
     /return must be after/,
   );
+  refuse({ events: [{ name: 'Trip', dest: 'MUC', depart: '2027-02-31', return: null, target: 900 }] }, /must be a date/);
   refuse({ open_jaw: { ...editableView(cfg).open_jaw, nights: [21, 5] } }, /range/);
   refuse({ live_check: { ...editableView(cfg).live_check, max_searches_per_run: 50 } }, /between 0 and 20/);
 });

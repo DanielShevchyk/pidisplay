@@ -57,7 +57,9 @@ function text(v, what, max) {
 
 function day(v, what) {
   const s = String(v ?? '');
-  if (!DAY.test(s) || Number.isNaN(Date.parse(`${s}T00:00:00Z`))) throw bad(`${what} must be a date`);
+  // Date.parse rolls 2026-02-31 over to March 3; Farewatcher's Python would crash on it.
+  const t = Date.parse(`${s}T00:00:00Z`);
+  if (!DAY.test(s) || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== s) throw bad(`${what} must be a date`);
   return s;
 }
 

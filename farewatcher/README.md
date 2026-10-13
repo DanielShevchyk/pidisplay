@@ -32,7 +32,7 @@ Each run records its own Travelpayouts calls, SerpApi searches and run time in t
 
 | What | Where |
 | --- | --- |
-| Code, config, database, log | `/home/dan/fare_watch/` (`fare_watch.py`, `config.json`, `fares.db`, `fare_watch.log`) |
+| Code, config, database | `/home/dan/fare_watch/` (`fare_watch.py`, `config.json`, `fares.db`); run output is in `journalctl -u fare_watch` |
 | Nightly database backups (14 kept) | `/home/dan/fare_watch/backups/fares-YYYY-MM-DD.db` |
 | Widget summary | `/home/dan/pidisplay-data/farewatcher.json` |
 | Secrets and settings | `/etc/fare_watch.env` (root-only, `0600`) |

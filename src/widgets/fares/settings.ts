@@ -2,6 +2,7 @@
 // with a meter of the API usage the settings will cause (server/fares-usage.js).
 import { call } from '../../core/api';
 import { h } from '../../core/dom';
+import { placePicker as corePlacePicker, type PlacePickerOptions } from '../../core/place-picker';
 import { openSheet, type SheetHandle } from '../../core/sheet';
 import { estimateUsage, openJawReturns, type UsageEstimate } from '../../../server/fares-usage.js';
 import './settings.css';
@@ -279,82 +280,10 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     maximumFractionDigits: 0,
   });
 
-  /**
-   * A code field with a suggestions dropdown: type a city or airport name, or a code, and pick.
-   * A 3-letter code Farewatcher doesn't know is offered as is.
-   */
-  function placePicker(opts: { placeholder: string; value?: string; exclude?: (code: string) => boolean; onPick: (code: string) => void; class?: string }) {
-    const input = h('input', {
-      type: 'text',
-      class: 'fw-picker-input',
-      placeholder: opts.placeholder,
-      value: opts.value ?? '',
-      autocomplete: 'off',
-      'aria-label': opts.placeholder,
-    });
-    const list = h('div', { class: 'fw-picker-list', role: 'listbox', hidden: true });
-    let options: string[] = [];
-    const pick = (code: string) => {
-      list.hidden = true;
-      input.value = code;
-      opts.onPick(code);
-    };
-    const suggest = () => {
-      const q = input.value.trim().toLowerCase();
-      if (!q || q === opts.value?.toLowerCase()) {
-        list.hidden = true;
-        return;
-      }
-      const rank = (code: string, name: string) => {
-        const c = code.toLowerCase();
-        const n = name.toLowerCase();
-        if (c === q) return 0;
-        if (n.startsWith(q)) return 1;
-        if (c.startsWith(q)) return 2;
-        if (n.split(/[\s,]+/).some((w) => w.startsWith(q))) return 3;
-        return n.includes(q) ? 4 : 9;
-      };
-      const matches = Object.entries(places)
-        .filter(([code]) => !opts.exclude?.(code))
-        .map(([code, p]) => ({ code, name: p.name, r: rank(code, p.name) }))
-        .filter((m) => m.r < 9)
-        .sort((a, b) => a.r - b.r || a.name.localeCompare(b.name))
-        .slice(0, 8);
-      const raw = q.toUpperCase();
-      options = matches.map((m) => m.code);
-      const rows: Node[] = matches.map((m) => option(m.code, m.name));
-      if (/^[A-Z]{3}$/.test(raw) && !places[raw] && !opts.exclude?.(raw)) {
-        options.push(raw);
-        rows.push(option(raw, 'Use this code'));
-      }
-      if (!rows.length) rows.push(h('div', { class: 'fw-picker-empty' }, 'No match. Try a city name or a 3-letter code.'));
-      list.replaceChildren(...rows);
-      list.hidden = false;
-    };
-    const option = (code: string, name: string) =>
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'fw-picker-option',
-          role: 'option',
-          // pointerdown, so the pick lands before the field loses focus and the keyboard drops.
-          onpointerdown: (e: Event) => {
-            e.preventDefault();
-            pick(code);
-          },
-        },
-        h('strong', {}, code),
-        h('span', {}, name),
-      );
-    input.addEventListener('input', suggest);
-    input.addEventListener('focus', () => input.select());
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && options[0]) pick(options[0]);
-    });
-    input.addEventListener('blur', () => setTimeout(() => (list.hidden = true), 150));
-    return h('div', { class: `fw-picker ${opts.class ?? ''}` }, input, list);
-  }
+  /** Core place field (suggestions dropdown) over the places Farewatcher knows. */
+  const placePicker = (opts: Omit<PlacePickerOptions, 'places'>) => corePlacePicker({ places, ...opts });
+  /** Label for a typed code Farewatcher doesn't know: Google Flights only searches airports and the metro codes it maps. */
+  const RAW_CITY = 'Use this code (live checks need an airport code)';
 
   // An airport's other settings (compare, live check, allowance, open-jaw home), remembered
   // when it's switched off so switching it back on restores them, meter included.
@@ -513,6 +442,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     const addAirport = placePicker({
       placeholder: 'Add an airport: city or code',
       class: 'fw-add-airport',
+      rawCode: 'Use this airport code',
       exclude: (c) => draft.origins.includes(c),
       onPick: (code) => edit((d) => addOrigin(d, code)),
     });
@@ -577,6 +507,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     const search = placePicker({
       placeholder: 'Add a city: name or code',
       class: 'fw-search',
+      rawCode: RAW_CITY,
       exclude: (c) => c in draft.destinations,
       onPick: addDest,
     });
@@ -712,6 +643,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
             h('label', {}, 'To', placePicker({
               placeholder: 'City or code',
               value: ev.dest,
+              rawCode: RAW_CITY,
               class: 'fw-event-dest',
               onPick: (code) => set((x) => (x.dest = code)),
             })),
@@ -763,6 +695,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
     const set = (fn: (o: FwConfig['open_jaw']) => void) => edit((d) => fn(d.open_jaw));
     const extra = placePicker({
       placeholder: 'Add a city: name or code',
+      rawCode: RAW_CITY,
       exclude: (c) => oj.extra_return_from.includes(c),
       onPick: (code) => set((o) => o.extra_return_from.push(code)),
     });

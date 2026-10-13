@@ -126,6 +126,9 @@ function validateLayout(layout) {
   if (!ok) throw new HttpError(400, 'Invalid layout');
 }
 
+/** How often the server looks for a new Farewatcher summary. */
+const FARES_WATCH_MS = 10_000;
+
 export function createServer({
   dataDir = process.env.PIDISPLAY_DATA || path.join(ROOT, 'data'),
   distDir = path.join(ROOT, 'dist'),
@@ -730,12 +733,23 @@ export function createServer({
     }
   });
 
+  // Farewatcher rewrites its summary at the end of each run (and after a settings save):
+  // tell the Fares tiles, so they show new deals right away instead of at their next refresh.
+  let faresMtime = null;
+  const faresWatch = setInterval(async () => {
+    const mtime = await fs.stat(faresFile).then((s) => s.mtimeMs, () => null);
+    if (faresMtime !== null && mtime !== null && mtime !== faresMtime) broadcast('fares', { updatedAt: new Date(mtime).toISOString() });
+    faresMtime = mtime ?? faresMtime;
+  }, FARES_WATCH_MS);
+  faresWatch.unref();
+
   // Keep SSE connections alive through proxies and detect dead clients.
   const heartbeat = setInterval(() => {
     for (const res of clients) res.write(': ping\n\n');
   }, 25000);
   server.on('close', () => {
     clearInterval(heartbeat);
+    clearInterval(faresWatch);
     timers.stop();
     reminders.stop();
     checkin.stop();

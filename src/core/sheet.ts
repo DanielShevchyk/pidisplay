@@ -1,5 +1,6 @@
 // Bottom-sheet modal plus a form renderer for widget settings. Sized for fingers.
 import { h } from './dom';
+import { placePicker } from './place-picker';
 import type { SettingField, WidgetConfig } from './types';
 
 export interface SheetHandle {
@@ -100,6 +101,16 @@ export function settingsForm(
               h('option', { value: o.value, selected: values[f.key] === o.value }, o.label),
             ),
           );
+          break;
+        case 'place':
+          input = placePicker({
+            placeholder: f.placeholder ?? 'City or code',
+            value: String(values[f.key] ?? ''),
+            places: f.places,
+            rawCode: false,
+            onPick: (code) => set(f.key, code),
+            onClear: () => set(f.key, ''),
+          });
           break;
         case 'text':
           input = h('input', {

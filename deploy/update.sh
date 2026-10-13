@@ -39,6 +39,19 @@ if [ -d "$HOME/fare_watch" ]; then
     echo "WARNING: fare_watch.py did not compile; kept the old one."
   fi
 fi
+# ...and its systemd units, once Farewatcher is set up here (enabling stays a manual step).
+if [ -f /etc/systemd/system/fare_watch.service ]; then
+  FW_UNITS=0
+  for u in fare_watch.service fare_watch.timer fare_watch-backup.service fare_watch-backup.timer fare_watch-alert@.service; do
+    tr -d '\r' < "farewatcher/$u" > "/tmp/$u"
+    if ! cmp -s "/tmp/$u" "/etc/systemd/system/$u"; then
+      sudo install -m 644 -o root -g root "/tmp/$u" "/etc/systemd/system/$u"
+      FW_UNITS=1
+    fi
+    rm -f "/tmp/$u"
+  done
+  [ "$FW_UNITS" = 1 ] && sudo systemctl daemon-reload
+fi
 # Strip Windows line endings (sudo rejects them) and only install a file visudo accepts.
 tr -d '\r' < deploy/pidisplay-sudoers > /tmp/pidisplay-sudoers
 sudo visudo -cqf /tmp/pidisplay-sudoers

@@ -280,6 +280,46 @@ select { font: inherit; color: inherit; }
 .sheet-body h3 { margin: 20px 0 10px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
 .empty { color: var(--text-dim); text-align: center; padding: 24px 0; }
 
+/* Place field with a suggestions dropdown (src/core/place-picker.ts). */
+.picker { position: relative; }
+.picker-list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: max(100%, 360px);
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.picker-list[hidden] { display: none; }
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+.picker-option:first-child { background: var(--surface-2); }
+.picker-option:active { background: var(--accent); color: #fff; }
+.picker-option, .picker-input { font-size: 18px; }
+.picker-option strong { min-width: 48px; }
+.picker-empty { padding: 12px 14px; color: var(--text-dim); font-size: 16px; }
+.field .picker { width: 100%; }
+.field .picker-input { width: 100%; }
+
 .form { display: flex; flex-direction: column; gap: 4px; }
 .field {
   display: flex;

@@ -623,6 +623,12 @@ PLACES = {
     "TPE": "Taipei, Taiwan", "HKG": "Hong Kong", "SIN": "Singapore", "PVG": "Shanghai, China",
     "PEK": "Beijing, China", "CAN": "Guangzhou, China", "BKK": "Bangkok, Thailand",
     "KUL": "Kuala Lumpur, Malaysia", "ITM": "Osaka Itami, Japan",
+    # metro (city) codes Google Flights can search through CITY_AIRPORTS
+    "NYC": "New York, USA", "CHI": "Chicago, USA", "WAS": "Washington, USA", "YTO": "Toronto, Canada",
+    "YMQ": "Montreal, Canada", "BUE": "Buenos Aires, Argentina", "SAO": "Sao Paulo, Brazil",
+    "RIO": "Rio de Janeiro, Brazil", "MIL": "Milan, Italy", "ROM": "Rome, Italy", "STO": "Stockholm, Sweden",
+    "REK": "Reykjavik, Iceland", "BJS": "Beijing, China", "SHA": "Shanghai, China", "JKT": "Jakarta, Indonesia",
+    "MOW": "Moscow, Russia",
 }
 
 
@@ -707,6 +713,10 @@ COORDS = {
     "AKL": (-36.85, 174.76), "YVR": (49.28, -123.12), "SEA": (47.61, -122.33),
     "AMS": (52.37, 4.90), "MNL": (14.60, 120.98), "CEB": (10.32, 123.89),
     "MUC": (48.14, 11.58), "FRA": (50.11, 8.68),
+    "NYC": (40.71, -74.01), "CHI": (41.88, -87.63), "WAS": (38.91, -77.04), "YTO": (43.65, -79.38),
+    "YMQ": (45.50, -73.57), "BUE": (-34.60, -58.38), "SAO": (-23.55, -46.63), "RIO": (-22.91, -43.17),
+    "MIL": (45.46, 9.19), "ROM": (41.90, 12.50), "STO": (59.33, 18.07), "REK": (64.15, -21.94),
+    "BJS": (39.90, 116.41), "SHA": (31.23, 121.47), "JKT": (-6.21, 106.85), "MOW": (55.76, 37.62),
 }
 
 
@@ -805,6 +815,9 @@ CITY_AIRPORTS = {
     "TYO": "NRT,HND", "OSA": "KIX,ITM", "SEL": "ICN,GMP", "LON": "LHR,LGW,STN,LTN,LCY",
     "PAR": "CDG,ORY", "IST": "IST,SAW", "WAW": "WAW,WMI", "MIL": "MXP,LIN,BGY",
     "ROM": "FCO,CIA", "STO": "ARN,BMA", "MOW": "SVO,DME,VKO",
+    "NYC": "JFK,EWR,LGA", "CHI": "ORD,MDW", "WAS": "IAD,DCA,BWI", "YTO": "YYZ,YTZ", "YMQ": "YUL",
+    "BUE": "EZE,AEP", "SAO": "GRU,CGH,VCP", "RIO": "GIG,SDU", "REK": "KEF,RKV", "BJS": "PEK,PKX",
+    "SHA": "PVG,SHA", "JKT": "CGK,HLP",
 }
 
 
@@ -1384,6 +1397,8 @@ def push_style(d, ncfg=None):
     kind = d.get("event_tag") or "airplane"                  # e.g. beer for Oktoberfest
     if d.get("info_only"):
         return {"tags": [kind, "eyes"], "priority": 2}       # heads-up, not a deal
+    if not d.get("live_best"):
+        priority = min(priority, 3)     # a cached price can be days old: never ping loudly for it
     style = {"tags": ["white_check_mark" if d.get("live_best") else "warning", kind],
              "priority": priority}
     if d.get("live_best"):
@@ -1643,6 +1658,26 @@ def _open_jaw_options(cfg, conn, names):
     return out
 
 
+def _believed_low(conn, dest, rows, since, unpack, limit=25):
+    """The cheapest of `rows` (origin first, then the observation columns, cheapest first) once
+    each fare's dates are priced at their recent live Google check where there is one: a cached
+    fare Google disproved no longer hides a really cheaper one. Returns (columns, live price);
+    the columns' depart/return dates are cut to YYYY-MM-DD."""
+    best = None
+    for row in rows[:limit]:
+        cols = list(unpack(row))
+        dep_i, ret_i = len(cols) - 4, len(cols) - 3      # ..., price, depart_at, return_at, airline, transfers
+        cols[dep_i] = (cols[dep_i] or "")[:10] or None
+        cols[ret_i] = (cols[ret_i] or "")[:10] or None
+        live = _live_for(conn, dest, row[0], cols[dep_i], cols[ret_i], since)
+        price = live if live is not None else cols[dep_i - 1]
+        if best is None or price < best[0]:
+            best = (price, tuple(cols), live)
+        if best[2] is None and best[0] <= cols[dep_i - 1]:
+            break                                         # rows are cheapest first: nothing below this
+    return best[1], best[2]
+
+
 def _origin_view(conn, code, origin, latest, months, cut90, cut30, now, recheck):
     """One home airport's view of a destination for the widget's airport switch: its cheapest
     current cached fare (else its latest live Google check in the last 14 days), median,
@@ -1656,10 +1691,9 @@ def _origin_view(conn, code, origin, latest, months, cut90, cut30, now, recheck)
         for r in rows:
             per_month.setdefault(r[0], r[1])
         if rows:
-            _, price, dep, ret, airline, stops = rows[0]
-            dep, ret = (dep or "")[:10] or None, (ret or "")[:10] or None
-            # 14 days, like the deal list: a recent live check outranks a stale cached price.
-            live = _live_for(conn, code, origin, dep, ret, (now - timedelta(days=DISPROVED_DAYS)).isoformat())
+            since = (now - timedelta(days=DISPROVED_DAYS)).isoformat()
+            (_, price, dep, ret, airline, stops), live = _believed_low(
+                conn, code, [(origin,) + tuple(r) for r in rows], since, lambda r: r[1:])
             current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
                        "stops": stops, "airline": airline, "verified": live is not None, "livePrice": live,
                        "link": google_flights_link(origin, code, {"departure_at": dep, "return_at": ret})}
@@ -1718,11 +1752,9 @@ def build_summary(cfg, conn, now=None):
                 per_month.setdefault(r[0], r[2])
             monthly = [{"month": m, "low": per_month.get(m)} for m in months]
             if rows:
-                month, origin, price, dep, ret, airline, stops = rows[0]
-                dep, ret = (dep or "")[:10] or None, (ret or "")[:10] or None
-                # 14 days, like the deal list: a recent live check outranks a stale cached price.
                 since = (now - timedelta(days=DISPROVED_DAYS)).isoformat()
-                live = _live_for(conn, code, origin, dep, ret, since)
+                (month, origin, price, dep, ret, airline, stops), live = _believed_low(
+                    conn, code, [(r[1],) + tuple(r) for r in rows], since, lambda r: r[1:])
                 current = {"price": price, "origin": origin, "departDate": dep, "returnDate": ret,
                            "stops": stops, "airline": airline, "verified": live is not None,
                            "livePrice": live,
@@ -1859,7 +1891,14 @@ def build_summary(cfg, conn, now=None):
     return {"generatedAt": now.isoformat(), "currency": cfg.get("currency", "usd").upper(),
             "lastRun": last_run, "destinations": destinations, "deals": deals, "recentAlerts": recent,
             "airports": _airport_coords(conn, codes, names), "usage": usage_history(conn, now),
-            "places": place_catalog(names)}
+            "places": place_catalog(names),
+            "homeOrigins": home_origins(cfg), "allowances": origin_allowances(cfg)}
+
+
+def home_origins(cfg):
+    """Airports for the widget's switch: the ones compared side by side, else every origin."""
+    origins = cfg.get("origins") or []
+    return [o for o in cfg.get("compare_origins") or [] if o in origins] or list(origins)
 
 
 def usage_history(conn, now, days=35):
@@ -2012,6 +2051,10 @@ def add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window, hold_
         budget, "?" if left is None else left))
     for d in deals:                                  # deals are sorted best-first
         for o in origins:
+            # In live_check.origins order: once an airport's live price qualifies, the deal
+            # alerts anyway, so the next airport's search is saved (its cached fare still shows).
+            if live_qualifies(cfg, d, d.get("live"), drop, window):
+                break
             if budget <= 0:
                 return
             budget -= 1
@@ -2026,6 +2069,12 @@ def add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window, hold_
             if not dry_run:
                 cached = (d.get("by_origin", {}).get(o) or {}).get("price")
                 record_live(conn, o, d["dest"], lv, cached, now_iso)
+
+
+def live_qualifies(cfg, d, live, drop, window):
+    """True when a live price already checked for this deal makes it alert."""
+    priced = [(lv["price"], o) for o, lv in (live or {}).items() if lv.get("price") is not None]
+    return bool(priced) and live_verdict(cfg, d, priced, drop, window) is not None
 
 
 def origin_allowances(cfg):
@@ -2161,6 +2210,13 @@ def check_events(cfg, conn, dry_run, now, drop, window, realert, cooldown, allow
     out = []
     for ev in events:
         dep, ret = ev["depart"], ev.get("return")
+        try:                                    # a hand-edited bad date skips that event, not the run
+            date.fromisoformat(dep)
+            if ret:
+                date.fromisoformat(ret)
+        except (TypeError, ValueError):
+            log("%s: skipped, bad date %s / %s" % (ev.get("name"), dep, ret))
+            continue
         days_out = (date.fromisoformat(dep) - today).days
         if days_out <= 0:
             continue
@@ -2182,8 +2238,11 @@ def check_events(cfg, conn, dry_run, now, drop, window, realert, cooldown, allow
             continue
         fare = {"departure_at": dep, "return_at": ret}
         live = {}
+        probe = {"threshold": float(ev["target"]), "median": None}
         log("%s: checking Google Flights %s ..." % (ev["name"], trip_dates(dep, ret)))
         for o in origins:
+            if last and live_qualifies(cfg, probe, live, drop, window):
+                break                           # under target from this airport: next one not needed
             try:
                 lv = live_price(key, o, ev["dest"], fare, cfg.get("currency", "usd"))
             except Exception as ex:
@@ -2601,6 +2660,8 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
             oj_reserve = 1 if ocfg.get("live_check", True) and any(
                 open_jaw_is_deal(o, ocfg) and not latest_open_jaw_check(conn, o) for o in oj_options) else 0
             add_live_prices(cfg, conn, deals, compare, dry_run, now, drop, window, hold_back=oj_reserve)
+            if not dry_run:
+                conn.commit()                   # searches spent stay recorded even if the run dies later
             deals = confirm_with_live(cfg, deals, drop, window)
     # Already sent unverified: only worth re-sending once a live check confirms it.
     held = [d for d in deals if d.get("needs_live") and not d.get("live_best")]
@@ -2644,6 +2705,8 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
             log("event watch skipped in dry run (add --live to spend SerpApi searches)")
         else:
             deals += check_events(cfg, conn, dry_run, now, drop, window, realert, cooldown, allow)
+            if not dry_run:
+                conn.commit()
 
     # Weather last, so skipped/held deals don't cost lookups.
     wcfg = cfg.get("weather", {})
@@ -2715,6 +2778,7 @@ def run(cfg, db_path, dry_run=False, fetch=fetch_fares, now=None, live_in_dry_ru
             if not d.get("info_only"):         # a heads-up mustn't block the real deal alert
                 record_alert(conn, d, now_iso)
             record_sent(conn, d, title, body, email_body, d["gf_link"], actions, style, now_iso)
+            conn.commit()                       # sent is sent: a later crash mustn't re-send it tomorrow
             sent += 1
             log("alert sent: " + title)
         else:
@@ -2754,7 +2818,13 @@ def warn_if_stale(cfg, db_path, now, hours=36):
 def notify_failure(cfg, unit, log_path):
     """Called by fare_watch-alert@.service when a Farewatcher unit fails."""
     tail = ""
-    if log_path and os.path.exists(log_path):
+    try:                                      # the unit's own output, from the journal
+        import subprocess
+        tail = subprocess.run(["journalctl", "-u", unit, "-n", "8", "--no-pager", "-o", "cat"],
+                              capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception:
+        pass
+    if not tail and log_path and os.path.exists(log_path):
         with open(log_path, encoding="utf-8", errors="replace") as f:
             tail = "".join(f.readlines()[-8:]).strip()
     body = "%s failed on the Pi. Check: journalctl -u %s" % (unit, unit)

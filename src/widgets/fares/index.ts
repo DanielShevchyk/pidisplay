@@ -152,17 +152,36 @@ interface Summary {
   /** For the settings wizard: places Farewatcher knows, and recent runs' API usage. */
   places?: SettingsSummary['places'];
   usage?: SettingsSummary['usage'];
+  /** Home airports for the switch (compare_origins); added Oct 2026. */
+  homeOrigins?: string[];
+  /** Extra $ allowed over target per home airport (origin_allowance); added Oct 2026. */
+  allowances?: Record<string, number>;
 }
 
 type Response = Summary | { available: false };
 
-/** Home airports the switch flips between. */
-const ORIGINS = ['SFO', 'SMF'] as const;
-type Origin = (typeof ORIGINS)[number];
+/** Home airports the switch flips between when the summary doesn't say (older summaries). */
+const DEFAULT_ORIGINS = ['SFO', 'SMF'];
+/** Most airports the switch shows. */
+const MAX_ORIGINS = 3;
+type Origin = string;
 
-/** Shared by every Fares tile, so one tap flips them all. */
+/** The summary's home airports, in Farewatcher's order. */
+function homeOrigins(d: Response | null): Origin[] {
+  const list = d && d.available ? d.homeOrigins : null;
+  return list?.length ? list.slice(0, MAX_ORIGINS) : DEFAULT_ORIGINS;
+}
+
+/** Watched destinations for the Featured setting's suggestions. */
+async function watchedPlaces(): Promise<Record<string, { name: string }>> {
+  const res = await fetch('/api/fares');
+  const d = (await res.json()) as Response;
+  if (!d.available) return {};
+  return Object.fromEntries(d.destinations.map((x) => [x.code, { name: x.name ?? x.code }]));
+}
+
+/** Shared by every Fares tile, so one tap flips them all. Only the switch: the summary is on disk already. */
 interface Shared {
-  summary: Response | null;
   origin: Origin;
 }
 
@@ -190,7 +209,13 @@ export default defineWidget<FaresConfig>({
   defaultSize: 'medium',
   defaultConfig: { featured: '', showUnverified: true },
   settings: [
-    { key: 'featured', label: 'Featured destination code (blank = best deal)', type: 'text', placeholder: 'e.g. LIS' },
+    {
+      key: 'featured',
+      label: 'Featured destination (blank = best deal)',
+      type: 'place',
+      placeholder: 'Watched city: name or code',
+      places: watchedPlaces,
+    },
     { key: 'showUnverified', label: 'Show deals not confirmed on Google Flights', type: 'boolean' },
   ],
 
@@ -213,6 +238,8 @@ export default defineWidget<FaresConfig>({
         root.replaceChildren(message('✈️', 'Waiting for the first Farewatcher run'));
         return;
       }
+      const origins = homeOrigins(data);
+      const shown = origins.includes(origin) ? origin : origins[0];
       const flip = (o: Origin) => {
         origin = o;
         paint();
@@ -225,14 +252,15 @@ export default defineWidget<FaresConfig>({
           paint();
         },
       };
-      root.replaceChildren(render(forOrigin(data, origin), config, placement, failed, originSwitch(origin, flip), pick));
+      root.replaceChildren(render(forOrigin(data, shown), config, placement, failed, originSwitch(origins, shown, flip), pick));
     };
 
-    const saveShared = () => sharedStorage.save({ summary: data, origin } satisfies Shared).catch(() => {});
+    const saveShared = () => sharedStorage.save({ origin } satisfies Shared).catch(() => {});
 
-    // Older versions stored the bare summary here.
-    const readShared = (v: Shared | Response | null): Shared =>
-      v && 'origin' in v ? v : { summary: (v as Response | null) ?? null, origin: 'SFO' };
+    // Older versions also stored the whole summary here; only the switch is read back.
+    const readShared = (v: Partial<Shared> | null): Shared => ({
+      origin: v && typeof v.origin === 'string' ? v.origin : DEFAULT_ORIGINS[0],
+    });
 
     const refresh = async () => {
       clearTimeout(timer);
@@ -244,7 +272,6 @@ export default defineWidget<FaresConfig>({
         if (!alive) return;
         data = body;
         failed = '';
-        saveShared();
       } catch (err) {
         if (!alive) return;
         failed = err instanceof Error ? err.message : String(err);
@@ -254,15 +281,13 @@ export default defineWidget<FaresConfig>({
       timer = window.setTimeout(refresh, next);
     };
 
-    // Show the last summary right away (e.g. after a reboot), then refresh.
+    // Which airport the other tiles show, then the summary.
     sharedStorage
-      .load<Shared | Response | null>(null)
+      .load<Partial<Shared> | null>(null)
       .catch(() => null)
       .then((stored) => {
         if (!alive) return;
-        const shared = readShared(stored);
-        if (shared.summary && !data) data = shared.summary;
-        origin = shared.origin;
+        origin = readShared(stored).origin;
         paint();
         refresh();
       });
@@ -270,7 +295,7 @@ export default defineWidget<FaresConfig>({
     // Another tile flipped the switch.
     const offShared = sharedStorage.onChange(() => {
       sharedStorage
-        .load<Shared | Response | null>(null)
+        .load<Partial<Shared> | null>(null)
         .then((stored) => {
           const next = readShared(stored).origin;
           if (alive && next !== origin) {
@@ -286,10 +311,8 @@ export default defineWidget<FaresConfig>({
     window.addEventListener(FARES_CHANGED, onChanged);
     const offConfig = on('fares-config', onChanged);
 
-    // Farewatcher posts a notification at the end of a run that found deals.
-    on('notification', (n: { source?: string }) => {
-      if (n?.source === 'Farewatcher') refresh();
-    });
+    // The server says when Farewatcher rewrote its summary (end of a run, or a settings change).
+    const offFares = on('fares', onChanged);
 
     return {
       destroy() {
@@ -297,6 +320,7 @@ export default defineWidget<FaresConfig>({
         clearTimeout(timer);
         offShared();
         offConfig();
+        offFares();
         window.removeEventListener(FARES_CHANGED, onChanged);
       },
     };
@@ -305,11 +329,11 @@ export default defineWidget<FaresConfig>({
 
 // ---- Home airport switch ----------------------------------------------
 
-function originSwitch(current: Origin, flip: (o: Origin) => void) {
+function originSwitch(origins: Origin[], current: Origin, flip: (o: Origin) => void) {
   return h(
     'div',
     { class: 'fares-origin', role: 'group', 'aria-label': 'Home airport' },
-    ...ORIGINS.map((o) =>
+    ...origins.map((o) =>
       h(
         'button',
         {
@@ -353,7 +377,9 @@ function forOrigin(d: Summary, origin: Origin): Summary {
       continue;
     }
     const alt = deal.alternates?.find((a) => a.origin === origin);
-    if (!alt || (deal.target && best(alt) > deal.target)) continue;
+    // The deal's own target can include its airport's allowance; this airport is judged on its own.
+    const target = alt ? targetFor(d, deal, origin) : null;
+    if (!alt || (target && best(alt) > target)) continue;
     const { alternates: _, ...rest } = deal;
     deals.push({
       ...rest,
@@ -379,6 +405,14 @@ function forOrigin(d: Summary, origin: Origin): Summary {
   }
   deals.sort((a, b) => dealRatio(a) - dealRatio(b));
   return { ...d, destinations, deals };
+}
+
+/** A deal's target as seen from `origin`: the destination's target plus that airport's allowance. */
+function targetFor(d: Summary, deal: Deal, origin: Origin) {
+  if (deal.event || deal.openJaw) return deal.target;
+  const base = d.destinations.find((x) => x.code === deal.code)?.target ?? deal.target;
+  if (base == null) return deal.target;
+  return base + (d.allowances?.[origin] ?? 0);
 }
 
 function lowFromAlternate(a: Alternate, code: string): Low {
@@ -600,7 +634,7 @@ function dealHero(
     deal.openJaw && openJawLine(deal.openJaw, deal.origin, money, compact),
     !compact && deal.event && h('div', { class: 'fares-meta' }, `🎟 ${deal.event}`),
     under !== null && under > 0 && h('div', { class: 'fares-under' }, `${money(under)} under target`),
-    ...alternates(deal, money, compact),
+    ...alternates(deal, homeOrigins(d), money, compact),
   );
 }
 
@@ -661,8 +695,9 @@ function openDetail(dest: Destination, d: Summary) {
     h(
       'div',
       { class: 'fares-sheet-summary' },
-      item('Cheapest now', low ? money(low.price) : null),
-      item('Live on Google', low?.livePrice != null ? money(low.livePrice) : null),
+      // Google's live price when it checked these dates; the cached quote it replaced stays visible.
+      item('Cheapest now', low ? `${money(best(low))}${low.livePrice != null ? ' live' : ''}` : null),
+      item('Cached quote', low?.livePrice != null && low.livePrice !== low.price ? money(low.price) : null),
       item('Target', dest.target ? money(dest.target) : null),
       item('30-day median', dest.median30 ? money(dest.median30) : null),
     ),
@@ -736,7 +771,7 @@ function openDetail(dest: Destination, d: Summary) {
             [x.origin, dateRange(x.departDate, x.returnDate), stops(x.stops), x.bags].filter(Boolean).join(' · '),
           ),
           x.openJaw && openJawLine(x.openJaw, x.origin, money),
-          ...alternates(x, money),
+          ...alternates(x, homeOrigins(d), money),
           x.event && h('div', { class: 'fares-meta' }, `🎟 ${x.event}`),
           ...(x.openJaw
             ? jawTickets(x.openJaw, null, `${place(x.name, x.code)} from ${x.origin ?? '?'}, ${dateRange(x.departDate, x.returnDate)}`, x.link)
@@ -794,12 +829,13 @@ function checkedAt(d: Summary) {
 
 /** The other home airport's price: "SMF $612 (+$45) · same dates"; dates dropped when compact. */
 function alternates(
-  x: { price: number; livePrice: number | null; alternates?: Alternate[] },
+  x: { origin: string | null; price: number; livePrice: number | null; alternates?: Alternate[] },
+  homes: Origin[],
   money: (n: number) => string,
   compact = false,
 ) {
-  // Dan's two home airports: an SFO deal shows SMF, an SMF deal shows SFO (OAK/SJC are skipped).
-  const alt = ['SMF', 'SFO'].map((o) => x.alternates?.find((a) => a.origin === o)).find(Boolean);
+  // The first other home airport with a price (an SFO deal shows SMF, an SMF deal SFO).
+  const alt = homes.filter((o) => o !== x.origin).map((o) => x.alternates?.find((a) => a.origin === o)).find(Boolean);
   return (alt ? [alt] : []).map((a) => {
     const diff = best(a) - best(x);
     const sign = diff > 0 ? `+${money(diff)}` : diff < 0 ? `−${money(-diff)}` : 'same price';

@@ -12,5 +12,6 @@ Type=oneshot
 User=dan
 WorkingDirectory=/home/dan/fare_watch
 EnvironmentFile=/etc/fare_watch.env
-ExecStart=/usr/bin/python3 /home/dan/fare_watch/fare_watch.py --log /home/dan/fare_watch/fare_watch.log
+# Output goes to the journal only (journalctl -u fare_watch); no separate log file to grow.
+ExecStart=/usr/bin/python3 /home/dan/fare_watch/fare_watch.py
 TimeoutStartSec=30min
