@@ -41,24 +41,44 @@ export default defineWidget({
     }
 
     // Small tiles: a Check in button until today's is done, then today's answers.
-    storage
-      .load<View>(DEFAULT_VIEW)
-      .then((v) => (view = { ...DEFAULT_VIEW, ...v }))
-      .catch(() => {});
+    // The tile follows the person last picked in its trends sheet.
     const root = h('button', { class: `ci-sum size-${placement}` });
-    root.addEventListener('click', () => (checkin.todayEntry() ? openTrendsSheet(view, saveView) : openFormSheet()));
     el.append(root);
     const render = () => {
-      const s = checkin.state;
-      if (!s) return;
-      const done = Boolean(s.entries[s.today]);
+      const b = checkin.book(view.profile);
+      if (!b) return;
+      const done = Boolean(b.entries[b.today]);
+      const multi = (checkin.state?.profiles.length ?? 0) > 1;
       root.classList.toggle('done', done);
       root.replaceChildren(
         ...(done
-          ? [h('div', { class: 'ci-sum-title' }, '☀️ Today'), h('div', { class: 'ci-sum-pills' }, ...answerPills(s.today, placement === 'small' ? 4 : 6))]
-          : [h('div', { class: 'ci-sum-icon' }, '☀️'), h('div', { class: 'ci-sum-cta' }, 'Check in'), h('div', { class: 'ci-sum-sub' }, 'How are you today?')]),
+          ? [
+              h('div', { class: 'ci-sum-title' }, multi ? `${b.emoji} ${b.name}` : '☀️ Today'),
+              h('div', { class: 'ci-sum-pills' }, ...answerPills(b, b.today, placement === 'small' ? 4 : 6)),
+            ]
+          : [
+              h('div', { class: 'ci-sum-icon' }, multi ? b.emoji : '☀️'),
+              h('div', { class: 'ci-sum-cta' }, 'Check in'),
+              h('div', { class: 'ci-sum-sub' }, multi ? b.name : 'How are you today?'),
+            ]),
       );
     };
+    root.addEventListener('click', () => {
+      const b = checkin.book(view.profile);
+      if (b?.entries[b.today])
+        openTrendsSheet(view, (v) => {
+          saveView(v);
+          render();
+        });
+      else openFormSheet(b?.id);
+    });
+    storage
+      .load<View>(DEFAULT_VIEW)
+      .then((v) => {
+        view = { ...DEFAULT_VIEW, ...v };
+        render();
+      })
+      .catch(() => {});
     const off = checkin.subscribe(render);
     return {
       destroy() {

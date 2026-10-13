@@ -2,19 +2,22 @@
 // taps. Used by the morning popup, the tile's "Check in" button and the history
 // list (to fill in or fix a past day).
 import { h } from '../../core/dom';
-import { checkin, dayLabel, goodness, goodnessColor, type Answer, type Question } from '../../core/checkin';
+import { active, checkin, dayLabel, goodness, goodnessColor, type Answer, type Book, type Question } from '../../core/checkin';
 
 export interface FormOptions {
+  profile: string;
   date: string;
   /** Called after a successful save or delete. */
   onDone(): void;
   /** Shows a "Later" button (the morning popup). */
   onLater?(): void;
+  /** Text for that button; "Back" when the popup has a person picker. */
+  laterLabel?: string;
 }
 
 /** The last hours-slept answer before `date`, as the stepper's starting point. */
-function lastHours(q: Question, date: string): number {
-  const entries = checkin.state?.entries ?? {};
+function lastHours(book: Book, q: Question, date: string): number {
+  const entries = book.entries;
   const prev = Object.keys(entries)
     .filter((d) => d < date && typeof entries[d].answers[q.id] === 'number')
     .sort()
@@ -24,9 +27,10 @@ function lastHours(q: Question, date: string): number {
 
 export function renderForm(opts: FormOptions): HTMLElement {
   const s = checkin.state!;
-  const existing = s.entries[opts.date];
+  const book = checkin.book(opts.profile)!;
+  const existing = book.entries[opts.date];
   const answers: Record<string, Answer | null> = { ...(existing?.answers ?? {}) };
-  const questions = checkin.active();
+  const questions = active(book);
   // Turned-off questions answered on this day keep their answers.
   for (const id of Object.keys(answers)) if (!questions.some((q) => q.id === id)) delete answers[id];
 
@@ -75,17 +79,17 @@ export function renderForm(opts: FormOptions): HTMLElement {
       const v = answers[q.id];
       value.classList.toggle('unset', typeof v !== 'number');
       value.style.setProperty('--ci-c', typeof v === 'number' ? goodnessColor(goodness(q, v)) : '');
-      value.textContent = typeof v === 'number' ? `${v} h` : `${lastHours(q, opts.date)} h?`;
+      value.textContent = typeof v === 'number' ? `${v} h` : `${lastHours(book, q, opts.date)} h?`;
     };
     const step = (d: number) => {
-      const cur = typeof answers[q.id] === 'number' ? (answers[q.id] as number) : lastHours(q, opts.date);
+      const cur = typeof answers[q.id] === 'number' ? (answers[q.id] as number) : lastHours(book, q, opts.date);
       answers[q.id] = Math.min(16, Math.max(0, cur + d));
       paint();
       refreshSave();
     };
     // Tapping the guess takes it as is; tapping a set value clears it.
     value.addEventListener('click', () => {
-      answers[q.id] = typeof answers[q.id] === 'number' ? null : lastHours(q, opts.date);
+      answers[q.id] = typeof answers[q.id] === 'number' ? null : lastHours(book, q, opts.date);
       paint();
       refreshSave();
     });
@@ -120,7 +124,7 @@ export function renderForm(opts: FormOptions): HTMLElement {
     save.disabled = true;
     error.textContent = '';
     try {
-      await checkin.saveEntry(opts.date, answers, s.settings.note ? note.value : (existing?.note ?? ''));
+      await checkin.saveEntry(book.id, opts.date, answers, s.settings.note ? note.value : (existing?.note ?? ''));
       opts.onDone();
     } catch (err) {
       error.textContent = (err as Error).message;
@@ -130,7 +134,7 @@ export function renderForm(opts: FormOptions): HTMLElement {
 
   async function remove() {
     try {
-      await checkin.deleteEntry(opts.date);
+      await checkin.deleteEntry(book.id, opts.date);
       opts.onDone();
     } catch (err) {
       error.textContent = (err as Error).message;
@@ -157,7 +161,7 @@ export function renderForm(opts: FormOptions): HTMLElement {
       'div',
       { class: 'ci-actions' },
       save,
-      opts.onLater && h('button', { class: 'btn ci-later', onclick: () => opts.onLater!() }, 'Later'),
+      opts.onLater && h('button', { class: 'btn ci-later', onclick: () => opts.onLater!() }, opts.laterLabel ?? 'Later'),
       existing && !opts.onLater && h('button', { class: 'btn btn-danger', onclick: () => void remove() }, 'Delete day'),
     ),
   );

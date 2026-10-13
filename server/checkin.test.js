@@ -20,35 +20,67 @@ function setup(saved = null, start = at(2026, 10, 13, 7, 30)) {
   return { checkin, clock, events, call, stored: () => stored };
 }
 
-test('starts with the built-in questions and today in the Pi time zone', async () => {
+test('starts with one profile holding the built-in questions', async () => {
   const { call } = setup(null, at(2026, 10, 13, 23, 30));
   const s = await call('GET', 'checkin');
   assert.equal(s.today, '2026-10-13');
-  assert.deepEqual(s.questions.map((q) => q.id), DEFAULT_QUESTIONS.map((q) => q.id));
-  assert.equal(s.questions.find((q) => q.id === 'alcohol').enabled, false);
-  assert.deepEqual(s.entries, {});
+  assert.equal(s.profiles.length, 1);
+  const me = s.profiles[0];
+  assert.equal(me.id, 'me');
+  assert.equal(me.prompt, true);
+  assert.deepEqual(me.questions.map((q) => q.id), DEFAULT_QUESTIONS.map((q) => q.id));
+  assert.equal(me.questions.find((q) => q.id === 'alcohol').enabled, false);
 });
 
 test('saves a day, validates answers, and refuses future days', async () => {
   const { call, events, stored } = setup();
-  const s = await call('PUT', 'checkin/entries/2026-10-13', { answers: { sleep: 4, hours: 7.5, mood: 3, stress: null }, note: ' ok ' });
-  assert.deepEqual(s.entries['2026-10-13'].answers, { sleep: 4, hours: 7.5, mood: 3 });
-  assert.equal(s.entries['2026-10-13'].note, 'ok');
+  const s = await call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 4, hours: 7.5, mood: 3, stress: null }, note: ' ok ' });
+  assert.deepEqual(s.profiles[0].entries['2026-10-13'].answers, { sleep: 4, hours: 7.5, mood: 3 });
+  assert.equal(s.profiles[0].entries['2026-10-13'].note, 'ok');
   assert.equal(events.length, 1);
-  assert.ok(stored().entries['2026-10-13']);
+  assert.ok(stored().profiles[0].entries['2026-10-13']);
 
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-13', { answers: { sleep: 6 } }), /answer it can't take/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-13', { answers: { hours: 7.3 } }), /answer it can't take/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-13', { answers: { alcohol: 1 } }), /answer it can't take/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-13', { answers: { nope: 1 } }), /Unknown question/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-13', { answers: {} }), /at least one/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-10-14', { answers: { sleep: 3 } }), /hasn't happened/);
-  await assert.rejects(call('PUT', 'checkin/entries/2026-02-30', { answers: { sleep: 3 } }), /real date/);
+  const put = (date, answers) => call('PUT', `checkin/profiles/me/entries/${date}`, { answers });
+  await assert.rejects(put('2026-10-13', { sleep: 6 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { hours: 7.3 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { alcohol: 1 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { nope: 1 }), /Unknown question/);
+  await assert.rejects(put('2026-10-13', {}), /at least one/);
+  await assert.rejects(put('2026-10-14', { sleep: 3 }), /hasn't happened/);
+  await assert.rejects(put('2026-02-30', { sleep: 3 }), /real date/);
+  await assert.rejects(call('PUT', 'checkin/profiles/nobody/entries/2026-10-13', { answers: { sleep: 3 } }), /No such person/);
 
-  // Filling in a missed day, then removing it.
-  await call('PUT', 'checkin/entries/2026-10-11', { answers: { alcohol: true } });
-  const after = await call('DELETE', 'checkin/entries/2026-10-11');
-  assert.equal(after.entries['2026-10-11'], undefined);
+  await put('2026-10-11', { alcohol: true });
+  const after = await call('DELETE', 'checkin/profiles/me/entries/2026-10-11');
+  assert.equal(after.profiles[0].entries['2026-10-11'], undefined);
+});
+
+test('profiles: add, rename, own questions and answers, delete', async () => {
+  const { call } = setup();
+  await call('PUT', 'checkin/profiles/me', { name: 'Dan', emoji: '🦊' });
+  let s = await call('POST', 'checkin/profiles', { name: 'Alex' });
+  const alex = s.profiles.find((p) => p.name === 'Alex');
+  assert.equal(alex.id, 'alex');
+  assert.ok(alex.emoji);
+  await assert.rejects(call('POST', 'checkin/profiles', { name: 'alex' }), /already/);
+  await assert.rejects(call('POST', 'checkin/profiles', {}), /Name is required/);
+
+  // Alex gets a custom question; Dan doesn't see it.
+  s = await call('PUT', 'checkin/profiles/alex/questions', [...alex.questions, { id: 'c-meds', label: 'Took my meds?', type: 'yesno' }]);
+  await call('PUT', 'checkin/profiles/alex/entries/2026-10-13', { answers: { 'c-meds': true, sleep: 2 } });
+  await assert.rejects(call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { 'c-meds': true } }), /Unknown question/);
+
+  // Copying questions from someone else.
+  s = await call('POST', 'checkin/profiles', { name: 'Sam', copyFrom: 'alex', prompt: false });
+  const sam = s.profiles.find((p) => p.id === 'sam');
+  assert.ok(sam.questions.some((q) => q.id === 'c-meds'));
+  assert.equal(sam.prompt, false);
+  assert.deepEqual(sam.entries, {});
+
+  s = await call('DELETE', 'checkin/profiles/sam');
+  s = await call('DELETE', 'checkin/profiles/alex');
+  assert.deepEqual(s.profiles.map((p) => p.name), ['Dan']);
+  await assert.rejects(call('DELETE', 'checkin/profiles/me'), /at least one/);
 });
 
 test('Later hides the prompt for today only', async () => {
@@ -60,57 +92,53 @@ test('Later hides the prompt for today only', async () => {
   assert.notEqual(s.skipped, s.today);
 });
 
-test('settings and custom questions', async () => {
+test('settings and question rules', async () => {
   const { call } = setup();
   const s = await call('PUT', 'checkin/settings', { promptAt: 6 * 60 + 30, note: false });
   assert.equal(s.settings.promptAt, 390);
   assert.equal(s.settings.note, false);
   await assert.rejects(call('PUT', 'checkin/settings', { promptUntil: 300 }), /stop after it starts/);
 
-  const qs = [...s.questions, { id: 'c-meds', label: 'Took my meds?', type: 'yesno' }];
-  const s2 = await call('PUT', 'checkin/questions', qs);
-  const meds = s2.questions.find((q) => q.id === 'c-meds');
-  assert.equal(meds.custom, true);
-  assert.equal(meds.short, 'Took my meds?');
-  await call('PUT', 'checkin/entries/2026-10-13', { answers: { 'c-meds': true } });
-
-  await assert.rejects(call('PUT', 'checkin/questions', s.questions.filter((q) => q.id !== 'sleep')), /turned off but not removed/);
-  await assert.rejects(
-    call('PUT', 'checkin/questions', s.questions.map((q) => ({ ...q, enabled: false }))),
-    /at least one/,
-  );
-
-  // Reset keeps custom questions.
-  const s3 = await call('DELETE', 'checkin/questions');
-  assert.ok(s3.questions.some((q) => q.id === 'c-meds'));
-  assert.equal(s3.questions.find((q) => q.id === 'alcohol').enabled, false);
+  const qs = s.profiles[0].questions;
+  await assert.rejects(call('PUT', 'checkin/profiles/me/questions', qs.filter((q) => q.id !== 'sleep')), /turned off but not removed/);
+  await assert.rejects(call('PUT', 'checkin/profiles/me/questions', qs.map((q) => ({ ...q, enabled: false }))), /at least one/);
+  await call('PUT', 'checkin/profiles/me/questions', [...qs, { id: 'c-focus', label: 'Focus?', type: 'scale' }]);
+  const s3 = await call('DELETE', 'checkin/profiles/me/questions');
+  assert.ok(s3.profiles[0].questions.some((q) => q.id === 'c-focus'));
 });
 
-test('an old file gains new built-in questions, turned off', async () => {
-  const saved = { questions: [{ id: 'sleep', label: 'Sleep?', type: 'scale' }], entries: { '2026-10-01': { answers: { sleep: 2 }, at: 1 } } };
+test('a file from before profiles becomes one profile', async () => {
+  const saved = { questions: [{ id: 'sleep', label: 'Sleep?', type: 'scale' }], entries: { '2026-10-01': { answers: { sleep: 2 }, at: 1 } }, settings: { promptAt: 360 } };
   const { call } = setup(saved);
   const s = await call('GET', 'checkin');
-  assert.equal(s.questions[0].label, 'Sleep?');
-  assert.equal(s.questions.find((q) => q.id === 'mood').enabled, false);
-  assert.equal(s.entries['2026-10-01'].answers.sleep, 2);
+  assert.equal(s.profiles.length, 1);
+  assert.equal(s.profiles[0].name, 'Me');
+  assert.equal(s.profiles[0].questions[0].label, 'Sleep?');
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'mood').enabled, false);
+  assert.equal(s.profiles[0].entries['2026-10-01'].answers.sleep, 2);
+  assert.equal(s.settings.promptAt, 360);
 });
 
-test('CSV export', () => {
+test('CSV export has a row per person and day', () => {
   const csv = toCsv({
-    questions: [
-      { id: 'sleep', short: 'Sleep', type: 'scale' },
-      { id: 'alcohol', short: 'Alcohol', type: 'yesno' },
+    profiles: [
+      {
+        name: 'Dan',
+        questions: [{ id: 'sleep', short: 'Sleep', type: 'scale' }, { id: 'alcohol', short: 'Alcohol', type: 'yesno' }],
+        entries: {
+          '2026-10-13': { answers: { sleep: 4, alcohol: false }, note: 'tired, "meh"', at: Date.UTC(2026, 9, 13, 14) },
+          '2026-10-12': { answers: { alcohol: true }, at: 0 },
+        },
+      },
+      { name: 'Alex', questions: [{ id: 'c-meds', short: 'Meds', type: 'yesno' }, { id: 'sleep', short: 'Sleep', type: 'scale' }], entries: { '2026-10-13': { answers: { 'c-meds': true, sleep: 3 }, at: 0 } } },
     ],
-    entries: {
-      '2026-10-13': { answers: { sleep: 4, alcohol: false }, note: 'tired, "meh"', at: Date.UTC(2026, 9, 13, 14) },
-      '2026-10-12': { answers: { alcohol: true }, at: 0 },
-    },
   });
   assert.equal(
     csv,
-    'date,Sleep,Alcohol,note,answered at\n' +
-      '2026-10-12,,yes,,\n' +
-      '2026-10-13,4,no,"tired, ""meh""",2026-10-13T14:00:00.000Z\n',
+    'person,date,Sleep,Alcohol,Meds,note,answered at\n' +
+      'Dan,2026-10-12,,yes,,,\n' +
+      'Dan,2026-10-13,4,no,,"tired, ""meh""",2026-10-13T14:00:00.000Z\n' +
+      'Alex,2026-10-13,3,,yes,,\n',
   );
 });
 

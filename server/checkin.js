@@ -1,8 +1,9 @@
 // Morning check-in: a short daily survey (sleep, energy, mood, stress...) whose
-// answers are kept per day so they can be trended over months. One JSON file
-// holds the question list, the settings and every day's answers. Days are the
-// Pi's local dates; the server says what "today" is so every screen agrees.
-// Screens follow the `checkin` SSE event.
+// answers are kept per day so they can be trended over months. Each person in the
+// household has a profile with their own questions and answers; one JSON file holds
+// the profiles and the shared morning-popup settings. Days are the Pi's local
+// dates; the server says what "today" is so every screen agrees. Screens follow
+// the `checkin` SSE event.
 
 export class CheckinError extends Error {
   constructor(status, message) {
@@ -126,39 +127,72 @@ export function validateSettings(body, current) {
   return next;
 }
 
-/** Brings a saved file up to date: new built-in questions appear (off), unknown fields are dropped. */
+export const EMOJIS = ['🙂', '🌞', '🌙', '⭐', '🌸', '🍀', '🦊', '🐻', '🐱', '🐶', '🚀', '🎨'];
+const MAX_PROFILES = 12;
+
+/** A saved question list brought up to date: new built-in questions appear (off). */
+function normalizeQuestions(list) {
+  try {
+    const questions = validateQuestions(list);
+    for (const d of DEFAULT_QUESTIONS) if (!questions.some((q) => q.id === d.id)) questions.push({ ...d, enabled: false });
+    return questions;
+  } catch {
+    return structuredClone(DEFAULT_QUESTIONS);
+  }
+}
+
+function newProfile(id, name, emoji) {
+  return { id, name, emoji, prompt: true, questions: structuredClone(DEFAULT_QUESTIONS), entries: {} };
+}
+
+/**
+ * Brings a saved file up to date. Files from before profiles (questions and entries
+ * at the top level) become a single profile named "Me".
+ */
 function normalize(saved) {
   const s = saved && typeof saved === 'object' ? saved : {};
-  let questions;
-  try {
-    questions = validateQuestions(s.questions);
-    for (const d of DEFAULT_QUESTIONS) if (!questions.some((q) => q.id === d.id)) questions.push({ ...d, enabled: false });
-  } catch {
-    questions = structuredClone(DEFAULT_QUESTIONS);
-  }
   let settings;
   try {
     settings = validateSettings(s.settings ?? {}, DEFAULT_SETTINGS);
   } catch {
     settings = { ...DEFAULT_SETTINGS };
   }
-  const entries = s.entries && typeof s.entries === 'object' ? s.entries : {};
-  return { questions, settings, entries, skipped: typeof s.skipped === 'string' ? s.skipped : null };
+  let profiles = Array.isArray(s.profiles) ? s.profiles : [];
+  if (!profiles.length && (s.questions || s.entries)) profiles = [{ id: 'me', name: 'Me', emoji: '🙂', questions: s.questions, entries: s.entries }];
+  profiles = profiles
+    .filter((p) => p && ID_RE.test(p.id ?? ''))
+    .map((p) => ({
+      id: p.id,
+      name: typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 30) : 'Me',
+      emoji: typeof p.emoji === 'string' && p.emoji ? p.emoji.slice(0, 8) : '🙂',
+      prompt: p.prompt !== false,
+      questions: normalizeQuestions(p.questions),
+      entries: p.entries && typeof p.entries === 'object' ? p.entries : {},
+    }));
+  if (!profiles.length) profiles = [newProfile('me', 'Me', '🙂')];
+  return { settings, profiles, skipped: typeof s.skipped === 'string' ? s.skipped : null };
 }
 
-/** CSV of every day, oldest first, one column per question (including turned-off ones). */
+/** CSV of every person's days, oldest first, one column per question (by short name). */
 export function toCsv(state) {
-  const qs = state.questions;
+  const columns = [];
+  for (const p of state.profiles) for (const q of p.questions) if (!columns.includes(q.short)) columns.push(q.short);
   const cell = (v) => {
     if (v === undefined || v === null) return '';
     if (typeof v === 'boolean') return v ? 'yes' : 'no';
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const rows = [['date', ...qs.map((q) => q.short), 'note', 'answered at'].map(cell).join(',')];
-  for (const date of Object.keys(state.entries).sort()) {
-    const e = state.entries[date];
-    rows.push([date, ...qs.map((q) => e.answers?.[q.id]), e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
+  const rows = [['person', 'date', ...columns, 'note', 'answered at'].map(cell).join(',')];
+  for (const p of state.profiles) {
+    for (const date of Object.keys(p.entries).sort()) {
+      const e = p.entries[date];
+      const values = columns.map((c) => {
+        const q = p.questions.find((x) => x.short === c);
+        return q ? e.answers?.[q.id] : undefined;
+      });
+      rows.push([p.name, date, ...values, e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
+    }
   }
   return rows.join('\n') + '\n';
 }
@@ -176,70 +210,117 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
   async function commit() {
     await save(state);
     broadcast(snapshot());
+    return snapshot();
   }
 
-  function find(id) {
-    const q = state.questions.find((x) => x.id === id);
+  function profile(id) {
+    const p = state.profiles.find((x) => x.id === id);
+    if (!p) throw new CheckinError(404, 'No such person');
+    return p;
+  }
+
+  function find(p, id) {
+    const q = p.questions.find((x) => x.id === id);
     if (!q) throw bad(`Unknown question ${id}`);
     return q;
   }
 
-  async function handle(method, parts, body) {
-    await ensure();
-    const [, what, key] = parts; // parts[0] is "checkin"
+  function profileFields(body, p) {
+    if (!body || typeof body !== 'object') throw bad('Expected an object');
+    if (body.name !== undefined) {
+      const name = text(body.name, 'Name', 30);
+      if (state.profiles.some((x) => x !== p && x.name.toLowerCase() === name.toLowerCase())) throw bad(`There is already a ${name}`);
+      p.name = name;
+    }
+    if (body.emoji !== undefined) {
+      if (typeof body.emoji !== 'string' || !body.emoji || body.emoji.length > 8) throw bad('Pick an icon');
+      p.emoji = body.emoji;
+    }
+    if (body.prompt !== undefined) {
+      if (typeof body.prompt !== 'boolean') throw bad('prompt must be true or false');
+      p.prompt = body.prompt;
+    }
+  }
 
-    if (!what && method === 'GET') return snapshot();
+  async function handleProfile(method, p, rest, body) {
+    const [what, key] = rest;
+
+    if (!what && method === 'PUT') {
+      profileFields(body, p);
+      return commit();
+    }
+    if (!what && method === 'DELETE') {
+      if (state.profiles.length === 1) throw bad('Keep at least one person');
+      state.profiles = state.profiles.filter((x) => x !== p);
+      return commit();
+    }
 
     if (what === 'entries' && key) {
       const date = parseDate(key);
       if (date > today()) throw bad("Can't fill in a day that hasn't happened yet");
       if (method === 'DELETE') {
-        delete state.entries[date];
-        await commit();
-        return snapshot();
+        delete p.entries[date];
+        return commit();
       }
       if (method === 'PUT') {
         if (!body || typeof body !== 'object' || !body.answers || typeof body.answers !== 'object') throw bad('Expected answers');
         const answers = {};
         for (const [id, v] of Object.entries(body.answers)) {
           if (v === null || v === undefined) continue;
-          answers[id] = validAnswer(find(id), v);
+          answers[id] = validAnswer(find(p, id), v);
         }
         const note = text(body.note, 'Note', MAX_NOTE, false);
         if (!Object.keys(answers).length && !note) throw bad('Answer at least one question');
-        state.entries[date] = { answers, ...(note ? { note } : {}), at: now() };
-        await commit();
-        return snapshot();
+        p.entries[date] = { answers, ...(note ? { note } : {}), at: now() };
+        return commit();
       }
     }
 
+    if (what === 'questions' && !key && method === 'PUT') {
+      const next = validateQuestions(body);
+      // Built-in questions can be turned off but not deleted, so their history keeps its labels.
+      for (const d of DEFAULT_QUESTIONS) if (!next.some((q) => q.id === d.id)) throw bad(`${d.short} can be turned off but not removed`);
+      p.questions = next;
+      return commit();
+    }
+    if (what === 'questions' && !key && method === 'DELETE') {
+      // Back to the built-in set; custom questions and all answers stay.
+      p.questions = [...structuredClone(DEFAULT_QUESTIONS), ...p.questions.filter((q) => q.custom)];
+      return commit();
+    }
+
+    throw new CheckinError(404, 'Not found');
+  }
+
+  async function handle(method, parts, body) {
+    await ensure();
+    const [, what, key, ...rest] = parts; // parts[0] is "checkin"
+
+    if (!what && method === 'GET') return snapshot();
+
+    if (what === 'profiles' && !key && method === 'POST') {
+      if (state.profiles.length >= MAX_PROFILES) throw bad(`At most ${MAX_PROFILES} people`);
+      const p = newProfile('', '', EMOJIS[state.profiles.length % EMOJIS.length]);
+      profileFields({ emoji: p.emoji, ...body }, p);
+      if (!p.name) throw bad('Name is required');
+      let id = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'person';
+      while (state.profiles.some((x) => x.id === id)) id += '-2';
+      p.id = id;
+      // Start from someone else's questions, e.g. a family sharing one set.
+      if (body?.copyFrom) p.questions = structuredClone(profile(body.copyFrom).questions);
+      state.profiles.push(p);
+      return commit();
+    }
+    if (what === 'profiles' && key) return handleProfile(method, profile(key), rest, body);
+
     if (what === 'skip' && method === 'POST') {
       state.skipped = today();
-      await commit();
-      return snapshot();
+      return commit();
     }
 
     if (what === 'settings' && method === 'PUT') {
       state.settings = validateSettings(body, state.settings);
-      await commit();
-      return snapshot();
-    }
-
-    if (what === 'questions' && method === 'PUT') {
-      const next = validateQuestions(body);
-      // Built-in questions can be turned off but not deleted, so their history keeps its labels.
-      for (const d of DEFAULT_QUESTIONS) if (!next.some((q) => q.id === d.id)) throw bad(`${d.short} can be turned off but not removed`);
-      state.questions = next;
-      await commit();
-      return snapshot();
-    }
-
-    if (what === 'questions' && method === 'DELETE' && !key) {
-      // Back to the built-in set; custom questions and all answers stay.
-      const custom = state.questions.filter((q) => q.custom);
-      state.questions = [...structuredClone(DEFAULT_QUESTIONS), ...custom];
-      await commit();
-      return snapshot();
+      return commit();
     }
 
     throw new CheckinError(404, 'Not found');

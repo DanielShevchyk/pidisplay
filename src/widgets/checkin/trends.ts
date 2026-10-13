@@ -8,7 +8,7 @@ import {
   goodnessColor,
   parseKey,
   valuesFor,
-  type CheckinState,
+  type Book,
   type Question,
 } from '../../core/checkin';
 
@@ -49,7 +49,7 @@ export interface ChartSeries {
  * Draws the selected questions over the range into `box`. Scales share a 1-5
  * axis; hours slept gets its own 0-12 axis (it is shown on its own).
  */
-export function drawChart(box: HTMLElement, state: CheckinState, series: ChartSeries[], range: Range) {
+export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], range: Range) {
   const w = box.clientWidth;
   const hgt = box.clientHeight;
   box.replaceChildren();
@@ -123,7 +123,7 @@ export interface Stat {
   count: number;
 }
 
-export function stats(state: CheckinState, questions: Question[], range: Range): Stat[] {
+export function stats(state: Book, questions: Question[], range: Range): Stat[] {
   const n = rangeDays(range);
   const all = daysBack(state.today, n * 2);
   const prev = all.slice(0, n);
@@ -171,7 +171,7 @@ export interface Factor {
  * For each yes/no question with enough of both answers in the range, the 1-5 score
  * that differs most between yes and no days. Needs 3 of each to say anything.
  */
-export function factors(state: CheckinState, questions: Question[], range: Range): Factor[] {
+export function factors(state: Book, questions: Question[], range: Range): Factor[] {
   const days = daysBack(state.today, rangeDays(range));
   const metrics = questions.filter((q) => q.type === 'scale' || q.type === 'hours');
   const out: Factor[] = [];

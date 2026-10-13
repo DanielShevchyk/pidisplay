@@ -1,6 +1,7 @@
 // Client side of server/checkin.js: one shared copy of the morning check-in
-// (questions, settings, every day's answers), kept current from the `checkin`
-// SSE event plus a slow poll, so the morning popup notices a new day.
+// (everyone's profiles with their questions and answers, plus the popup settings),
+// kept current from the `checkin` SSE event plus a slow poll, so the morning popup
+// notices a new day.
 import { call, onServerEvent } from './api';
 
 export type QuestionType = 'scale' | 'hours' | 'yesno';
@@ -34,14 +35,27 @@ export interface CheckinSettings {
   note: boolean;
 }
 
+/** One person: their own questions and every day's answers. */
+export interface Profile {
+  id: string;
+  name: string;
+  emoji: string;
+  /** Included in the morning popup. */
+  prompt: boolean;
+  questions: Question[];
+  entries: Record<string, Entry>;
+}
+
+/** A profile plus today's date: what the form, charts and stats work from. */
+export type Book = Profile & { today: string };
+
 export interface CheckinState {
   now: number;
   /** The Pi's local date, YYYY-MM-DD. */
   today: string;
-  questions: Question[];
   settings: CheckinSettings;
-  entries: Record<string, Entry>;
-  /** The day "Later" was tapped on. */
+  profiles: Profile[];
+  /** The day "Later" was tapped on (for everyone). */
   skipped: string | null;
 }
 
@@ -86,11 +100,30 @@ class CheckinStore {
     this.apply(await call<CheckinState>(method, url, body));
   }
 
-  saveEntry(date: string, answers: Record<string, Answer | null>, note: string) {
-    return this.send('PUT', `/api/checkin/entries/${date}`, { answers, note });
+  private person(id: string) {
+    return `/api/checkin/profiles/${encodeURIComponent(id)}`;
   }
-  deleteEntry(date: string) {
-    return this.send('DELETE', `/api/checkin/entries/${date}`);
+
+  saveEntry(profile: string, date: string, answers: Record<string, Answer | null>, note: string) {
+    return this.send('PUT', `${this.person(profile)}/entries/${date}`, { answers, note });
+  }
+  deleteEntry(profile: string, date: string) {
+    return this.send('DELETE', `${this.person(profile)}/entries/${date}`);
+  }
+  saveQuestions(profile: string, questions: Question[]) {
+    return this.send('PUT', `${this.person(profile)}/questions`, questions);
+  }
+  resetQuestions(profile: string) {
+    return this.send('DELETE', `${this.person(profile)}/questions`);
+  }
+  addProfile(fields: { name: string; emoji?: string; copyFrom?: string }) {
+    return this.send('POST', '/api/checkin/profiles', fields);
+  }
+  updateProfile(profile: string, fields: Partial<Pick<Profile, 'name' | 'emoji' | 'prompt'>>) {
+    return this.send('PUT', this.person(profile), fields);
+  }
+  deleteProfile(profile: string) {
+    return this.send('DELETE', this.person(profile));
   }
   skipToday() {
     return this.send('POST', '/api/checkin/skip');
@@ -98,20 +131,23 @@ class CheckinStore {
   saveSettings(patch: Partial<CheckinSettings>) {
     return this.send('PUT', '/api/checkin/settings', patch);
   }
-  saveQuestions(questions: Question[]) {
-    return this.send('PUT', '/api/checkin/questions', questions);
-  }
-  resetQuestions() {
-    return this.send('DELETE', '/api/checkin/questions');
+
+  /** That person's book, or the first person's when the id is gone (e.g. deleted). */
+  book(id?: string): Book | null {
+    const s = this.state;
+    if (!s) return null;
+    const p = s.profiles.find((x) => x.id === id) ?? s.profiles[0];
+    return p ? { ...p, today: s.today } : null;
   }
 
-  active(): Question[] {
-    return this.state?.questions.filter((q) => q.enabled) ?? [];
-  }
-  todayEntry(): Entry | undefined {
-    return this.state ? this.state.entries[this.state.today] : undefined;
+  /** People in the morning popup who haven't checked in today. */
+  waiting(): Profile[] {
+    const s = this.state;
+    return s ? s.profiles.filter((p) => p.prompt && !p.entries[s.today]) : [];
   }
 }
+
+export const active = (b: Book) => b.questions.filter((q) => q.enabled);
 
 export const checkin = new CheckinStore();
 
@@ -182,6 +218,6 @@ export function average(values: number[]): number | null {
 }
 
 /** Numbers answered for q on the given days. */
-export function valuesFor(state: CheckinState, q: Question, days: string[]): number[] {
-  return days.map((d) => state.entries[d]?.answers[q.id]).filter((v): v is number => typeof v === 'number');
+export function valuesFor(book: Book, q: Question, days: string[]): number[] {
+  return days.map((d) => book.entries[d]?.answers[q.id]).filter((v): v is number => typeof v === 'number');
 }
