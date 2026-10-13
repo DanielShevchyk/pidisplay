@@ -1,0 +1,199 @@
+.snow { height: 100%; --snow: #7cc4ff; }
+:root[data-theme='light'] .snow, :root[data-theme='light'] .snow-detail { --snow: #1f7ad1; }
+.snow-detail { --snow: #7cc4ff; }
+.snow.size-bar { height: auto; }
+.snow button { font: inherit; color: inherit; text-align: left; }
+
+.snow-dim { color: var(--text-dim); }
+.snow-has { color: var(--snow); }
+.snow-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snow-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  font-size: clamp(12px, 9cqh, 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snow-message {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: clamp(14px, 9cqh, 24px);
+}
+.snow-message-icon { font-size: min(24cqw, 32cqh); }
+
+/* ---- Top bar ---- */
+.snow-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  white-space: nowrap;
+}
+
+/* ---- Small ---- */
+.snow-small, .snow-small-one { height: 100%; display: flex; flex-direction: column; }
+.snow-small { gap: 2px; }
+.snow-small-row {
+  flex: 1 1 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: clamp(14px, 11cqh, 22px) !important;
+  max-height: 48px;
+}
+.snow-small-one { border: 0; background: none; padding: 0; justify-content: center; align-items: center; text-align: center; gap: 2px; }
+.snow-small-one .snow-dim { font-size: clamp(12px, 9cqh, 18px); }
+.snow-big { font-size: min(30cqw, 34cqh); font-weight: 700; line-height: 1.05; color: var(--snow); }
+
+/* ---- Wide: one row per resort ---- */
+.snow-rows-wrap, .snow-cards-wrap { height: 100%; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.snow-rows { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.snow-row {
+  flex: 1 1 0;
+  max-height: 64px;
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  padding: 0 4px;
+  font-size: clamp(14px, 10cqh, 22px) !important;
+}
+.snow-row > :not(:first-child) { text-align: right; }
+.snow-row-head {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  font-size: clamp(11px, 7cqh, 14px) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding-bottom: 4px;
+}
+
+.snow-foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+.snow-edit {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 14px !important;
+}
+
+/* ---- Cards (tall, large and up) ---- */
+.snow-cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  grid-auto-rows: minmax(0, 1fr);
+  overflow-y: auto;
+}
+.size-large .snow-cards, .size-tall .snow-cards { grid-template-columns: 1fr; }
+.size-large .snow-cards.n1 { grid-auto-rows: 1fr; }
+.size-xlarge .snow-cards, .size-full .snow-cards { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.size-xlarge .snow-cards.n4, .size-full .snow-cards.n4 { grid-template-columns: repeat(2, 1fr); }
+/* Large tiles with several resorts: drop the chart to fit each one in a row. */
+.size-large .snow-cards:not(.n1) .snow-bars, .size-tall .snow-cards:not(.n1) .snow-bars { display: none; }
+.size-large .snow-cards:not(.n1) .snow-card-foot, .size-tall .snow-cards:not(.n1) .snow-card-foot { display: none; }
+.size-tall .snow-cards:not(.n1) .snow-stat:nth-child(n + 3) { display: none; }
+
+.snow-card {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.snow-card.powder { border-color: var(--snow); box-shadow: inset 0 0 0 1px var(--snow); }
+.snow-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.snow-card-name { font-size: 20px; font-weight: 700; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snow-area { font-size: 14px; font-weight: 400; margin-left: 8px; }
+.snow-now { font-size: 18px; white-space: nowrap; }
+.snow-alert {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  color: var(--warning);
+  font-size: 14px;
+  font-weight: 600;
+}
+.snow-card-foot { font-size: 14px; margin-top: auto; }
+
+.snow-stats { display: flex; gap: 6px; }
+.snow-stat { flex: 1 1 0; min-width: 0; }
+.snow-stat-value { font-size: 24px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.snow-stat-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.snow-bars { flex: 1 1 auto; min-height: 70px; display: flex; gap: 6px; }
+.snow-bar-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.snow-bar-val { font-size: 13px; height: 17px; color: var(--snow); font-weight: 600; }
+.snow-bar-track { flex: 1 1 auto; width: 70%; max-width: 34px; display: flex; align-items: flex-end; border-bottom: 1px solid var(--border); }
+.snow-bar-fill {
+  width: 100%;
+  min-height: 0;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in srgb, var(--snow) 45%, transparent);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.snow-bar-base { width: 100%; background: var(--snow); }
+.snow-bar-day { font-size: 12px; color: var(--text-dim); margin-top: 3px; white-space: nowrap; }
+
+/* ---- Detail sheet ---- */
+.snow-detail { display: flex; flex-direction: column; gap: 12px; font-size: 17px; }
+.snow-detail h3 { margin-bottom: 0; }
+.snow-detail .snow-stats { flex-wrap: wrap; gap: 16px; }
+.snow-detail .snow-stat { flex: 0 0 auto; min-width: 100px; }
+.snow-days { display: flex; flex-direction: column; }
+.snow-day {
+  display: grid;
+  grid-template-columns: 64px 36px 64px 110px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border-bottom: 1px solid var(--border);
+}
+.snow-day > :nth-child(n + 5) { text-align: right; }
+.snow-alert-detail summary { color: var(--warning); font-weight: 600; min-height: 40px; display: flex; align-items: center; cursor: pointer; }
+.snow-alert-text { white-space: pre-wrap; color: var(--text-dim); font-size: 15px; max-height: 260px; overflow-y: auto; }
+.snow-source { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
+
+.snow-edit-sheet { display: flex; flex-direction: column; gap: 14px; }
+.snow-edit-sheet .picker, .snow-edit-sheet .picker-input { width: 100%; }
+.snow-edit-list { display: flex; flex-direction: column; }
+.snow-edit-row { display: flex; align-items: center; gap: 6px; min-height: 56px; border-bottom: 1px solid var(--border); font-size: 18px; }
+.snow-edit-row .snow-name { flex: 1 1 auto; }
+.snow-edit-row .btn { min-width: 52px; min-height: 48px; font-size: 20px; }
+.snow-edit-sheet .field .picker { flex: 1 1 auto; }

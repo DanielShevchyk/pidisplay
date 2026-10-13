@@ -110,6 +110,18 @@
       ]
     },
     {
+      "id": "snow",
+      "name": "Snow",
+      "tiles": [
+        {
+          "id": "snow-full",
+          "widget": "snow",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "calendar",
       "name": "Calendar",
       "tiles": [

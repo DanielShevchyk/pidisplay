@@ -3,7 +3,8 @@
 // Every place-like field in PiDisplay uses this (project UI rule).
 import { h } from './dom';
 
-export type Places = Record<string, { name: string }>;
+/** tag, when set, is shown in bold instead of the code (e.g. for ids that aren't codes). */
+export type Places = Record<string, { name: string; tag?: string }>;
 
 export interface PlacePickerOptions {
   placeholder: string;
@@ -17,6 +18,8 @@ export interface PlacePickerOptions {
   /** Called when the field is emptied and left, for optional fields. */
   onClear?: () => void;
   class?: string;
+  /** Shown when nothing matches. */
+  emptyText?: string;
 }
 
 export function placePicker(opts: PlacePickerOptions): HTMLElement {
@@ -48,7 +51,7 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
     opts.onPick(code);
   };
 
-  const option = (code: string, name: string) =>
+  const option = (code: string, name: string, tag = code) =>
     h(
       'button',
       {
@@ -61,7 +64,7 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
           pick(code);
         },
       },
-      h('strong', {}, code),
+      h('strong', {}, tag),
       h('span', {}, name),
     );
 
@@ -85,18 +88,18 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
     };
     const matches = Object.entries(places)
       .filter(([code]) => !opts.exclude?.(code))
-      .map(([code, p]) => ({ code, name: p.name, r: rank(code, p.name) }))
+      .map(([code, p]) => ({ code, name: p.name, tag: p.tag, r: rank(code, p.name) }))
       .filter((m) => m.r < 9)
       .sort((a, b) => a.r - b.r || a.name.localeCompare(b.name))
       .slice(0, 8);
     const raw = q.toUpperCase();
     options = matches.map((m) => m.code);
-    const rows: Node[] = matches.map((m) => option(m.code, m.name));
+    const rows: Node[] = matches.map((m) => option(m.code, m.name, m.tag));
     if (opts.rawCode !== false && /^[A-Z]{3}$/.test(raw) && !places[raw] && !opts.exclude?.(raw)) {
       options.push(raw);
       rows.push(option(raw, opts.rawCode || 'Use this code'));
     }
-    if (!rows.length) rows.push(h('div', { class: 'picker-empty' }, 'No match. Try a city name or a 3-letter code.'));
+    if (!rows.length) rows.push(h('div', { class: 'picker-empty' }, opts.emptyText ?? 'No match. Try a city name or a 3-letter code.'));
     list.replaceChildren(...rows);
     list.hidden = false;
   };
