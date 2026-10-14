@@ -26,6 +26,7 @@ import { createSleep, SleepError } from './sleep.js';
 import { createYouTube, YouTubeError } from './youtube.js';
 import { createFaresConfig, FaresConfigError } from './fares-config.js';
 import { createCheckin, CheckinError } from './checkin.js';
+import { createVacuum, VacuumError } from './vacuum.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -145,6 +146,9 @@ export function createServer({
   photos = undefined,
   sleep = undefined,
   youtube = undefined,
+  vacuum = undefined,
+  // Stand-in for the Dreame cloud (tests and demo screenshots).
+  vacuumCloudFactory = undefined,
   startSleep = false,
   // Farewatcher's own config: the ntfy topic used by "Send to phone" for ticket links.
   faresConfigFile = process.env.FAREWATCHER_CONFIG || path.join(os.homedir(), 'fare_watch', 'config.json'),
@@ -275,6 +279,18 @@ export function createServer({
     broadcast: (snapshot) => broadcast('stocks', snapshot),
     sound: (s) => broadcast('stocks-alert', s),
     autoStart: stocksAutoStart,
+  });
+
+  // Dreame robot vacuum: the Dreamehome account in dreame.json (a secret, written by
+  // deploy/vacuum.ps1, never sent to the browser); robot, rooms and map in vacuum.json.
+  const vacuumFile = path.join(dataDir, 'vacuum.json');
+  vacuum ??= createVacuum({
+    loadConfig: () => readJson(path.join(dataDir, 'dreame.json'), null),
+    cloudFactory: vacuumCloudFactory,
+    load: () => readJson(vacuumFile, null),
+    save: (value) => writeJson(vacuumFile, value),
+    broadcast: (snapshot) => broadcast('vacuum', snapshot),
+    notify: (n) => void addNotification({ ...n, source: 'Vacuum' }).catch(() => {}),
   });
 
   // Linked TVs (YouTube lounge tokens) and play history in youtube.json; see docs/YOUTUBE.md.
@@ -462,6 +478,16 @@ export function createServer({
         throw new HttpError(404, 'Not found');
       } catch (err) {
         if (err instanceof AudioError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'vacuum') {
+      try {
+        const body = req.method === 'POST' ? await readBody(req) : null;
+        return send(res, 200, await vacuum.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof VacuumError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -773,6 +799,7 @@ export function createServer({
     voice.stop();
     sleep.stop();
     youtube.stop();
+    vacuum.stop();
     for (const res of clients) res.end();
   });
 

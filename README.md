@@ -50,6 +50,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 | 🖼️ **Photos** | Crossfading slideshow of uploaded photos or Google Photos shared albums, with a thumbnail browser. | [docs/PHOTOS.md](docs/PHOTOS.md) |
 | 🎵 **Spotify** | Now playing, playback controls, playlists and search. Plays on the display itself (a Spotify Connect receiver) or any speaker. | A Spotify developer Client ID ([docs/SPOTIFY.md](docs/SPOTIFY.md)) |
 | 📺 **YouTube** | Search YouTube on the display and play videos on your smart TV, with a remote for what is on (pause, skip, seek, volume), recently played and saved videos. | None. Link the TV once with its YouTube "Link with TV code" ([docs/YOUTUBE.md](docs/YOUTUBE.md)) |
+| 🤖 **Robot vacuum** | Status, battery and controls for a Dreame robot (built for the L40 Ultra): clean all or chosen rooms, pause, dock, find, suction and mop mode, station actions, and the saved floor map on big tiles. | Your Dreamehome login, saved on the Pi ([docs/VACUUM.md](docs/VACUUM.md)). Unofficial: uses the app's private cloud API |
 | ✈️ **Fares** | Cheap-flight deals with price history and a route map, fed by the bundled [Farewatcher](farewatcher/README.md). | Farewatcher's API keys |
 | 🖥️ **System** | CPU, memory, disk, temperature, throttling and undervoltage on the Pi. | None |
 
@@ -121,7 +122,7 @@ The [`deploy/`](deploy) folder holds everything the Pi needs:
 | `pidisplay.service` | systemd unit for the server, with data kept in `~/pidisplay-data` so redeploys never touch it |
 | `kiosk.sh` + `labwc-autostart` | Starts full-screen Chromium on the dashboard at login and restarts it if it closes |
 | `deploy.ps1` | Redeploys from a Windows laptop: pulls the latest commit, copies it to the Pi over SSH, and runs `update.sh` |
-| `calendars.ps1`, `photos.ps1`, `spotify.ps1`, `stocks.ps1` | Helpers that save calendar links, photo albums and API keys on the Pi without putting them in git |
+| `calendars.ps1`, `photos.ps1`, `spotify.ps1`, `stocks.ps1`, `vacuum.ps1` | Helpers that save calendar links, photo albums, API keys and logins on the Pi without putting them in git |
 
 First-time setup on a fresh Pi:
 
@@ -198,6 +199,7 @@ docs/                Widget guide and per-feature setup notes
 | GET | `/api/weather?location=Austin, TX&units=imperial` | Forecast and US AQI air quality from Open-Meteo (no API key) for a city or `lat,lon`; `units` is `imperial` or `metric`. Cached 10 minutes. `airQuality` is null if that service doesn't answer. Used by the weather widget, whose map view embeds Windy. |
 | GET | `/api/news?sections=world,us,state,local&location=Austin, TX` | Headlines from Google News RSS (no API key): the World and U.S. top stories, the state (from a US "City, ST" location) and local news for the city (falls back to a 3-day search when a town's local feed is empty). Each story has `title`, `source`, `time` and `related` coverage from other outlets. Cached 10 minutes; a failing feed keeps its last copy (`stale`) or reports `error` without hiding the others. |
 | GET | `/api/snow?resorts=heavenly,northstar&units=imperial` | Snow report per resort: snowfall last 24h/72h and next 24h/72h/7 days at the summit (and base), 10 daily days, nearest SNOTEL depth, Liftie lift counts and active NWS alerts. Each source is optional and cached (forecast 30 min, SNOTEL 1 h, lifts and alerts 10 min). `/api/snow/resorts` lists the resorts. |
+| GET / POST | `/api/vacuum` | Robot vacuum snapshot `{ configured, status, problem, device, state, rooms, mapName, hasMap }` (never the login). GET `/api/vacuum/map` (floor picture), POST `/api/vacuum/refresh`, POST `/api/vacuum/reload` (re-read `dreame.json`), POST `/api/vacuum/command` `{ "command": "start" \| "pause" \| "resume" \| "stop" \| "dock" \| "locate" \| "empty" \| "wash" \| "dry" \| "suction" \| "mode" \| "rooms", "level", "mode", "rooms": [ids], "repeat" }`. |
 | GET | `/api/system` | Pi health for the System widget: CPU, memory, disk, temperature, clock, throttle/undervoltage flags, network. Unavailable readings are `null`. |
 | GET | `/api/fares` | Farewatcher summary (`$PIDISPLAY_DATA/farewatcher.json`, written by `fare_watch.py` after each run), or `{ "available": false }`. |
 | GET | `/api/photos?source=all\|local\|google\|<album>` | Photo gallery list: uploaded photos in `$PIDISPLAY_DATA/photos/<album>/` and Google Photos shared albums linked in `$PIDISPLAY_DATA/photos.json` (links never returned). Each photo has `album`, `src` (screen size) and `thumb`; `albums` carries counts and per-album `error`. |

@@ -1,0 +1,103 @@
+.vac { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.vac.size-bar { height: auto; }
+.vac button { font: inherit; color: inherit; }
+.vac-dim { color: var(--text-dim); }
+.vac-hint { color: var(--text-dim); font-size: 0.85em; }
+
+.vac-message {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: clamp(14px, 8cqh, 22px);
+  padding: 0 8px;
+}
+.vac-message-icon { font-size: min(22cqw, 30cqh); }
+
+/* ---- Pieces ---- */
+.vac-icon { font-size: 34px; line-height: 1; flex: none; }
+.vac-icon.cleaning { animation: vac-wobble 1.6s ease-in-out infinite alternate; }
+@keyframes vac-wobble { from { transform: translateX(-3px) rotate(-6deg); } to { transform: translateX(3px) rotate(6deg); } }
+.vac-battery { font-weight: 600; color: var(--success); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vac-battery.mid { color: var(--warning); }
+.vac-battery.low { color: var(--danger); }
+.vac-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vac-label.big { font-size: 24px; }
+.vac-name { color: var(--text-dim); font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vac-status { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--text-dim); font-size: 0.9em; min-height: 1.2em; }
+.vac-error { color: var(--danger); font-weight: 600; }
+.vac-warn { color: var(--warning); }
+.vac-problem { color: var(--warning); font-size: 0.9em; }
+.vac-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); }
+.vac-dot.cleaning, .vac-dot.returning { background: var(--accent); }
+.vac-dot.docked { background: var(--success); }
+.vac-dot.error { background: var(--danger); }
+.vac-dot.paused { background: var(--warning); }
+
+.vac-head { display: flex; align-items: center; gap: 12px; min-width: 0; cursor: pointer; }
+.vac-head-text { flex: 1 1 auto; min-width: 0; font-size: clamp(16px, 7cqh, 26px); }
+.vac-head .vac-battery { font-size: clamp(16px, 7cqh, 26px); }
+.vac-buttons { display: flex; gap: 10px; }
+.vac-buttons > .btn { flex: 1 1 0; padding: 0 10px; }
+.vac-buttons.wrap { flex-wrap: wrap; }
+.vac-buttons.wrap > .btn { flex: 1 1 40%; }
+.vac-section { display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.vac-section-title { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; font-size: 13px; margin-top: 4px; }
+.vac-section .chips { margin: 2px 0; gap: 8px; }
+.vac-section .chip { min-height: 48px; padding: 0 16px; }
+.vac-section .chip:disabled { opacity: 0.5; }
+
+/* ---- Top bar ---- */
+.vac-bar { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; white-space: nowrap; }
+
+/* ---- Small ---- */
+.vac-small { height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; cursor: pointer; }
+.vac-small-top { display: flex; justify-content: space-between; align-items: center; font-size: clamp(14px, 11cqh, 22px); }
+.vac-small .vac-label { text-align: center; font-size: clamp(14px, 11cqh, 22px); }
+.vac-small .btn { width: 100%; min-height: 48px; }
+
+/* ---- Wide ---- */
+.vac-wide { height: 100%; display: flex; gap: 14px; align-items: center; }
+.vac-wide-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.vac-wide .vac-head-text, .vac-wide .vac-head .vac-battery { font-size: clamp(16px, 13cqh, 26px); }
+.vac-wide .vac-icon { font-size: clamp(28px, 22cqh, 44px); }
+.vac-wide-buttons { display: flex; flex-direction: column; gap: 8px; flex: 0 0 34%; }
+.vac-wide-buttons .btn { min-height: 48px; }
+
+/* ---- Tall, large and bigger ---- */
+.vac-full { height: 100%; display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; }
+.vac-full > :not(.vac-split) { flex: none; }
+.size-tall .vac-buttons { flex-wrap: wrap; }
+.size-tall .vac-buttons > .btn-primary { flex-basis: 100%; }
+.vac-split { flex: 1 1 auto; display: flex; gap: 16px; min-height: 0; }
+.vac-split > .vac-map { flex: 1 1 60%; align-self: center; max-height: 100%; }
+.vac-split-side { flex: 1 1 40%; display: flex; flex-direction: column; gap: 8px; min-width: 0; overflow-y: auto; }
+.vac-split-side > .vac-section { flex: none; }
+
+/* ---- Map ---- */
+.vac-map { position: relative; width: 100%; max-height: 100%; margin: 0 auto; cursor: pointer; }
+.vac-map-canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.vac-map-labels { position: absolute; inset: 0; pointer-events: none; }
+.vac-map-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+}
+.vac-map-label.on { background: var(--accent); color: #fff; }
+
+/* ---- Sheet ---- */
+.vac-sheet { display: flex; flex-direction: column; gap: 14px; }
+.vac-sheet .vac-map { max-width: min(100%, 560px); max-height: 380px; }
+.vac-sheet .vac-map-canvas { object-fit: contain; }
+.vac-parts { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.vac-part { display: flex; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.vac-part.low b { color: var(--danger); }
