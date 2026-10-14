@@ -43,6 +43,10 @@ const EDGE_RESISTANCE = 0.3;
 const WAKE_AFTER_SLIDE_MS = 450;
 const DRAG_START_PX = 10;
 const REORDER_COOLDOWN_MS = 220;
+// Three diagonal lines in the bottom-right corner, the usual "drag here to resize" mark.
+const RESIZE_GRIP =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">' +
+  '<path d="M21 9 9 21M21 14l-7 7M21 19l-2 2"/></svg>';
 
 interface Mounted {
   el: HTMLElement;
@@ -293,7 +297,12 @@ export class App {
       'div',
       { class: 'tile-edit' },
       h('button', { class: 'tile-btn tile-remove', 'aria-label': 'Remove', onclick: () => this.removeTile(id) }, '✕'),
-      h('button', { class: 'tile-btn tile-resize', 'aria-label': 'Resize', onclick: () => this.cycleSize(id) }, '⤢'),
+      h(
+        'button',
+        { class: 'tile-resize', 'aria-label': 'Drag to resize', onpointerdown: (e: PointerEvent) => this.startResize(e, id) },
+        Object.assign(h('span', { class: 'resize-grip' }), { innerHTML: RESIZE_GRIP }),
+      ),
+      h('div', { class: 'resize-badge' }),
       h('button', { class: 'tile-btn tile-settings', 'aria-label': 'Settings', onclick: () => this.openTileSettings(id) }, '⚙'),
     );
   }
@@ -552,12 +561,85 @@ export class App {
     return [...own.slice(0, at), ...wide, ...own.slice(at)];
   }
 
-  private cycleSize(id: string) {
+  /** The [columns, rows] in layout cells a size covers on this grid (halves may be .5). */
+  private sizeCells(size: LayoutSize): [number, number] {
+    const { columns, rows } = this.layout.settings;
+    const [c, r] = tileSpan(size, columns, rows);
+    return [c / TRACKS_PER_CELL, r / TRACKS_PER_CELL];
+  }
+
+  /**
+   * Resizing by dragging the tile's corner grip. The tile's top-left corner stays
+   * put; the size snaps to whichever size the widget supports is closest to the
+   * finger, and the page reflows live so you see the result before letting go.
+   */
+  private startResize(e: PointerEvent, id: string) {
     const found = this.findTile(id);
-    if (!found) return;
-    const sizes = this.allowedSizes(found.tile.widget);
-    found.tile.size = sizes[(sizes.indexOf(found.tile.size) + 1) % sizes.length];
-    this.changed();
+    const tileEl = this.tiles.get(id)?.el;
+    const grid = tileEl?.parentElement;
+    if (!found || !tileEl || !grid) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+
+    const { tile } = found;
+    const { columns, rows } = this.layout.settings;
+    const sizes = this.allowedSizes(tile.widget);
+    const start = tile.size;
+    const anchor = tileEl.getBoundingClientRect();
+    const g = grid.getBoundingClientRect();
+    const style = getComputedStyle(grid);
+    const colGap = parseFloat(style.columnGap) || 0;
+    const rowGap = parseFloat(style.rowGap) || 0;
+    const tracksX = columns * TRACKS_PER_CELL;
+    const tracksY = rows * TRACKS_PER_CELL;
+    const trackW = (g.width - (tracksX - 1) * colGap) / tracksX;
+    const trackH = (g.height - (tracksY - 1) * rowGap) / tracksY;
+    const cellW = TRACKS_PER_CELL * trackW + (TRACKS_PER_CELL - 1) * colGap;
+    const cellH = TRACKS_PER_CELL * trackH + (TRACKS_PER_CELL - 1) * rowGap;
+    const badge = tileEl.querySelector<HTMLElement>('.resize-badge')!;
+    let current = start;
+
+    const show = (size: LayoutSize) => {
+      const [c, r] = tileSpan(size, columns, rows);
+      tileEl.style.gridColumn = `span ${c}`;
+      tileEl.style.gridRow = `span ${r}`;
+      tileEl.dataset.size = size;
+      const [cw, ch] = this.sizeCells(size);
+      badge.replaceChildren(h('strong', {}, SIZE_LABELS[size]), h('small', {}, `${cw} × ${ch}`));
+      this.checkOverflow();
+    };
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      // How many cells the finger asks for, measured from where the tile started.
+      const wantC = Math.max(0.5, (ev.clientX - anchor.left + colGap) / (cellW + colGap));
+      const wantR = Math.max(0.5, (ev.clientY - anchor.top + rowGap) / (cellH + rowGap));
+      let best = current;
+      let bestD = Infinity;
+      for (const size of sizes) {
+        const [c, r] = this.sizeCells(size);
+        const d = (c - wantC) ** 2 + (r - wantR) ** 2;
+        if (d < bestD - 1e-6) [best, bestD] = [size, d];
+      }
+      if (best !== current) show((current = best));
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      tileEl.classList.remove('resizing');
+      if (ev.type === 'pointercancel') current = start;
+      if (current === start) return void show(start);
+      tile.size = current;
+      this.changed();
+    };
+    tileEl.classList.add('resizing');
+    show(start);
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
   }
 
   private removeTile(id: string) {

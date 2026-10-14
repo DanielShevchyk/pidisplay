@@ -222,8 +222,58 @@ select { font: inherit; color: inherit; }
   z-index: 2;
 }
 .tile-remove { top: 8px; left: 8px; color: var(--danger); }
-.tile-resize { bottom: 8px; right: 8px; }
 .tile-settings { top: 8px; right: 8px; }
+
+/* Corner grip: drag it to resize. The hit area is bigger than the mark for fingers. */
+.tile-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 88px;
+  height: 88px;
+  padding: 0;
+  border: 0;
+  background: none;
+  touch-action: none;
+  z-index: 3;
+  cursor: nwse-resize;
+}
+.resize-grip {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px 0 calc(var(--radius) - 4px) 0;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 10px var(--shadow);
+}
+.resize-grip svg { width: 30px; height: 30px; }
+.tile.resizing .resize-grip { transform: scale(1.12); }
+.resize-badge { display: none; }
+.tile.resizing {
+  z-index: 10;
+  animation: none;
+  border-style: solid;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent), 0 20px 50px var(--shadow);
+}
+.tile.resizing .resize-badge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  font-size: 28px;
+  pointer-events: none;
+  z-index: 2;
+}
+.resize-badge small { font-size: 18px; color: var(--text-dim); }
 
 .edit-toolbar {
   display: none;
