@@ -4,8 +4,9 @@
 // notices a new day.
 import { call, onServerEvent } from './api';
 
-export type QuestionType = 'scale' | 'hours' | 'yesno';
-export type Answer = number | boolean;
+/** weight is pounds; choice (built-in only, e.g. medication) stores one option's value. */
+export type QuestionType = 'scale' | 'hours' | 'weight' | 'yesno' | 'choice';
+export type Answer = number | boolean | string;
 
 export interface Question {
   id: string;
@@ -18,6 +19,10 @@ export interface Question {
   low?: string;
   high?: string;
   lowerIsBetter?: boolean;
+  /** Save stays off until this is answered. */
+  required?: boolean;
+  /** The buttons of a choice question. */
+  options?: { value: string; label: string }[];
   custom?: boolean;
 }
 
@@ -190,6 +195,8 @@ export function formatAnswer(q: Question, v: Answer | undefined): string {
   if (v === undefined) return '–';
   if (q.type === 'yesno') return v ? 'Yes' : 'No';
   if (q.type === 'hours') return `${v} h`;
+  if (q.type === 'weight') return `${v} lb`;
+  if (q.type === 'choice') return q.options?.find((o) => o.value === v)?.label ?? String(v);
   return String(v);
 }
 
@@ -203,6 +210,9 @@ export function goodness(q: Question, v: Answer): number | null {
     if (v >= 7.5 && v <= 9) return 1;
     return Math.max(0, 1 - (v < 7.5 ? 7.5 - v : v - 9) / 3.5);
   }
+  // Medication: taken is good, planned is on its way; "none today" is neutral.
+  if (q.type === 'choice') return v === 'taken' ? 1 : v === 'planned' ? 0.6 : null;
+  // Weight has no good or bad here; trends show it plainly.
   return null;
 }
 

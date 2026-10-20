@@ -34,18 +34,23 @@ test('starts with one profile holding the built-in questions', async () => {
 
 test('saves a day, validates answers, and refuses future days', async () => {
   const { call, events, stored } = setup();
-  const s = await call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 4, hours: 7.5, mood: 3, stress: null }, note: ' ok ' });
-  assert.deepEqual(s.profiles[0].entries['2026-10-13'].answers, { sleep: 4, hours: 7.5, mood: 3 });
+  const s = await call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 4, hours: 7.5, weight: 182.4, mood: 3, stress: null, meds: 'planned' }, note: ' ok ' });
+  assert.deepEqual(s.profiles[0].entries['2026-10-13'].answers, { sleep: 4, hours: 7.5, weight: 182.4, mood: 3, meds: 'planned' });
   assert.equal(s.profiles[0].entries['2026-10-13'].note, 'ok');
   assert.equal(events.length, 1);
   assert.ok(stored().profiles[0].entries['2026-10-13']);
 
-  const put = (date, answers) => call('PUT', `checkin/profiles/me/entries/${date}`, { answers });
+  const put = (date, answers) => call('PUT', `checkin/profiles/me/entries/${date}`, { answers: { weight: 180, ...answers } });
   await assert.rejects(put('2026-10-13', { sleep: 6 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { hours: 7.3 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { alcohol: 1 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { nope: 1 }), /Unknown question/);
-  await assert.rejects(put('2026-10-13', {}), /at least one/);
+  await assert.rejects(put('2026-10-13', { weight: 15 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { weight: 180.25 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { meds: 'maybe' }), /answer it can't take/);
+  // Weight is required; medication is not.
+  await assert.rejects(call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 3, meds: 'taken' } }), /Weight is required/);
+  assert.equal((await put('2026-10-12', { weight: 180.2 })).profiles[0].entries['2026-10-12'].answers.weight, 180.2);
   await assert.rejects(put('2026-10-14', { sleep: 3 }), /hasn't happened/);
   await assert.rejects(put('2026-02-30', { sleep: 3 }), /real date/);
   await assert.rejects(call('PUT', 'checkin/profiles/nobody/entries/2026-10-13', { answers: { sleep: 3 } }), /No such person/);
@@ -67,7 +72,7 @@ test('profiles: add, rename, own questions and answers, delete', async () => {
 
   // Alex gets a custom question; Dan doesn't see it.
   s = await call('PUT', 'checkin/profiles/alex/questions', [...alex.questions, { id: 'c-meds', label: 'Took my meds?', type: 'yesno' }]);
-  await call('PUT', 'checkin/profiles/alex/entries/2026-10-13', { answers: { 'c-meds': true, sleep: 2 } });
+  await call('PUT', 'checkin/profiles/alex/entries/2026-10-13', { answers: { 'c-meds': true, sleep: 2, weight: 140 } });
   await assert.rejects(call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { 'c-meds': true } }), /Unknown question/);
 
   // Copying questions from someone else.
@@ -102,6 +107,11 @@ test('settings and question rules', async () => {
   const qs = s.profiles[0].questions;
   await assert.rejects(call('PUT', 'checkin/profiles/me/questions', qs.filter((q) => q.id !== 'sleep')), /turned off but not removed/);
   await assert.rejects(call('PUT', 'checkin/profiles/me/questions', qs.map((q) => ({ ...q, enabled: false }))), /at least one/);
+  await assert.rejects(call('PUT', 'checkin/profiles/me/questions', qs.map((q) => (q.id === 'weight' ? { ...q, type: 'scale' } : q))), /Weight is a weight question/);
+  await assert.rejects(call('PUT', 'checkin/profiles/me/questions', [...qs, { id: 'c-x', label: 'X?', type: 'choice' }]), /Your own questions/);
+  // Turning weight off lets a day be saved without it.
+  await call('PUT', 'checkin/profiles/me/questions', qs.map((q) => (q.id === 'weight' ? { ...q, enabled: false } : q)));
+  await call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 3 } });
   await call('PUT', 'checkin/profiles/me/questions', [...qs, { id: 'c-focus', label: 'Focus?', type: 'scale' }]);
   const s3 = await call('DELETE', 'checkin/profiles/me/questions');
   assert.ok(s3.profiles[0].questions.some((q) => q.id === 'c-focus'));
@@ -114,7 +124,11 @@ test('a file from before profiles becomes one profile', async () => {
   assert.equal(s.profiles.length, 1);
   assert.equal(s.profiles[0].name, 'Me');
   assert.equal(s.profiles[0].questions[0].label, 'Sleep?');
-  assert.equal(s.profiles[0].questions.find((q) => q.id === 'mood').enabled, false);
+  // Built-in questions added since then appear in their usual places, on or off as by default.
+  assert.deepEqual(s.profiles[0].questions.map((q) => q.id), DEFAULT_QUESTIONS.map((q) => q.id));
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').enabled, true);
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').required, true);
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'alcohol').enabled, false);
   assert.equal(s.profiles[0].entries['2026-10-01'].answers.sleep, 2);
   assert.equal(s.settings.promptAt, 360);
 });
@@ -124,9 +138,13 @@ test('CSV export has a row per person and day', () => {
     profiles: [
       {
         name: 'Dan',
-        questions: [{ id: 'sleep', short: 'Sleep', type: 'scale' }, { id: 'alcohol', short: 'Alcohol', type: 'yesno' }],
+        questions: [
+          { id: 'sleep', short: 'Sleep', type: 'scale' },
+          { id: 'alcohol', short: 'Alcohol', type: 'yesno' },
+          { id: 'meds', short: 'Medication', type: 'choice', options: [{ value: 'taken', label: 'Taken' }] },
+        ],
         entries: {
-          '2026-10-13': { answers: { sleep: 4, alcohol: false }, note: 'tired, "meh"', at: Date.UTC(2026, 9, 13, 14) },
+          '2026-10-13': { answers: { sleep: 4, alcohol: false, meds: 'taken' }, note: 'tired, "meh"', at: Date.UTC(2026, 9, 13, 14) },
           '2026-10-12': { answers: { alcohol: true }, at: 0 },
         },
       },
@@ -135,10 +153,10 @@ test('CSV export has a row per person and day', () => {
   });
   assert.equal(
     csv,
-    'person,date,Sleep,Alcohol,Meds,note,answered at\n' +
-      'Dan,2026-10-12,,yes,,,\n' +
-      'Dan,2026-10-13,4,no,,"tired, ""meh""",2026-10-13T14:00:00.000Z\n' +
-      'Alex,2026-10-13,3,,yes,,\n',
+    'person,date,Sleep,Alcohol,Medication,Meds,note,answered at\n' +
+      'Dan,2026-10-12,,yes,,,,\n' +
+      'Dan,2026-10-13,4,no,Taken,,"tired, ""meh""",2026-10-13T14:00:00.000Z\n' +
+      'Alex,2026-10-13,3,,,yes,,\n',
   );
 });
 

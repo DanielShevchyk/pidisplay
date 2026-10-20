@@ -15,7 +15,7 @@ export class CheckinError extends Error {
 const bad = (message) => new CheckinError(400, message);
 const isInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 
-export const TYPES = ['scale', 'hours', 'yesno'];
+export const TYPES = ['scale', 'hours', 'weight', 'yesno', 'choice'];
 const MAX_QUESTIONS = 30;
 const MAX_NOTE = 500;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -24,20 +24,36 @@ const ID_RE = /^[a-z0-9-]{1,40}$/;
 /**
  * Built-in questions. Ids are stored with every answer, so never rename one.
  * "low"/"high" label the ends of a 1-5 scale; lowerIsBetter flips its colors and trend arrows.
+ * required: Save stays off until it's answered. Weight is in pounds. A "choice"
+ * question (built-in only) stores one of its option values.
  */
 export const DEFAULT_QUESTIONS = [
   { id: 'sleep', label: 'How well did you sleep?', short: 'Sleep', type: 'scale', low: 'Terrible', high: 'Great', enabled: true },
   { id: 'hours', label: 'About how many hours did you sleep?', short: 'Hours slept', type: 'hours', enabled: true },
+  { id: 'weight', label: "What's your weight this morning?", short: 'Weight', type: 'weight', required: true, enabled: true },
   { id: 'energy', label: "How's your energy?", short: 'Energy', type: 'scale', low: 'Drained', high: 'Full', enabled: true },
   { id: 'mood', label: 'How are you feeling overall?', short: 'Mood', type: 'scale', low: 'Awful', high: 'Great', enabled: true },
   { id: 'stress', label: 'How stressed do you feel?', short: 'Stress', type: 'scale', low: 'Calm', high: 'Very', lowerIsBetter: true, enabled: true },
   { id: 'body', label: 'How does your body feel?', short: 'Body', type: 'scale', low: 'Sore / unwell', high: 'Great', enabled: true },
+  {
+    id: 'meds',
+    label: 'Medication today?',
+    short: 'Medication',
+    type: 'choice',
+    options: [
+      { value: 'taken', label: 'Taken' },
+      { value: 'planned', label: 'Planned' },
+      { value: 'none', label: 'None today' },
+    ],
+    enabled: true,
+  },
   { id: 'alcohol', label: 'Alcohol last night?', short: 'Alcohol', type: 'yesno', enabled: false },
   { id: 'caffeine', label: 'Caffeine after 2 PM yesterday?', short: 'Late caffeine', type: 'yesno', enabled: false },
   { id: 'exercise', label: 'Did you exercise yesterday?', short: 'Exercise', type: 'yesno', enabled: false },
   { id: 'screens', label: 'Screens in bed last night?', short: 'Screens in bed', type: 'yesno', enabled: false },
 ];
 const BUILT_IN = new Set(DEFAULT_QUESTIONS.map((q) => q.id));
+const defaultOf = (id) => DEFAULT_QUESTIONS.find((q) => q.id === id);
 
 export const DEFAULT_SETTINGS = {
   /** Pop the survey up in the morning when today's isn't done. */
@@ -76,7 +92,12 @@ function text(v, name, max, required = true) {
 export function validAnswer(q, v) {
   if (q.type === 'scale' && isInt(v, 1, 5)) return v;
   if (q.type === 'hours' && typeof v === 'number' && v >= 0 && v <= 16 && Math.round(v * 2) === v * 2) return v;
+  if (q.type === 'weight' && typeof v === 'number' && v >= 20 && v <= 800) {
+    const tenths = Math.round(v * 10);
+    if (Math.abs(tenths - v * 10) < 1e-6) return tenths / 10;
+  }
   if (q.type === 'yesno' && typeof v === 'boolean') return v;
+  if (q.type === 'choice' && q.options?.some((o) => o.value === v)) return v;
   throw bad(`"${q.short}" got an answer it can't take`);
 }
 
@@ -89,7 +110,11 @@ export function validateQuestions(list) {
     if (!ID_RE.test(q.id ?? '')) throw bad('Each question needs an id');
     if (seen.has(q.id)) throw bad(`Question id ${q.id} is used twice`);
     seen.add(q.id);
-    if (!TYPES.includes(q.type)) throw bad('type must be scale, hours or yesno');
+    if (!TYPES.includes(q.type)) throw bad(`type must be one of ${TYPES.join(', ')}`);
+    // Answer types are fixed for built-in questions, so their history always means the same thing.
+    const builtIn = defaultOf(q.id);
+    if (builtIn && builtIn.type !== q.type) throw bad(`${builtIn.short} is a ${builtIn.type} question`);
+    if (!builtIn && q.type === 'choice') throw bad('Your own questions can be 1-5, yes/no or a number of hours');
     const label = text(q.label, 'Question', 120);
     const next = {
       id: q.id,
@@ -103,6 +128,8 @@ export function validateQuestions(list) {
       next.high = text(q.high, 'High label', 24, false);
       if (q.lowerIsBetter) next.lowerIsBetter = true;
     }
+    if (q.type === 'choice') next.options = structuredClone(builtIn.options);
+    if (q.required) next.required = true;
     if (!BUILT_IN.has(q.id)) next.custom = true;
     return next;
   });
@@ -130,11 +157,19 @@ export function validateSettings(body, current) {
 export const EMOJIS = ['🙂', '🌞', '🌙', '⭐', '🌸', '🍀', '🦊', '🐻', '🐱', '🐶', '🚀', '🎨'];
 const MAX_PROFILES = 12;
 
-/** A saved question list brought up to date: new built-in questions appear (off). */
+/**
+ * A saved question list brought up to date: built-in questions added since it was
+ * saved appear next to their neighbors in the default list, on or off as by default.
+ */
 function normalizeQuestions(list) {
   try {
     const questions = validateQuestions(list);
-    for (const d of DEFAULT_QUESTIONS) if (!questions.some((q) => q.id === d.id)) questions.push({ ...d, enabled: false });
+    DEFAULT_QUESTIONS.forEach((d, i) => {
+      if (questions.some((q) => q.id === d.id)) return;
+      const before = DEFAULT_QUESTIONS.slice(0, i).map((x) => x.id);
+      const at = questions.findLastIndex((q) => before.includes(q.id));
+      questions.splice(at + 1, 0, structuredClone(d));
+    });
     return questions;
   } catch {
     return structuredClone(DEFAULT_QUESTIONS);
@@ -189,7 +224,8 @@ export function toCsv(state) {
       const e = p.entries[date];
       const values = columns.map((c) => {
         const q = p.questions.find((x) => x.short === c);
-        return q ? e.answers?.[q.id] : undefined;
+        const v = q ? e.answers?.[q.id] : undefined;
+        return q?.type === 'choice' ? (q.options.find((o) => o.value === v)?.label ?? v) : v;
       });
       rows.push([p.name, date, ...values, e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
     }
@@ -270,6 +306,8 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
           answers[id] = validAnswer(find(p, id), v);
         }
         const note = text(body.note, 'Note', MAX_NOTE, false);
+        const missing = p.questions.find((q) => q.enabled && q.required && answers[q.id] === undefined);
+        if (missing) throw bad(`${missing.short} is required`);
         if (!Object.keys(answers).length && !note) throw bad('Answer at least one question');
         p.entries[date] = { answers, ...(note ? { note } : {}), at: now() };
         return commit();

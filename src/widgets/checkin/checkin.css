@@ -237,3 +237,43 @@
 .ci-sum.size-small .ci-sum-pills { flex-direction: column; align-items: stretch; }
 .ci-sum.size-small .ci-pill { justify-content: space-between; }
 .ci-settings .ci-sub { margin-top: 18px; }
+
+/* Weight (pounds), choices such as medication, and required questions. */
+.ci-weight { display: grid; grid-template-columns: 96px 1fr 96px; gap: 10px; }
+.ci-weight-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  border-radius: 18px;
+  border: 2px solid var(--border);
+  background: var(--surface-2);
+}
+.ci-weight-box:focus-within { border-color: var(--accent); }
+.ci-weight-input {
+  width: 4.2em;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+.ci-weight-input::placeholder { color: var(--text-dim); font-weight: 400; }
+.ci-weight-input.bad { color: var(--danger); }
+.ci-weight-unit { font-size: 22px; color: var(--text-dim); }
+.ci-opt.ci-choice { font-size: 20px; padding: 0 8px; }
+.ci-required { margin-left: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--warning); color: var(--warning); font-size: 14px; font-weight: 500; vertical-align: middle; }
+.ci-req { min-height: 40px; padding: 0 12px; font-size: 15px; }
+/* The morning popup holds every question at once, so rows are a little shorter there. */
+.ci-pop .ci-questions { gap: 10px; }
+.ci-pop .ci-opt,
+.ci-pop .ci-hours-value,
+.ci-pop .ci-weight-box { min-height: 60px; }
+.ci-pop .ci-ends { font-size: 14px; }
+.ci-pop .ci-actions .btn { min-height: 64px; }
+.ci-stat-val { white-space: nowrap; }
+.ci-stat-val small { font-size: 16px; font-weight: 400; color: var(--text-dim); }

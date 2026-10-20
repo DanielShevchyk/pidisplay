@@ -47,7 +47,7 @@ export interface ChartSeries {
 
 /**
  * Draws the selected questions over the range into `box`. Scales share a 1-5
- * axis; hours slept gets its own 0-12 axis (it is shown on its own).
+ * axis; hours slept and weight are shown on their own, on an axis fitted to the data.
  */
 export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], range: Range) {
   const w = box.clientWidth;
@@ -55,15 +55,24 @@ export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], 
   box.replaceChildren();
   if (w < 40 || hgt < 40) return;
   const days = daysBack(state.today, rangeDays(range));
-  const hours = series.length === 1 && series[0].q.type === 'hours';
-  const [lo, hi] = hours ? [Math.min(4, ...valuesFor(state, series[0].q, days)), Math.max(10, ...valuesFor(state, series[0].q, days))] : [1, 5];
-  const pad = { l: 34, r: 10, t: 10, b: 26 };
+  const only = series.length === 1 ? series[0].q : null;
+  const hours = only?.type === 'hours';
+  const weight = only?.type === 'weight';
+  const own = only ? valuesFor(state, only, days) : [];
+  const [lo, hi] = hours
+    ? [Math.min(4, ...own), Math.max(10, ...own)]
+    : weight
+      ? own.length
+        ? [Math.floor(Math.min(...own) - 2), Math.ceil(Math.max(...own) + 2)]
+        : [140, 200]
+      : [1, 5];
+  const pad = { l: weight ? 46 : 34, r: 10, t: 10, b: 26 };
   const x = (i: number) => pad.l + (days.length === 1 ? 0 : (i / (days.length - 1)) * (w - pad.l - pad.r));
   const y = (v: number) => pad.t + (1 - (v - lo) / (hi - lo)) * (hgt - pad.t - pad.b);
   const s = svg('svg', { width: w, height: hgt, class: 'ci-chart-svg' });
 
   // Grid and y labels.
-  const ticks = hours ? [lo, Math.round((lo + hi) / 2), hi] : [1, 2, 3, 4, 5];
+  const ticks = hours || weight ? [lo, Math.round((lo + hi) / 2), hi] : [1, 2, 3, 4, 5];
   for (const t of ticks) {
     s.append(svg('line', { x1: pad.l, x2: w - pad.r, y1: y(t), y2: y(t), class: 'ci-grid' }));
     const label = svg('text', { x: pad.l - 8, y: y(t) + 5, class: 'ci-axis', 'text-anchor': 'end' });
@@ -120,8 +129,15 @@ export interface Stat {
   avg: number | null;
   /** Change against the range before this one; positive is better. */
   better: number | null;
+  /** Plain change against the range before (used for weight, which isn't better or worse). */
+  change: number | null;
   count: number;
 }
+
+/** Questions with a number answer, which the chart and averages can show. */
+export const isNumeric = (q: Question) => q.type === 'scale' || q.type === 'hours' || q.type === 'weight';
+/** Questions drawn on their own axis rather than the shared 1-5 one. */
+export const ownAxis = (q: Question) => q.type === 'hours' || q.type === 'weight';
 
 export function stats(state: Book, questions: Question[], range: Range): Stat[] {
   const n = rangeDays(range);
@@ -129,31 +145,33 @@ export function stats(state: Book, questions: Question[], range: Range): Stat[] 
   const prev = all.slice(0, n);
   const cur = all.slice(n);
   return questions
-    .filter((q) => q.type !== 'yesno')
+    .filter(isNumeric)
     .map((q) => {
       const values = valuesFor(state, q, cur);
       const avg = average(values);
       const before = average(valuesFor(state, q, prev));
       let better: number | null = null;
-      if (avg !== null && before !== null) {
+      if (avg !== null && before !== null && q.type !== 'weight') {
         if (q.type === 'hours') better = (goodness(q, avg) ?? 0) - (goodness(q, before) ?? 0);
         else better = (avg - before) * (q.lowerIsBetter ? -1 : 1);
       }
-      return { q, avg, better, count: values.length };
+      return { q, avg, better, change: avg !== null && before !== null ? avg - before : null, count: values.length };
     });
 }
 
 export function statCard(st: Stat): HTMLElement {
-  const fmt = (v: number) => (st.q.type === 'hours' ? `${v.toFixed(1)} h` : v.toFixed(1));
-  const arrow =
-    st.better === null || Math.abs(st.better) < 0.05
-      ? null
-      : h('span', { class: `ci-delta ${st.better > 0 ? 'up' : 'down'}` }, st.better > 0 ? '▲ better' : '▼ worse');
+  const fmt = (v: number) => (st.q.type === 'hours' ? `${v.toFixed(1)} h` : st.q.type === 'weight' ? `${v.toFixed(1)} lb` : v.toFixed(1));
+  let arrow: HTMLElement | null = null;
+  if (st.q.type === 'weight') {
+    if (st.change !== null && Math.abs(st.change) >= 0.05)
+      arrow = h('span', { class: 'ci-delta' }, `${st.change > 0 ? '▲ +' : '▼ −'}${Math.abs(st.change).toFixed(1)} lb`);
+  } else if (st.better !== null && Math.abs(st.better) >= 0.05)
+    arrow = h('span', { class: `ci-delta ${st.better > 0 ? 'up' : 'down'}` }, st.better > 0 ? '▲ better' : '▼ worse');
   return h(
     'div',
     { class: 'ci-stat' },
     h('div', { class: 'ci-stat-name' }, st.q.short),
-    h('div', { class: 'ci-stat-val', style: st.avg === null ? '' : `color:${goodnessColor(goodness(st.q, st.avg))}` }, st.avg === null ? '–' : fmt(st.avg)),
+    h('div', { class: 'ci-stat-val', style: st.avg === null ? '' : `color:${goodnessColor(goodness(st.q, st.avg))}` }, st.avg === null ? '–' : st.q.type === 'weight' ? st.avg.toFixed(1) : fmt(st.avg), st.avg !== null && st.q.type === 'weight' && h('small', {}, ' lb')),
     arrow,
   );
 }

@@ -43,7 +43,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 | ✅ **To-do** | Several named checklists, such as To-do and Groceries, kept in sync on every screen. | None |
 | ⏱️ **Timers & alarms** | Countdown timers and repeating wake-up alarms with sounds, snooze and fade-in. | None |
 | 📌 **Reminders** | One-off and repeating reminders that pop up with Done and Snooze buttons and a chime. | None |
-| ☀️ **Morning check-in** | A 30-second survey each morning for everyone in the house, each with their own profile (sleep, hours slept, energy, mood, stress, body, optional yes/no habits and your own questions), kept per day with trend charts and a CSV export. | None |
+| ☀️ **Morning check-in** | A 30-second survey each morning for everyone in the house, each with their own profile (sleep, hours slept, weight in pounds, energy, mood, stress, body, medication, optional yes/no habits and your own questions), kept per day with trend charts and a CSV export. | None |
 | 📈 **Stocks** | Watchlist with sparklines, 1D to 5Y charts you can scrub with a finger, and price alerts. | None for Yahoo Finance, or a free Twelve Data key ([docs/STOCKS.md](docs/STOCKS.md)) |
 | 📰 **News** | Top world, U.S., state and local headlines, with related coverage from other outlets. | None (Google News RSS) |
 | ❄️ **Snow report** | New and forecast snow at your ski resorts (Heavenly, Northstar, Kirkwood and 16 other Sierra resorts): summit and base snowfall by day, measured snow depth, lifts open and winter storm alerts. Tap a resort for the 10-day detail; ✎ Resorts edits the list. | None (Open-Meteo, NRCS SNOTEL, Liftie, National Weather Service) |

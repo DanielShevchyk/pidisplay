@@ -18,7 +18,7 @@ import {
   type QuestionType,
 } from '../../core/checkin';
 import { renderForm } from './form';
-import { drawChart, factorCard, factors, RANGES, SERIES, statCard, stats, type Range } from './trends';
+import { drawChart, factorCard, factors, isNumeric, ownAxis, RANGES, SERIES, statCard, stats, type Range } from './trends';
 
 export interface View {
   range: Range;
@@ -122,7 +122,7 @@ export function renderPanel(
 
   const book = () => checkin.book(view.profile);
   const selected = (b: Book): Question[] => {
-    const shown = active(b).filter((q) => q.type !== 'yesno');
+    const shown = active(b).filter(isNumeric);
     const picked = shown.filter((q) => view.metrics.includes(q.id));
     if (picked.length) return picked;
     // Two lines read better than six; sleep and mood when they're on.
@@ -141,7 +141,7 @@ export function renderPanel(
   const toggleMetric = (b: Book, q: Question) => {
     const cur = selected(b).map((x) => x.id);
     let next: string[];
-    if (q.type === 'hours') next = cur.length === 1 && cur[0] === q.id ? [] : [q.id];
+    if (ownAxis(q)) next = cur.length === 1 && cur[0] === q.id ? [] : [q.id];
     else {
       const scales = cur.filter((id) => b.questions.find((x) => x.id === id)?.type === 'scale');
       next = scales.includes(q.id) ? scales.filter((id) => id !== q.id) : [...scales, q.id];
@@ -186,7 +186,7 @@ export function renderPanel(
     legend.replaceChildren(...(opts.compact ? sel.map((q) => h('span', { style: `color:${colorOf(b, q)}` }, q.short)) : []));
     metrics.replaceChildren(
       ...active(b)
-        .filter((q) => q.type !== 'yesno')
+        .filter(isNumeric)
         .map((q) =>
           h(
             'button',
@@ -398,7 +398,7 @@ export function openSettingsSheet(profile: string | undefined) {
     );
   }
 
-  const typeName: Record<QuestionType, string> = { scale: '1–5', hours: 'hours', yesno: 'yes/no' };
+  const typeName: Record<QuestionType, string> = { scale: '1–5', hours: 'hours', weight: 'pounds', yesno: 'yes/no', choice: 'choice' };
 
   function questionForm(b: Book): HTMLElement {
     let type: QuestionType = 'scale';
@@ -460,6 +460,8 @@ export function openSettingsSheet(profile: string | undefined) {
     if (!s || !b) return;
     current = b.id;
     const st = s.settings;
+    const change = (i: number, patch: Partial<Question>) =>
+      void run(() => checkin.saveQuestions(b.id, b.questions.map((x, j) => (j === i ? { ...x, ...patch } : x))));
     const questionRows = b.questions.map((q, i) =>
       h(
         'div',
@@ -478,7 +480,14 @@ export function openSettingsSheet(profile: string | undefined) {
               },
               '✕',
             ),
-          toggle(q.enabled, (v) => void run(() => checkin.saveQuestions(b.id, b.questions.map((x, j) => (j === i ? { ...x, enabled: v } : x))))),
+          // Required: Save stays off until it's answered.
+          q.enabled &&
+            h(
+              'button',
+              { class: `chip ci-req${q.required ? ' active' : ''}`, onclick: () => change(i, { required: !q.required }) },
+              q.required ? 'Required' : 'Optional',
+            ),
+          toggle(q.enabled, (v) => change(i, { enabled: v })),
         ),
       ),
     );

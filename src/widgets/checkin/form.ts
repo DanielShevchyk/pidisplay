@@ -15,15 +15,18 @@ export interface FormOptions {
   laterLabel?: string;
 }
 
-/** The last hours-slept answer before `date`, as the stepper's starting point. */
-function lastHours(book: Book, q: Question, date: string): number {
+/** The last number answered for q before `date` (the stepper's starting point), or null. */
+function lastNumber(book: Book, q: Question, date: string): number | null {
   const entries = book.entries;
   const prev = Object.keys(entries)
     .filter((d) => d < date && typeof entries[d].answers[q.id] === 'number')
     .sort()
     .pop();
-  return prev ? (entries[prev].answers[q.id] as number) : 7;
+  return prev ? (entries[prev].answers[q.id] as number) : null;
 }
+
+const lastHours = (book: Book, q: Question, date: string) => lastNumber(book, q, date) ?? 7;
+const tenths = (v: number) => Math.round(v * 10) / 10;
 
 export function renderForm(opts: FormOptions): HTMLElement {
   const s = checkin.state!;
@@ -44,8 +47,11 @@ export function renderForm(opts: FormOptions): HTMLElement {
     maxlength: 500,
   });
 
+  const answered = (id: string) => answers[id] !== null && answers[id] !== undefined;
   const refreshSave = () => {
-    save.disabled = !Object.values(answers).some((v) => v !== null && v !== undefined) && !note.value.trim();
+    const missing = questions.filter((q) => q.required && !answered(q.id));
+    save.disabled = missing.length > 0 || (!questions.some((q) => answered(q.id)) && !note.value.trim());
+    save.textContent = missing.length ? `Add ${missing.map((q) => q.short.toLowerCase()).join(', ')} to save` : existing ? 'Save changes' : 'Save';
   };
   note.addEventListener('input', refreshSave);
 
@@ -103,6 +109,59 @@ export function renderForm(opts: FormOptions): HTMLElement {
     );
   }
 
+  /** Pounds: type it (number keys come up), or step from the last weigh-in. */
+  function weightRow(q: Question): HTMLElement {
+    const last = lastNumber(book, q, opts.date);
+    const input = h('input', {
+      type: 'text',
+      inputmode: 'decimal',
+      class: 'ci-weight-input',
+      placeholder: last === null ? 'Type it' : `${last}?`,
+      value: typeof answers[q.id] === 'number' ? String(answers[q.id]) : '',
+      maxlength: 6,
+      'aria-label': `${q.short} in pounds`,
+    });
+    const read = () => {
+      const v = Number(input.value.replace(',', '.'));
+      answers[q.id] = input.value.trim() && v >= 20 && v <= 800 ? tenths(v) : null;
+      input.classList.toggle('bad', Boolean(input.value.trim()) && answers[q.id] === null);
+      refreshSave();
+    };
+    input.addEventListener('input', read);
+    const step = (d: number) => {
+      const cur = typeof answers[q.id] === 'number' ? (answers[q.id] as number) : (last ?? 150);
+      answers[q.id] = tenths(Math.min(800, Math.max(20, cur + d)));
+      input.value = String(answers[q.id]);
+      input.classList.remove('bad');
+      refreshSave();
+    };
+    return h(
+      'div',
+      { class: 'ci-weight' },
+      h('button', { class: 'ci-opt', onclick: () => step(-0.2), 'aria-label': 'Less' }, '−'),
+      h('label', { class: 'ci-weight-box' }, input, h('span', { class: 'ci-weight-unit' }, 'lb')),
+      h('button', { class: 'ci-opt', onclick: () => step(0.2), 'aria-label': 'More' }, '+'),
+    );
+  }
+
+  function choiceRow(q: Question): HTMLElement {
+    const buttons = (q.options ?? []).map((o) => h('button', { class: 'ci-opt ci-choice', onclick: () => pick(o.value) }, o.label));
+    const paint = () =>
+      buttons.forEach((b, i) => {
+        const v = q.options![i].value;
+        const on = answers[q.id] === v;
+        b.classList.toggle('on', on);
+        b.style.setProperty('--ci-c', on ? goodnessColor(goodness(q, v)) : '');
+      });
+    const pick = (v: string) => {
+      answers[q.id] = answers[q.id] === v ? null : v;
+      paint();
+      refreshSave();
+    };
+    paint();
+    return h('div', { class: 'ci-opts', style: `grid-template-columns: repeat(${buttons.length}, 1fr)` }, ...buttons);
+  }
+
   function yesNoRow(q: Question): HTMLElement {
     const make = (v: boolean) => h('button', { class: 'ci-opt ci-yn', onclick: () => pick(v) }, v ? 'Yes' : 'No');
     const no = make(false);
@@ -145,8 +204,16 @@ export function renderForm(opts: FormOptions): HTMLElement {
     h(
       'div',
       { class: `ci-q ci-q-${q.type}` },
-      h('div', { class: 'ci-label' }, q.label),
-      q.type === 'scale' ? scaleRow(q) : q.type === 'hours' ? hoursRow(q) : yesNoRow(q),
+      h('div', { class: 'ci-label' }, q.label, q.required && h('span', { class: 'ci-required' }, 'required')),
+      q.type === 'scale'
+        ? scaleRow(q)
+        : q.type === 'hours'
+          ? hoursRow(q)
+          : q.type === 'weight'
+            ? weightRow(q)
+            : q.type === 'choice'
+              ? choiceRow(q)
+              : yesNoRow(q),
     ),
   );
   refreshSave();
