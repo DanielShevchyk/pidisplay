@@ -108,7 +108,7 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max',
       timezone: 'auto',
       timeformat: 'unixtime',
-      forecast_days: '7',
+      forecast_days: '10',
       ...UNITS[units],
     });
     // Air quality is a separate Open-Meteo API; the forecast still shows if it fails.

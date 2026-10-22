@@ -352,3 +352,44 @@ button.wx-place { padding: 0; border: 0; background: none; font: inherit; color:
 .wx-suggest-item { min-height: 52px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--surface-2); color: var(--text); font: inherit; font-size: 20px; text-align: left; cursor: pointer; }
 .wx-suggest-item:active { background: var(--accent); color: #fff; }
 .wx-suggest-empty { padding: 8px 4px; color: var(--text-dim); font-size: 18px; }
+
+/* ---- Tap a tile: 10-day forecast beside the map layers ---- */
+
+.wx-details-split { flex: 1 1 auto; min-height: 0; display: flex; gap: 20px; }
+.wx-details-map { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.wx-details-map .wx-map-layers { gap: 8px; }
+.wx-details-map .wx-chip { min-height: 48px; padding: 0 12px; font-size: 17px; }
+.wx-airmap-view { height: 100%; display: flex; flex-direction: column; gap: 12px; }
+
+.wx-ten { flex: 0 0 min(700px, 42%); min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.wx-ten-title { color: var(--text-dim); font-size: 16px; text-transform: uppercase; letter-spacing: 0.08em; padding: 0 4px 4px; }
+.wx-ten-row {
+  flex: 1 0 52px;
+  display: grid;
+  grid-template-columns: 3.6em 1.6em minmax(0, 1fr) 3.4em 2.4em minmax(60px, 5em) 2.4em;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  border-radius: 12px;
+  font-size: 22px;
+}
+.wx-ten-row:nth-child(odd) { background: var(--surface-2); }
+.wx-ten-day { font-weight: 600; display: flex; flex-direction: column; line-height: 1.1; }
+.wx-ten-date { font-size: 14px; font-weight: 400; color: var(--text-dim); }
+.wx-ten-icon { font-size: 28px; text-align: center; }
+.wx-ten-cond { color: var(--text-dim); font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wx-ten-pop { font-size: 16px; }
+.wx-ten-low { color: var(--text-dim); text-align: right; }
+.wx-ten-high { font-weight: 600; }
+.wx-ten-bar { position: relative; height: 8px; border-radius: 4px; background: var(--border); }
+.wx-ten-bar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; background: linear-gradient(90deg, #4fa3ff, #f5d33d, #ff8a3c); }
+
+@media (max-width: 1100px) {
+  .wx-ten-cond { display: none; }
+  .wx-ten-row { grid-template-columns: 3.6em 1.6em 3.4em 2.4em minmax(60px, 1fr) 2.4em; }
+}
+@media (max-width: 800px) {
+  .wx-details-split { flex-direction: column; overflow-y: auto; }
+  .wx-ten { flex: 0 0 auto; overflow: visible; }
+  .wx-details-map { flex: 0 0 70vh; }
+}

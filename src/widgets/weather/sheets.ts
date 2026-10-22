@@ -58,6 +58,12 @@ function project(lat: number, lon: number) {
 }
 
 export function openAirMap(place: string, lat: number, lon: number, air: AirSummary | null) {
+  const sheet = openSheet(`🌫️ ${place} air quality`, [airMapView(lat, lon, air)]);
+  sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
+}
+
+/** Today's AQI facts, the AQI map around a place and its legend; draws once it's on screen. */
+export function airMapView(lat: number, lon: number, air: AirSummary | null): HTMLElement {
   const map = h('div', { class: 'wx-airmap' });
   const status = h('div', { class: 'wx-airmap-status' }, 'Loading air quality…');
   map.append(status);
@@ -77,8 +83,6 @@ export function openAirMap(place: string, lat: number, lon: number, air: AirSumm
       h('span', { class: 'wx-legend-item' }, h('i', { style: `background:${color}` }), `${name} ${i ? AQI_BANDS[i - 1][0] + 1 : 0}${max === Infinity ? '+' : `–${max}`}`),
     ),
   );
-  const sheet = openSheet(`🌫️ ${place} air quality`, [facts, map, legend].filter(Boolean) as Node[]);
-  sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
 
   fetch(`/api/weather/airmap?lat=${lat}&lon=${lon}`)
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
@@ -90,6 +94,7 @@ export function openAirMap(place: string, lat: number, lon: number, air: AirSumm
     .catch(() => {
       status.textContent = "Couldn't load the air quality map";
     });
+  return h('div', { class: 'wx-airmap-view' }, ...([facts, map, legend].filter(Boolean) as Node[]));
 }
 
 function drawAirMap(el: HTMLElement, data: AirMapData, lat: number, lon: number) {

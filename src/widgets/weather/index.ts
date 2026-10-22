@@ -2,7 +2,7 @@ import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import { homeSettings } from '../../core/home';
-import { aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
+import { airMapView, aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
 import './weather.css';
 
 interface WeatherConfig {
@@ -18,13 +18,21 @@ interface WeatherConfig {
   [key: string]: unknown;
 }
 
-type MapLayer = 'rain' | 'temp' | 'wind' | 'clouds';
+/** Layer buttons beside the map on a side-by-side tile. */
+const TILE_LAYERS: MapLayer[] = ['radar', 'rain', 'temp', 'wind'];
+
+/** Windy overlay names. */
+type MapLayer = 'radar' | 'rain' | 'temp' | 'wind' | 'gust' | 'clouds' | 'rh' | 'pressure';
 
 const MAP_LAYERS: { value: MapLayer; label: string; icon: string; name: string }[] = [
+  { value: 'radar', label: '📡 Radar', icon: '📡', name: 'Radar' },
   { value: 'rain', label: '🌧️ Rain', icon: '🌧️', name: 'Rain' },
   { value: 'temp', label: '🌡️ Temperature', icon: '🌡️', name: 'Temperature' },
   { value: 'wind', label: '💨 Wind', icon: '💨', name: 'Wind' },
+  { value: 'gust', label: '🌬️ Gusts', icon: '🌬️', name: 'Gusts' },
   { value: 'clouds', label: '☁️ Clouds', icon: '☁️', name: 'Clouds' },
+  { value: 'rh', label: '💧 Humidity', icon: '💧', name: 'Humidity' },
+  { value: 'pressure', label: '🧭 Pressure', icon: '🧭', name: 'Pressure' },
 ];
 
 interface AirQuality {
@@ -264,13 +272,15 @@ export default defineWidget<WeatherConfig>({
 
     const unsubscribe = own ? () => {} : sharedStorage.onChange(followShared);
 
-    // A tap (not a swipe between pages) opens the full-screen forecast map.
+    // A tap (not a swipe between pages) opens the full-screen 10-day forecast and maps.
+    // Side by side, only the forecast half does; the map half has its own taps.
     let down: { x: number; y: number } | null = null;
     root.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
     root.addEventListener('click', (e) => {
       const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 0;
-      if (mapTile || split || !data || moved > 12) return;
-      openMap(data, config);
+      if (mapTile || !data || moved > 12) return;
+      if (split && !split.left.contains(e.target as Node)) return;
+      openDetails(data, config);
     });
 
     return {
@@ -641,7 +651,9 @@ function splitView(config: WeatherConfig) {
   let layer: MapLayer = MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'rain';
   let place: Forecast | null = null;
   let shownAt = '';
-  const chips = MAP_LAYERS.map((l) =>
+  // A tile only has room for a few layers; tapping the forecast opens all of them.
+  const layers = MAP_LAYERS.filter((l) => TILE_LAYERS.includes(l.value) || l.value === layer);
+  const chips = layers.map((l) =>
     h(
       'button',
       { class: 'chip wx-chip', title: l.name, onclick: () => show(l.value) },
@@ -651,7 +663,7 @@ function splitView(config: WeatherConfig) {
   );
   const show = (next: MapLayer) => {
     layer = next;
-    chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
+    chips.forEach((c, i) => c.classList.toggle('active', layers[i].value === layer));
     if (!place) return;
     shownAt = `${place.location.lat},${place.location.lon},${layer}`;
     const live = Boolean(holder.querySelector('iframe'));
@@ -674,22 +686,85 @@ function splitView(config: WeatherConfig) {
   };
 }
 
-function openMap(d: Forecast, config: WeatherConfig) {
+/**
+ * Full-screen view behind a tap on the tile: the 10-day forecast on the left,
+ * and a map on the right with a button per Windy layer plus the air quality map.
+ */
+function openDetails(d: Forecast, config: WeatherConfig) {
+  const place = config.label.trim() || d.location.name;
   const holder = h('div', { class: 'wx-map-holder' });
-  const chips = MAP_LAYERS.map((l) =>
-    h('button', { class: 'chip', onclick: () => show(l.value) }, l.label),
-  );
-  const show = (layer: MapLayer) => {
-    chips.forEach((c, i) => c.classList.toggle('active', MAP_LAYERS[i].value === layer));
-    const live = Boolean(holder.querySelector('iframe'));
-    holder.replaceChildren(tapToLoad(() => mapFrame(d, config, layer, 7), { loaded: live }));
+  type Choice = MapLayer | 'aqi';
+  const choices: { value: Choice; label: string }[] = [
+    ...MAP_LAYERS.map(({ value, label }) => ({ value, label })),
+    { value: 'aqi', label: '🌫️ Air quality' },
+  ];
+  const chips = choices.map((c) => h('button', { class: 'chip wx-chip', onclick: () => show(c.value) }, c.label));
+  let windyLive = false;
+  const show = (choice: Choice) => {
+    chips.forEach((c, i) => c.classList.toggle('active', choices[i].value === choice));
+    if (choice === 'aqi') {
+      holder.replaceChildren(airMapView(d.location.lat, d.location.lon, d.airQuality ?? null));
+      return;
+    }
+    // Once a Windy map is showing, switching layers loads the next one straight away.
+    windyLive ||= Boolean(holder.querySelector('iframe'));
+    holder.replaceChildren(tapToLoad(() => mapFrame(d, config, choice, 7), { loaded: windyLive }));
   };
-  const sheet = openSheet(`🗺️ ${config.label.trim() || d.location.name} forecast map`, [
-    h('div', { class: 'wx-map-layers' }, ...chips),
-    holder,
+  const sheet = openSheet(`${icon(d.current.code, d.current.isDay)} ${place}`, [
+    h(
+      'div',
+      { class: 'wx-details-split' },
+      tenDay(d),
+      h('div', { class: 'wx-details-map' }, h('div', { class: 'wx-map-layers' }, ...chips), holder),
+    ),
   ]);
   sheet.body.closest('.sheet')?.classList.add('wx-map-sheet');
-  show(config.mapLayer);
+  show(MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'radar');
+}
+
+/** One row per day: icon, rain chance, and the low-high range on a bar shared by all days. */
+function tenDay(d: Forecast) {
+  const tz = validZone(d.timezone);
+  const dayFmt = new Intl.DateTimeFormat([], { weekday: 'short', timeZone: tz });
+  const dateFmt = new Intl.DateTimeFormat([], { month: 'numeric', day: 'numeric', timeZone: tz });
+  const deg = (n: number | null) => (n === null ? '–' : `${n}°`);
+  const days = d.daily.slice(0, 10);
+  const lows = days.map((x) => x.low).filter((n): n is number => n !== null);
+  const highs = days.map((x) => x.high).filter((n): n is number => n !== null);
+  const min = Math.min(...lows, ...highs);
+  const span = Math.max(1, Math.max(...lows, ...highs) - min);
+  const pct = (n: number) => ((n - min) / span) * 100;
+  return h(
+    'div',
+    { class: 'wx-ten' },
+    h('div', { class: 'wx-ten-title' }, `${days.length}-day forecast`),
+    ...days.map((x, i) => {
+      const lo = x.low ?? x.high;
+      const hi = x.high ?? x.low;
+      return h(
+        'div',
+        { class: 'wx-ten-row' },
+        h(
+          'div',
+          { class: 'wx-ten-day' },
+          i === 0 ? 'Today' : dayFmt.format(x.date * 1000),
+          h('span', { class: 'wx-ten-date' }, dateFmt.format(x.date * 1000)),
+        ),
+        h('div', { class: 'wx-ten-icon', title: describe(x.code) }, icon(x.code, true)),
+        h('div', { class: 'wx-ten-cond' }, describe(x.code)),
+        h('div', { class: 'wx-pop wx-ten-pop' }, chance(x.precipChance)),
+        h('div', { class: 'wx-ten-low' }, deg(x.low)),
+        h(
+          'div',
+          { class: 'wx-ten-bar' },
+          lo !== null &&
+            hi !== null &&
+            h('i', { style: `left:${pct(lo)}%;width:${Math.max(2, pct(hi) - pct(lo))}%` }),
+        ),
+        h('div', { class: 'wx-ten-high' }, deg(x.high)),
+      );
+    }),
+  );
 }
 
 function chance(p: number | null): string {

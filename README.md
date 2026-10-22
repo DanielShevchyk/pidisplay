@@ -38,7 +38,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 | Widget | What it does | Setup |
 | --- | --- | --- |
 | 🕒 **Clock** | Digital or analog clock for any time zone. | None |
-| 🌤️ **Weather** | Current conditions, hourly and 7-day forecast, US AQI air quality, peak UV, and a live Windy forecast map. | None ([Open-Meteo](https://open-meteo.com), no key) |
+| 🌤️ **Weather** | Current conditions, hourly and 10-day forecast, US AQI air quality, peak UV, and a live Windy map (radar, rain, temperature, wind, gusts, clouds, humidity, pressure). Tap it for the 10-day forecast beside every map layer. | None ([Open-Meteo](https://open-meteo.com), no key) |
 | 📅 **Calendar** | Agenda, week and month views that merge several people's calendars, each in its own color. | A secret iCal link per calendar ([docs/CALENDAR.md](docs/CALENDAR.md)) |
 | ✅ **To-do** | Several named checklists, such as To-do and Groceries, kept in sync on every screen. | None |
 | ⏱️ **Timers & alarms** | Countdown timers and repeating wake-up alarms with sounds, snooze and fade-in. | None |
