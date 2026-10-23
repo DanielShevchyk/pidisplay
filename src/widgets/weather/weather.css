@@ -393,3 +393,54 @@ button.wx-place { padding: 0; border: 0; background: none; font: inherit; color:
   .wx-ten { flex: 0 0 auto; overflow: visible; }
   .wx-details-map { flex: 0 0 70vh; }
 }
+
+/* ---- Tap a day: its hours ---- */
+
+button.wx-ten-row { border: 0; color: inherit; font: inherit; font-size: 22px; text-align: left; cursor: pointer; background: transparent; }
+button.wx-ten-row:nth-child(odd) { background: var(--surface-2); }
+button.wx-ten-row.active { background: var(--accent); color: #fff; }
+button.wx-ten-row.active .wx-ten-date,
+button.wx-ten-row.active .wx-ten-cond,
+button.wx-ten-row.active .wx-ten-low,
+button.wx-ten-row.active .wx-pop { color: #fff; }
+
+.wx-dayview { height: 100%; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.wx-dayview > .wx-airmap-status { margin: auto; color: var(--text-dim); font-size: 20px; }
+.wx-day-facts { font-size: 18px; }
+.wx-day-facts strong { font-size: 22px; }
+.wx-day-chart-wrap { flex: 0 0 auto; }
+.wx-day-chart { display: block; width: 100%; height: auto; max-height: 260px; }
+.wx-day-chart .wx-day-rain { fill: #4fa3ff; opacity: 0.35; }
+.wx-day-chart .wx-day-now { fill: var(--accent); opacity: 0.12; }
+.wx-day-chart .wx-day-line { fill: none; stroke: #ffb347; stroke-width: 4; stroke-linejoin: round; }
+.wx-day-chart .wx-day-dot { fill: #ffb347; }
+.wx-day-chart .wx-axis { fill: var(--text-dim); font-size: 18px; }
+.wx-day-chart .wx-val { fill: var(--text); font-size: 20px; font-weight: 600; }
+.wx-day-chart .wx-base { stroke: var(--border); }
+
+.wx-hours-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  column-gap: 20px;
+}
+.wx-hrow {
+  display: grid;
+  grid-template-columns: 3em 1.6em 2.6em minmax(0, 1fr) 4em 6.5em;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 19px;
+}
+.wx-hrow:nth-child(even) { background: var(--surface-2); }
+.wx-hrow-head { font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; background: none !important; }
+.wx-hrow.past { opacity: 0.45; }
+.wx-hrow.now { outline: 2px solid var(--accent); }
+.wx-hrow-time { color: var(--text-dim); }
+.wx-hrow-temp { font-weight: 600; }
+.wx-hrow-feel { color: var(--text-dim); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wx-hrow-wind { color: var(--text-dim); font-size: 16px; text-align: right; white-space: nowrap; }

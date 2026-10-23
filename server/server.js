@@ -595,6 +595,16 @@ export function createServer({
       }
     }
 
+    if (resource === 'weather' && key === 'day' && req.method === 'GET') {
+      try {
+        const q = url.searchParams;
+        return send(res, 200, await weather.day(q.get('location'), q.get('units') ?? undefined, q.get('date')));
+      } catch (err) {
+        if (err instanceof WeatherError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
     if (resource === 'weather' && key === 'airmap' && req.method === 'GET') {
       try {
         return send(res, 200, await weather.airMap(url.searchParams.get('lat'), url.searchParams.get('lon')));

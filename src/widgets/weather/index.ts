@@ -702,6 +702,7 @@ function openDetails(d: Forecast, config: WeatherConfig) {
   let windyLive = false;
   const show = (choice: Choice) => {
     chips.forEach((c, i) => c.classList.toggle('active', choices[i].value === choice));
+    list.querySelectorAll('.wx-ten-row').forEach((row) => row.classList.remove('active'));
     if (choice === 'aqi') {
       holder.replaceChildren(airMapView(d.location.lat, d.location.lon, d.airQuality ?? null));
       return;
@@ -710,11 +711,19 @@ function openDetails(d: Forecast, config: WeatherConfig) {
     windyLive ||= Boolean(holder.querySelector('iframe'));
     holder.replaceChildren(tapToLoad(() => mapFrame(d, config, choice, 7), { loaded: windyLive }));
   };
+  // Tapping a day swaps the map for that day's hour-by-hour breakdown; a map button brings the map back.
+  const showDay = (i: number) => {
+    windyLive ||= Boolean(holder.querySelector('iframe'));
+    chips.forEach((c) => c.classList.remove('active'));
+    list.querySelectorAll('.wx-ten-row').forEach((row, j) => row.classList.toggle('active', j === i));
+    holder.replaceChildren(dayView(d, i));
+  };
+  const list = tenDay(d, showDay);
   const sheet = openSheet(`${icon(d.current.code, d.current.isDay)} ${place}`, [
     h(
       'div',
       { class: 'wx-details-split' },
-      tenDay(d),
+      list,
       h('div', { class: 'wx-details-map' }, h('div', { class: 'wx-map-layers' }, ...chips), holder),
     ),
   ]);
@@ -722,8 +731,8 @@ function openDetails(d: Forecast, config: WeatherConfig) {
   show(MAP_LAYERS.some((l) => l.value === config.mapLayer) ? config.mapLayer : 'radar');
 }
 
-/** One row per day: icon, rain chance, and the low-high range on a bar shared by all days. */
-function tenDay(d: Forecast) {
+/** One row per day: icon, rain chance, and the low-high range on a bar shared by all days. Tap a row for its hours. */
+function tenDay(d: Forecast, onDay: (i: number) => void) {
   const tz = validZone(d.timezone);
   const dayFmt = new Intl.DateTimeFormat([], { weekday: 'short', timeZone: tz });
   const dateFmt = new Intl.DateTimeFormat([], { month: 'numeric', day: 'numeric', timeZone: tz });
@@ -737,13 +746,13 @@ function tenDay(d: Forecast) {
   return h(
     'div',
     { class: 'wx-ten' },
-    h('div', { class: 'wx-ten-title' }, `${days.length}-day forecast`),
+    h('div', { class: 'wx-ten-title' }, `${days.length}-day forecast · tap a day for its hours`),
     ...days.map((x, i) => {
       const lo = x.low ?? x.high;
       const hi = x.high ?? x.low;
       return h(
-        'div',
-        { class: 'wx-ten-row' },
+        'button',
+        { class: 'wx-ten-row', onclick: () => onDay(i) },
         h(
           'div',
           { class: 'wx-ten-day' },
@@ -765,6 +774,117 @@ function tenDay(d: Forecast) {
       );
     }),
   );
+}
+
+interface HourDetail {
+  time: number;
+  temp: number | null;
+  feelsLike: number | null;
+  code: number;
+  isDay: boolean;
+  precipChance: number | null;
+  precip: number | null;
+  wind: number | null;
+  gust: number | null;
+  windDir: number | null;
+  humidity: number | null;
+  uv: number | null;
+}
+
+/** One day hour by hour: a temperature and rain chance chart over a table of every hour. */
+function dayView(d: Forecast, index: number): HTMLElement {
+  const tz = validZone(d.timezone);
+  const day = d.daily[index];
+  const wrap = h('div', { class: 'wx-dayview' }, h('div', { class: 'wx-airmap-status' }, 'Loading hours…'));
+  const params = new URLSearchParams({ location: `${d.location.lat},${d.location.lon}`, units: d.units, date: String(day.date) });
+  fetch(`/api/weather/day?${params}`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    .then((body: { hours: HourDetail[] }) => wrap.replaceChildren(...dayContent(d, index, body.hours, tz)))
+    .catch(() => wrap.replaceChildren(h('div', { class: 'wx-airmap-status' }, "Couldn't load the hourly forecast")));
+  return wrap;
+}
+
+function dayContent(d: Forecast, index: number, hours: HourDetail[], tz: string | undefined): Node[] {
+  const day = d.daily[index];
+  const deg = (n: number | null) => (n === null ? '–' : `${n}°`);
+  const speed = d.units === 'imperial' ? 'mph' : 'km/h';
+  const rainUnit = d.units === 'imperial' ? 'in' : 'mm';
+  const hourFmt = new Intl.DateTimeFormat([], { hour: 'numeric', timeZone: tz });
+  const timeFmt = new Intl.DateTimeFormat([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+  const dayFmt = new Intl.DateTimeFormat([], { weekday: 'long', month: 'short', day: 'numeric', timeZone: tz });
+  const short = (t: number) => hourFmt.format(t * 1000).replace(/\s?([AP])M/i, (_, x) => x.toLowerCase());
+  const nowSec = Date.now() / 1000;
+  const rainTotal = hours.reduce((sum, x) => sum + (x.precip ?? 0), 0);
+  const gustMax = Math.max(0, ...hours.map((x) => x.gust ?? 0));
+
+  const head = h(
+    'div',
+    { class: 'wx-sheet-facts wx-day-facts' },
+    h('strong', {}, `${index === 0 ? 'Today, ' : ''}${dayFmt.format(day.date * 1000)}`),
+    h('span', {}, `${icon(day.code, true)} ${describe(day.code)}`),
+    h('span', {}, `H ${deg(day.high)}  L ${deg(day.low)}`),
+    rainTotal >= 0.01 && h('span', {}, `💧 ${rainTotal.toFixed(d.units === 'imperial' ? 2 : 1)} ${rainUnit}`),
+    gustMax > 0 && h('span', {}, `🌬️ gusts to ${gustMax} ${speed}`),
+    day.sunrise && day.sunset && h('span', {}, `🌅 ${timeFmt.format(day.sunrise * 1000)}  🌇 ${timeFmt.format(day.sunset * 1000)}`),
+  );
+
+  // Chart: rain chance bars behind a temperature line, one slot per hour.
+  const W = 1000;
+  const H = 260;
+  const padT = 34;
+  const padB = 34;
+  const temps = hours.map((x) => x.temp).filter((n): n is number => n !== null);
+  const tMin = Math.min(...temps);
+  const tMax = Math.max(...temps);
+  const tSpan = Math.max(1, tMax - tMin);
+  const slot = W / hours.length;
+  const cx = (i: number) => i * slot + slot / 2;
+  const ty = (t: number) => padT + (1 - (t - tMin) / tSpan) * (H - padT - padB - 30);
+  const py = (p: number) => H - padB - (p / 100) * (H - padT - padB);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="wx-day-chart" role="img" aria-label="Temperature and rain chance by hour">`;
+  hours.forEach((x, i) => {
+    const p = x.precipChance ?? 0;
+    if (p > 0) svg += `<rect x="${i * slot + slot * 0.2}" y="${py(p)}" width="${slot * 0.6}" height="${H - padB - py(p)}" rx="3" class="wx-day-rain"/>`;
+    if (x.time <= nowSec && nowSec < x.time + 3600) svg += `<rect x="${i * slot}" y="0" width="${slot}" height="${H - padB}" class="wx-day-now"/>`;
+    if (i % 3 === 0) svg += `<text x="${cx(i)}" y="${H - 10}" text-anchor="middle" class="wx-axis">${short(x.time)}</text>`;
+  });
+  const pts = hours.map((x, i) => (x.temp === null ? null : `${cx(i)},${ty(x.temp)}`)).filter(Boolean);
+  svg += `<polyline points="${pts.join(' ')}" class="wx-day-line"/>`;
+  hours.forEach((x, i) => {
+    if (x.temp === null || i % 3 !== 0) return;
+    svg += `<circle cx="${cx(i)}" cy="${ty(x.temp)}" r="5" class="wx-day-dot"/><text x="${cx(i)}" y="${ty(x.temp) - 12}" text-anchor="middle" class="wx-val">${x.temp}°</text>`;
+  });
+  svg += `<line x1="0" x2="${W}" y1="${H - padB}" y2="${H - padB}" class="wx-base"/></svg>`;
+  const chart = h('div', { class: 'wx-day-chart-wrap' });
+  chart.innerHTML = svg;
+
+  const rows = hours.map((x) =>
+    h(
+      'div',
+      { class: `wx-hrow${x.time + 3600 <= nowSec ? ' past' : ''}${x.time <= nowSec && nowSec < x.time + 3600 ? ' now' : ''}` },
+      h('span', { class: 'wx-hrow-time' }, x.time <= nowSec && nowSec < x.time + 3600 ? 'Now' : short(x.time)),
+      h('span', { class: 'wx-hrow-icon', title: describe(x.code) }, icon(x.code, x.isDay)),
+      h('span', { class: 'wx-hrow-temp' }, deg(x.temp)),
+      h('span', { class: 'wx-hrow-feel' }, x.feelsLike !== null && x.feelsLike !== x.temp ? `feels ${deg(x.feelsLike)}` : ''),
+      h('span', { class: 'wx-pop' }, x.precipChance ? `💧${x.precipChance}%` : ''),
+      h('span', { class: 'wx-hrow-wind' }, x.wind === null ? '' : `${x.wind}${x.gust && x.gust > x.wind + 4 ? `–${x.gust}` : ''} ${compass(x.windDir)}`),
+    ),
+  );
+  const head2 = h(
+    'div',
+    { class: 'wx-hrow wx-hrow-head' },
+    h('span', {}, ''),
+    h('span', {}, ''),
+    h('span', {}, 'Temp'),
+    h('span', {}, ''),
+    h('span', {}, 'Rain'),
+    h('span', {}, `Wind ${speed}`),
+  );
+  // Two columns, each headed: the first half of the day on the left, the rest on the right.
+  const half = Math.ceil(rows.length / 2);
+  const table = h('div', { class: 'wx-hours-table', style: `grid-template-rows:repeat(${half + 1}, minmax(34px, 1fr))` });
+  table.append(head2, ...rows.slice(0, half), head2.cloneNode(true), ...rows.slice(half));
+  return [head, chart, table];
 }
 
 function chance(p: number | null): string {

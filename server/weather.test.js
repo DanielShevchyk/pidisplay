@@ -184,3 +184,18 @@ test('suggests places with labels that resolve back to the same place', async ()
   const data = await w.get(list[1].label);
   assert.equal(data.location.region, 'Missouri');
 });
+
+test('day() returns every hour of one forecast day from the cached forecast', async () => {
+  const fetchImpl = mockFetch();
+  const w = createWeather({ fetchImpl });
+  const data = await w.get('Springfield, MO');
+  const tomorrow = data.daily[1].date;
+  const d = await w.day('Springfield, MO', 'imperial', tomorrow);
+  assert.equal(d.hours.length, 24);
+  assert.equal(d.hours[0].time, tomorrow);
+  assert.equal(d.hours[0].temp, 84);
+  assert.equal(d.day.date, tomorrow);
+  assert.equal(fetchImpl.calls.filter((u) => u.includes('/forecast')).length, 1); // no second upstream call
+  await assert.rejects(w.day('Springfield, MO', 'imperial', 'x'), { status: 400 });
+  await assert.rejects(w.day('Springfield, MO', 'imperial', data.daily[5].date), { status: 404 });
+});

@@ -104,7 +104,8 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       longitude: String(place.lon),
       current:
         'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,precipitation',
-      hourly: 'temperature_2m,weather_code,precipitation_probability,is_day,uv_index',
+      hourly:
+        'temperature_2m,weather_code,precipitation_probability,is_day,uv_index,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,relative_humidity_2m',
       daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max',
       timezone: 'auto',
       timeformat: 'unixtime',
@@ -125,7 +126,7 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       getJson(`${FORECAST_URL}?${params}`),
       getJson(`${AIR_URL}?${airParams}`).catch(() => null),
     ]);
-    return { ...normalize(raw, place, units), airQuality: air ? normalizeAir(air) : null };
+    return { data: { ...normalize(raw, place, units), airQuality: air ? normalizeAir(air) : null }, allHours: allHours(raw) };
   }
 
   /** Returns the forecast for a place name or "lat,lon", in 'imperial' or 'metric'. */
@@ -143,8 +144,8 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       inflight.set(
         key,
         fetchForecast(place, units)
-          .then((data) => {
-            forecasts.set(key, { at: now(), data });
+          .then(({ data, allHours }) => {
+            forecasts.set(key, { at: now(), data, allHours });
             return data;
           })
           .finally(() => inflight.delete(key)),
@@ -157,6 +158,20 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       if (cached) return { ...cached.data, stale: true };
       throw err;
     }
+  }
+
+  /** Every hour of one forecast day (from its daily[].date, local midnight), for the day breakdown. */
+  async function day(query, units = 'imperial', dateIn) {
+    const date = Number(dateIn);
+    if (!Number.isFinite(date)) throw new WeatherError(400, 'date is required');
+    const data = await get(query, units);
+    const key = `${data.location.lat},${data.location.lon},${units}`;
+    const all = forecasts.get(key)?.allHours ?? [];
+    // Local days can be 23 or 25 hours long around clock changes; stop at the next day's date.
+    const next = data.daily.find((d) => d.date > date)?.date ?? date + 86400;
+    const hours = all.filter((h) => h.time >= date && h.time < next);
+    if (!hours.length) throw new WeatherError(404, 'No hourly forecast for that day');
+    return { location: data.location, units, timezone: data.timezone, date, day: data.daily.find((d) => d.date === date) ?? null, hours };
   }
 
   const airMaps = new Map(); // "lat,lon" -> { at, data }
@@ -224,7 +239,7 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
     return list;
   }
 
-  return { get, airMap, search };
+  return { get, day, airMap, search };
 }
 
 function normalize(raw, place, units) {
@@ -281,6 +296,27 @@ function normalize(raw, place, units) {
       uv: typeof hourly.uv_index?.[i] === 'number' ? Math.round(hourly.uv_index[i] * 10) / 10 : null,
     })),
   };
+}
+
+/** All forecast hours with the extra detail the day breakdown shows. */
+function allHours(raw) {
+  const h = raw.hourly ?? {};
+  const round = (n) => (typeof n === 'number' ? Math.round(n) : null);
+  const num = (n) => (typeof n === 'number' ? n : null);
+  return (h.time ?? []).map((t, i) => ({
+    time: t,
+    temp: round(h.temperature_2m?.[i]),
+    feelsLike: round(h.apparent_temperature?.[i]),
+    code: h.weather_code?.[i] ?? 0,
+    isDay: h.is_day?.[i] !== 0,
+    precipChance: h.precipitation_probability?.[i] ?? null,
+    precip: num(h.precipitation?.[i]),
+    wind: round(h.wind_speed_10m?.[i]),
+    gust: round(h.wind_gusts_10m?.[i]),
+    windDir: num(h.wind_direction_10m?.[i]),
+    humidity: round(h.relative_humidity_2m?.[i]),
+    uv: typeof h.uv_index?.[i] === 'number' ? Math.round(h.uv_index[i] * 10) / 10 : null,
+  }));
 }
 
 /** US AQI bands (EPA). */
