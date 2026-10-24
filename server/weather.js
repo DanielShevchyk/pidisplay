@@ -6,6 +6,11 @@
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const AIR_URL = 'https://air-quality-api.open-meteo.com/v1/air-quality';
+// National Weather Service alerts (US only; elsewhere it answers 400 and we show none).
+const NWS_URL = 'https://api.weather.gov/alerts/active';
+const NWS_HEADERS = { 'User-Agent': '(PiDisplay home dashboard, github.com/DanielShevchyk/pidisplay)', Accept: 'application/geo+json' };
+// Alerts at these NWS severities also ring the bell; Minor ones only show on the tile.
+const NOTIFY_SEVERITY = new Set(['Extreme', 'Severe', 'Moderate']);
 const FORECAST_TTL = 10 * 60 * 1000;
 const TIMEOUT = 10_000;
 const AIR_MAP_TTL = 30 * 60 * 1000;
@@ -39,15 +44,21 @@ export class WeatherError extends Error {
   }
 }
 
-export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.now() } = {}) {
+/**
+ * notify(n) is called once for each new alert worth the bell; alertsSeen keeps which
+ * alert ids were already announced across restarts ({ load(): ids[], save(ids) }).
+ */
+export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.now(), notify = null, alertsSeen = null } = {}) {
   const places = new Map(); // normalized query -> place
   const forecasts = new Map(); // "lat,lon,units" -> { at, data }
   const inflight = new Map();
+  const yesterdays = new Map(); // "lat,lon,units" -> { date: today's date, high, low }
+  let seen = null; // alert ids already announced
 
-  async function getJson(url) {
+  async function getJson(url, headers) {
     let res;
     try {
-      res = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT) });
+      res = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT), ...(headers && { headers }) });
     } catch (err) {
       throw new WeatherError(502, `Weather service unreachable (${err.message})`);
     }
@@ -106,7 +117,10 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
         'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m,wind_direction_10m,precipitation',
       hourly:
         'temperature_2m,weather_code,precipitation_probability,is_day,uv_index,apparent_temperature,precipitation,wind_speed_10m,wind_gusts_10m,wind_direction_10m,relative_humidity_2m',
-      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max',
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max,wind_gusts_10m_max',
+      // Next two hours in 15-minute steps, for "rain starting around 4:15".
+      minutely_15: 'precipitation',
+      forecast_minutely_15: '9',
       timezone: 'auto',
       timeformat: 'unixtime',
       forecast_days: '10',
@@ -122,11 +136,65 @@ export function createWeather({ fetchImpl = globalThis.fetch, now = () => Date.n
       timeformat: 'unixtime',
       forecast_days: '2',
     });
-    const [raw, air] = await Promise.all([
+    const [raw, air, alerts] = await Promise.all([
       getJson(`${FORECAST_URL}?${params}`),
       getJson(`${AIR_URL}?${airParams}`).catch(() => null),
+      getJson(`${NWS_URL}?point=${place.lat.toFixed(4)},${place.lon.toFixed(4)}`, NWS_HEADERS)
+        .then(parseAlerts)
+        .catch(() => null),
     ]);
-    return { data: { ...normalize(raw, place, units), airQuality: air ? normalizeAir(air) : null }, allHours: allHours(raw) };
+    const data = { ...normalize(raw, place, units), airQuality: air ? normalizeAir(air) : null, alerts: alerts ?? [] };
+    data.yesterday = await yesterday(place, units, data.daily[0]?.date);
+    if (alerts) announce(alerts, data.location.name).catch(() => {});
+    return { data, allHours: allHours(raw) };
+  }
+
+  /** Yesterday's high and low, for "5° warmer than yesterday"; one upstream call per place per day. */
+  async function yesterday(place, units, today) {
+    if (!today) return null;
+    const key = `${place.lat},${place.lon},${units}`;
+    const hit = yesterdays.get(key);
+    if (hit?.date === today) return { high: hit.high, low: hit.low };
+    const params = new URLSearchParams({
+      latitude: String(place.lat),
+      longitude: String(place.lon),
+      daily: 'temperature_2m_max,temperature_2m_min',
+      past_days: '1',
+      forecast_days: '1',
+      timezone: 'auto',
+      timeformat: 'unixtime',
+      ...UNITS[units],
+    });
+    try {
+      const d = (await getJson(`${FORECAST_URL}?${params}`)).daily ?? {};
+      const i = (d.time ?? []).findIndex((t) => t < today);
+      if (i < 0) return null;
+      const round = (n) => (typeof n === 'number' ? Math.round(n) : null);
+      const entry = { date: today, high: round(d.temperature_2m_max?.[i]), low: round(d.temperature_2m_min?.[i]) };
+      yesterdays.set(key, entry);
+      return { high: entry.high, low: entry.low };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Rings the bell once per new alert (Moderate and worse). */
+  async function announce(alerts, placeName) {
+    if (!notify) return;
+    seen ??= new Set((await alertsSeen?.load().catch(() => null)) ?? []);
+    const fresh = alerts.filter((a) => a.id && !seen.has(a.id));
+    if (!fresh.length) return;
+    for (const a of fresh) {
+      seen.add(a.id);
+      if (!NOTIFY_SEVERITY.has(a.severity)) continue;
+      notify({
+        title: `⚠️ ${a.event}${placeName ? ` for ${placeName}` : ''}`,
+        body: a.headline || a.description.slice(0, 300),
+        level: a.severity === 'Moderate' ? 'warning' : 'alert',
+      });
+    }
+    // Keep the newest ids only; NWS ids are unique per issued alert.
+    await alertsSeen?.save([...seen].slice(-300)).catch(() => {});
   }
 
   /** Returns the forecast for a place name or "lat,lon", in 'imperial' or 'metric'. */
@@ -271,7 +339,16 @@ function normalize(raw, place, units) {
     sunrise: daily.sunrise?.[i] ?? null,
     sunset: daily.sunset?.[i] ?? null,
     uvMax: typeof daily.uv_index_max?.[i] === 'number' ? Math.round(daily.uv_index_max[i] * 10) / 10 : null,
+    gustMax: round(daily.wind_gusts_10m_max?.[i]),
   }));
+
+  // 15-minute precipitation; each value is the 15 minutes ending at its time, so the
+  // first one after the current time is the quarter hour happening now.
+  const m = raw.minutely_15 ?? {};
+  const soon = (m.time ?? [])
+    .map((t, i) => ({ time: t, precip: typeof m.precipitation?.[i] === 'number' ? m.precipitation[i] : null }))
+    .filter((x) => x.time > nowSec)
+    .slice(0, 8);
 
   return {
     location: place,
@@ -290,12 +367,38 @@ function normalize(raw, place, units) {
     },
     hourly: hours,
     daily: days,
+    soon,
     // Today's UV by hour from local midnight, for the UV graph.
     uvToday: (hourly.time ?? []).slice(0, 24).map((t, i) => ({
       time: t,
       uv: typeof hourly.uv_index?.[i] === 'number' ? Math.round(hourly.uv_index[i] * 10) / 10 : null,
     })),
   };
+}
+
+/** NWS GeoJSON -> [{ id, event, severity, headline, description, instruction, ends, sender }], worst first. */
+export function parseAlerts(json) {
+  const rank = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3 };
+  const out = [];
+  const events = new Set();
+  for (const f of json?.features ?? []) {
+    const p = f?.properties ?? {};
+    // An update re-issues the same event; show it once.
+    if (!p.event || events.has(p.event) || p.status === 'Test' || p.messageType === 'Cancel') continue;
+    events.add(p.event);
+    const ends = Date.parse(p.ends ?? p.expires ?? '');
+    out.push({
+      id: String(p.id ?? f.id ?? ''),
+      event: String(p.event),
+      severity: String(p.severity ?? 'Unknown'),
+      headline: String(p.headline ?? ''),
+      description: String(p.description ?? '').slice(0, 4000),
+      instruction: String(p.instruction ?? '').slice(0, 2000),
+      ends: Number.isFinite(ends) ? Math.floor(ends / 1000) : null,
+      sender: String(p.senderName ?? ''),
+    });
+  }
+  return out.sort((a, b) => (rank[a.severity] ?? 4) - (rank[b.severity] ?? 4));
 }
 
 /** All forecast hours with the extra detail the day breakdown shows. */

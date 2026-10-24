@@ -167,7 +167,12 @@ export function createServer({
     readSummary: () => readJson(faresFile, null),
   });
   const clients = new Set();
-  const weather = createWeather({ fetchImpl });
+  const alertsSeenFile = path.join(dataDir, 'weather-alerts-seen.json');
+  const weather = createWeather({
+    fetchImpl,
+    notify: (n) => void addNotification({ ...n, source: 'Weather' }).catch(() => {}),
+    alertsSeen: { load: () => readJson(alertsSeenFile, []), save: (ids) => writeJson(alertsSeenFile, ids) },
+  });
   const news = createNews({ fetchImpl });
   const snow = createSnow({ fetchImpl });
   // Secret iCal feed URLs, edited by hand on the Pi; see docs/CALENDAR.md.

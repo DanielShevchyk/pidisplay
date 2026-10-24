@@ -361,7 +361,8 @@ button.wx-place { padding: 0; border: 0; background: none; font: inherit; color:
 .wx-details-map .wx-chip { min-height: 48px; padding: 0 12px; font-size: 17px; }
 .wx-airmap-view { height: 100%; display: flex; flex-direction: column; gap: 12px; }
 
-.wx-ten { flex: 0 0 min(700px, 42%); min-width: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.wx-details-left { flex: 0 0 min(700px, 42%); min-width: 0; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.wx-ten { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
 .wx-ten-title { color: var(--text-dim); font-size: 16px; text-transform: uppercase; letter-spacing: 0.08em; padding: 0 4px 4px; }
 .wx-ten-row {
   flex: 1 0 52px;
@@ -390,7 +391,7 @@ button.wx-place { padding: 0; border: 0; background: none; font: inherit; color:
 }
 @media (max-width: 800px) {
   .wx-details-split { flex-direction: column; overflow-y: auto; }
-  .wx-ten { flex: 0 0 auto; overflow: visible; }
+  .wx-details-left, .wx-ten { flex: 0 0 auto; overflow: visible; }
   .wx-details-map { flex: 0 0 70vh; }
 }
 
@@ -444,3 +445,65 @@ button.wx-ten-row.active .wx-pop { color: #fff; }
 .wx-hrow-temp { font-weight: 600; }
 .wx-hrow-feel { color: var(--text-dim); font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wx-hrow-wind { color: var(--text-dim); font-size: 16px; text-align: right; white-space: nowrap; }
+
+/* ---- Alerts, rain soon, highlights ---- */
+
+.wx-soon { color: #7cc4ff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button.wx-alert {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  max-width: 100%;
+  margin-top: 0.2em;
+  padding: 0.15em 0.6em;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wx-alert-name { overflow: hidden; text-overflow: ellipsis; }
+.wx-alert-severe { background: #ff5d5d; color: #fff; }
+.wx-alert-moderate { background: #ff9a3c; color: #1a1205; }
+.wx-alert-minor { background: #f5d33d; color: #1a1705; }
+.wx-bar-alert { margin-left: 6px; padding: 0 4px; border-radius: 6px; }
+
+.wx-details-head { display: flex; flex-direction: column; gap: 8px; }
+button.wx-alert-banner { justify-content: space-between; width: 100%; align-self: stretch; min-height: 52px; margin: 0; padding: 0 18px; border-radius: 14px; font-size: 20px; }
+.wx-alert-more { font-weight: 600; opacity: 0.85; }
+.wx-notes { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+.wx-note { padding: 6px 12px; border-radius: 999px; background: var(--surface-2); font-size: 16px; color: var(--text); }
+.wx-note:first-child { font-weight: 600; }
+
+.wx-alerts { height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.wx-alert-card { padding: 18px 22px; border-radius: 16px; background: var(--surface-2); border-left: 8px solid #f5d33d; color: var(--text); }
+.wx-alert-card.wx-alert-severe { border-left-color: #ff5d5d; background: var(--surface-2); color: var(--text); }
+.wx-alert-card.wx-alert-moderate { border-left-color: #ff9a3c; background: var(--surface-2); color: var(--text); }
+.wx-alert-card.wx-alert-minor { background: var(--surface-2); color: var(--text); }
+.wx-alerts .wx-alert-card h3 { margin: 0 0 4px; font-size: 24px; text-transform: none; letter-spacing: 0; color: var(--text); }
+.wx-alert-meta { color: var(--text-dim); font-size: 16px; }
+.wx-alert-headline { font-size: 19px; font-weight: 600; margin: 12px 0 0; }
+.wx-alert-text { font-size: 18px; line-height: 1.45; white-space: pre-line; margin: 10px 0 0; }
+.wx-alert-do { padding: 10px 14px; border-radius: 10px; background: var(--surface); }
+.sheet.wx-alert-sheet { width: min(1000px, 100%); }
+
+.wx { position: relative; }
+.wx-map-forecast-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 22px;
+  background: rgba(10, 14, 20, 0.75);
+  color: #fff;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}

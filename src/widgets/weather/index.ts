@@ -2,6 +2,7 @@ import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import { homeSettings } from '../../core/home';
+import { activeAlerts, alertClass, alertView, highlights, moonText, openAlerts, rainSoon, type Alert } from './insights';
 import { airMapView, aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
 import './weather.css';
 
@@ -77,9 +78,15 @@ interface Forecast {
     sunset: number | null;
     /** Today's peak UV index, from the forecast. */
     uvMax?: number | null;
+    gustMax?: number | null;
   }[];
   /** Today's UV index by hour from local midnight. */
   uvToday?: { time: number; uv: number | null }[];
+  /** Precipitation in the 15 minutes ending at each time, for the next two hours. */
+  soon?: { time: number; precip: number | null }[];
+  yesterday?: { high: number | null; low: number | null } | null;
+  /** Active National Weather Service alerts (US only), worst first. */
+  alerts?: Alert[];
 }
 
 interface SharedDefault {
@@ -191,7 +198,21 @@ export default defineWidget<WeatherConfig>({
         const at = `${data.location.lat},${data.location.lon}`;
         if (at !== mapAt) {
           mapAt = at;
-          root.replaceChildren(tapToLoad(() => lockedMap(mapFrame(data!, config, config.mapLayer, placement === 'small' ? 6 : 7))));
+          root.replaceChildren(
+            tapToLoad(() => lockedMap(mapFrame(data!, config, config.mapLayer, placement === 'small' ? 6 : 7))),
+            // The map covers the whole tile, so the forecast gets its own button.
+            h(
+              'button',
+              {
+                class: 'wx-map-forecast-btn',
+                onclick: (e: Event) => {
+                  e.stopPropagation();
+                  if (data) openDetails(upcoming(data), config);
+                },
+              },
+              placement === 'small' ? '📅' : '📅 10-day',
+            ),
+          );
         }
         return;
       }
@@ -420,10 +441,17 @@ function render(
       { class: 'wx-bar' },
       h('span', { class: 'wx-bar-icon' }, icon(cur.code, cur.isDay)),
       h('span', { class: 'wx-bar-temp' }, deg(cur.temp)),
+      activeAlerts(d).length > 0 && h('span', { class: `wx-bar-alert ${alertClass(activeAlerts(d)[0])}`, title: activeAlerts(d)[0].event }, '⚠️'),
     );
   }
 
-  const spec = daysOverride ? { ...LAYOUT[placement], days: daysOverride } : LAYOUT[placement];
+  const alerts = activeAlerts(d);
+  // The small and wide tiles have no room for a sentence; the tap view always shows it.
+  const soon = placement === 'small' || placement === 'medium' ? null : rainSoon(d);
+
+  const base = daysOverride ? { ...LAYOUT[placement], days: daysOverride } : LAYOUT[placement];
+  // The tall column has no spare height: an alert or a rain line takes the last day's row.
+  const spec = placement === 'tall' && !daysOverride && (soon || alerts.length) ? { ...base, days: base.days - 1 } : base;
   const now = h(
     'div',
     { class: 'wx-now' },
@@ -440,7 +468,21 @@ function render(
         offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠'),
       ),
       h('div', { class: 'wx-cond' }, describe(cur.code)),
+      soon && h('div', { class: 'wx-soon' }, `${soon.startsWith('Snow') ? '🌨️' : '🌧️'} ${soon}`),
       today && h('div', { class: 'wx-hilo' }, `H ${deg(today.high)}  L ${deg(today.low)}`),
+      alerts.length > 0 &&
+        h(
+          'button',
+          {
+            class: `wx-alert ${alertClass(alerts[0])}`,
+            onclick: (e: Event) => {
+              e.stopPropagation(); // don't also open the forecast
+              openAlerts(place, alerts, tz);
+            },
+          },
+          '⚠️',
+          placement !== 'small' && placement !== 'medium' && h('span', { class: 'wx-alert-name' }, ` ${alerts[0].event}${alerts.length > 1 ? ` +${alerts.length - 1}` : ''}`),
+        ),
       pills(d, place, aq, placement !== 'small' && placement !== 'medium'),
     ),
     placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
@@ -464,6 +506,7 @@ function render(
         today?.sunset ? item('Sunset', time.format(today.sunset * 1000)) : null,
         aq?.pm25 != null ? item('PM2.5', `${aq.pm25} µg/m³`) : null,
         aq?.uv != null ? item('UV index', String(aq.uv)) : null,
+        item('Moon', moonText(Date.now(), tz).split(' · ')[0]),
       ),
     );
   }
@@ -751,11 +794,40 @@ function openDetails(d: Forecast, config: WeatherConfig) {
     holder.replaceChildren(dayView(d, i));
   };
   const list = tenDay(d, showDay);
+  const unselect = () => {
+    chips.forEach((c) => c.classList.remove('active'));
+    list.querySelectorAll('.wx-ten-row').forEach((row) => row.classList.remove('active'));
+  };
+  // Above the days: alerts (tap for the full text), rain in the next two hours, highlights and the moon.
+  const tz = validZone(d.timezone);
+  const alerts = activeAlerts(d);
+  const soon = rainSoon(d);
+  const notes = [...(soon ? [`${soon.startsWith('Snow') ? '🌨️' : '🌧️'} ${soon}`] : []), ...highlights(d), moonText(Date.now(), tz)];
+  const head = h(
+    'div',
+    { class: 'wx-details-head' },
+    ...alerts.map((a) =>
+      h(
+        'button',
+        {
+          class: `wx-alert wx-alert-banner ${alertClass(a)}`,
+          onclick: () => {
+            windyLive ||= Boolean(holder.querySelector('iframe'));
+            unselect();
+            holder.replaceChildren(alertView([a], tz));
+          },
+        },
+        `⚠️ ${a.event}`,
+        h('span', { class: 'wx-alert-more' }, 'Details ›'),
+      ),
+    ),
+    h('div', { class: 'wx-notes' }, ...notes.map((n) => h('span', { class: 'wx-note' }, n))),
+  );
   const sheet = openSheet(`${icon(d.current.code, d.current.isDay)} ${place}`, [
     h(
       'div',
       { class: 'wx-details-split' },
-      list,
+      h('div', { class: 'wx-details-left' }, head, list),
       h('div', { class: 'wx-details-map' }, h('div', { class: 'wx-map-layers' }, ...chips), holder),
     ),
   ]);
@@ -858,6 +930,8 @@ function dayContent(d: Forecast, index: number, hours: HourDetail[], tz: string 
     rainTotal >= 0.01 && h('span', {}, `💧 ${rainTotal.toFixed(d.units === 'imperial' ? 2 : 1)} ${rainUnit}`),
     gustMax > 0 && h('span', {}, `🌬️ gusts to ${gustMax} ${speed}`),
     day.sunrise && day.sunset && h('span', {}, `🌅 ${timeFmt.format(day.sunrise * 1000)}  🌇 ${timeFmt.format(day.sunset * 1000)}`),
+    // The moon as it is that night.
+    h('span', {}, moonText((day.date + 22 * 3600) * 1000, tz).split(' · ')[0]),
   );
 
   // Chart: rain chance bars behind a temperature line, one slot per hour.

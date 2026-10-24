@@ -49,14 +49,27 @@ const air = {
   },
 };
 
+let alertsBody = { features: [] };
+
 function mockFetch({ airDown = false } = {}) {
   const calls = [];
   const airCalls = [];
+  const alertCalls = [];
+  const pastCalls = [];
   const fn = async (url) => {
     if (String(url).includes('air-quality')) {
       airCalls.push(String(url));
       if (airDown) throw new Error('offline');
       return { ok: true, status: 200, json: async () => air };
+    }
+    if (String(url).includes('api.weather.gov')) {
+      alertCalls.push(String(url));
+      return { ok: true, status: 200, json: async () => alertsBody };
+    }
+    if (String(url).includes('past_days=1')) {
+      pastCalls.push(String(url));
+      const y = NOW - 29 * HOUR;
+      return { ok: true, status: 200, json: async () => ({ daily: { time: [y, y + 24 * HOUR], temperature_2m_max: [70.4, 75], temperature_2m_min: [50.2, 55] } }) };
     }
     calls.push(String(url));
     const body = String(url).includes('geocoding') ? geocode : forecast();
@@ -64,6 +77,8 @@ function mockFetch({ airDown = false } = {}) {
   };
   fn.calls = calls;
   fn.airCalls = airCalls;
+  fn.alertCalls = alertCalls;
+  fn.pastCalls = pastCalls;
   return fn;
 }
 
@@ -198,4 +213,68 @@ test('day() returns every hour of one forecast day from the cached forecast', as
   assert.equal(fetchImpl.calls.filter((u) => u.includes('/forecast')).length, 1); // no second upstream call
   await assert.rejects(w.day('Springfield, MO', 'imperial', 'x'), { status: 400 });
   await assert.rejects(w.day('Springfield, MO', 'imperial', data.daily[5].date), { status: 404 });
+});
+
+test('NWS alerts: worst first, one per event, bell once per new alert', async () => {
+  alertsBody = {
+    features: [
+      { properties: { id: 'a1', event: 'Frost Advisory', severity: 'Minor', headline: 'Frost tonight', description: 'Cold.', ends: '2026-10-25T08:00:00-07:00' } },
+      { properties: { id: 'a2', event: 'Red Flag Warning', severity: 'Severe', headline: 'Fire danger', description: 'Wind and dry air.', instruction: 'No burning.' } },
+      { properties: { id: 'a3', event: 'Red Flag Warning', severity: 'Severe', headline: 'Fire danger (update)' } },
+    ],
+  };
+  const bell = [];
+  let saved = [];
+  let t = 0;
+  const fetchImpl = mockFetch();
+  const w = createWeather({ fetchImpl, now: () => (t += 11 * 60 * 1000), notify: (n) => bell.push(n), alertsSeen: { load: async () => saved, save: async (ids) => (saved = ids) } });
+  const data = await w.get('Springfield, MO');
+  assert.deepEqual(data.alerts.map((a) => a.event), ['Red Flag Warning', 'Frost Advisory']);
+  assert.equal(data.alerts[1].ends, Date.parse('2026-10-25T08:00:00-07:00') / 1000);
+  assert.equal(data.alerts[0].instruction, 'No burning.');
+  assert.match(fetchImpl.alertCalls[0], /point=37\.2000,-93\.2900/);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(bell.length, 1); // the Minor frost advisory only shows on the tile
+  assert.match(bell[0].title, /Red Flag Warning for Springfield/);
+  assert.equal(bell[0].level, 'alert');
+  assert.deepEqual(saved.sort(), ['a1', 'a2']);
+  await w.get('Springfield, MO'); // cache expired: fetched again, same alerts
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(bell.length, 1);
+  alertsBody = { features: [] };
+});
+
+test('yesterday comes from one extra call per day; alerts and yesterday failing leave the forecast', async () => {
+  const fetchImpl = mockFetch();
+  let t = 0;
+  const w = createWeather({ fetchImpl, now: () => (t += 11 * 60 * 1000) });
+  const data = await w.get('Springfield, MO');
+  assert.deepEqual(data.yesterday, { high: 70, low: 50 });
+  await w.get('Springfield, MO');
+  assert.equal(fetchImpl.pastCalls.length, 1);
+  assert.equal(data.daily[0].gustMax, null);
+  assert.deepEqual(data.soon, []);
+
+  const down = async (url) => {
+    if (String(url).includes('api.weather.gov') || String(url).includes('past_days')) throw new Error('offline');
+    return fetchImpl(url);
+  };
+  const d2 = await createWeather({ fetchImpl: down }).get('Springfield, MO');
+  assert.deepEqual(d2.alerts, []);
+  assert.equal(d2.yesterday, null);
+});
+
+test('soon keeps the next two hours of 15-minute precipitation', async () => {
+  const base = mockFetch();
+  const fetchImpl = async (url) => {
+    const res = await base(url);
+    if (!String(url).includes('/forecast?') || String(url).includes('past_days')) return res;
+    const body = await res.json();
+    body.minutely_15 = { time: Array.from({ length: 10 }, (_, i) => NOW - 1800 + i * 900), precipitation: [0, 0, 0, 0, 0.02, 0.05, 0, 0, 0, 0] };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  const data = await createWeather({ fetchImpl }).get('Springfield, MO');
+  assert.equal(data.soon.length, 7); // quarter hours ending after now
+  assert.equal(data.soon[0].time, NOW + 900);
+  assert.equal(data.soon[2].precip, 0.05);
 });
