@@ -588,7 +588,7 @@ export function createVoice({
     if (has(t, /\b(sunrise|sun rise|sunset|sun set|sun come up|sun go down|get dark)\b/)) {
       const target = parseDay(t, now())?.date ?? new Date(now());
       const { day } = dayAt(target);
-      if (!day) return fail('I only have the next week of sun times.');
+      if (!day) return fail('I only have sun times for the next 10 days.');
       const rise = has(t, /\b(sunrise|sun rise|come up)\b/);
       const at = rise ? day.sunrise : day.sunset;
       if (!at) return fail("I don't have that right now.");
@@ -637,7 +637,7 @@ export function createVoice({
     const snowQ = has(t, /\b(snow|snowing|snowy)\b/);
     if (target && sayDay(target.date, now()) !== 'today') {
       const { day } = dayAt(target.date);
-      if (!day) return fail('I only have the forecast for the next week.');
+      if (!day) return fail('I only have the forecast for the next 10 days.');
       const when = sayDay(target.date, now());
       if (rainQ || snowQ) return say(precipAnswer(day, when, snowQ, placeName));
       const rain = day.precipChance >= 30 ? `, with a ${day.precipChance} percent chance of ${isSnow(day.code) ? 'snow' : 'rain'}` : '';

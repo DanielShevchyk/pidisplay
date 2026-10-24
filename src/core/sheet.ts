@@ -107,6 +107,7 @@ export function settingsForm(
             placeholder: f.placeholder ?? 'City or code',
             value: String(values[f.key] ?? ''),
             places: f.places,
+            search: f.search,
             rawCode: false,
             onPick: (code) => set(f.key, code),
             onClear: () => set(f.key, ''),

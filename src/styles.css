@@ -423,6 +423,8 @@ select { font: inherit; color: inherit; }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 .picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+/* The place field shares the .picker name with the widget picker grid above; keep it a plain block. */
+.picker.place-picker { display: block; }
 .picker-item {
   display: flex;
   flex-direction: column;

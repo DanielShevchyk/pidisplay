@@ -22,7 +22,7 @@ interface WeatherConfig {
 const TILE_LAYERS: MapLayer[] = ['radar', 'rain', 'temp', 'wind'];
 
 /** Windy overlay names. */
-type MapLayer = 'radar' | 'rain' | 'temp' | 'wind' | 'gust' | 'clouds' | 'rh' | 'pressure';
+type MapLayer = 'radar' | 'satellite' | 'rain' | 'temp' | 'wind' | 'gust' | 'clouds' | 'rh' | 'pressure';
 
 const MAP_LAYERS: { value: MapLayer; label: string; icon: string; name: string }[] = [
   { value: 'radar', label: '📡 Radar', icon: '📡', name: 'Radar' },
@@ -33,6 +33,7 @@ const MAP_LAYERS: { value: MapLayer; label: string; icon: string; name: string }
   { value: 'clouds', label: '☁️ Clouds', icon: '☁️', name: 'Clouds' },
   { value: 'rh', label: '💧 Humidity', icon: '💧', name: 'Humidity' },
   { value: 'pressure', label: '🧭 Pressure', icon: '🧭', name: 'Pressure' },
+  { value: 'satellite', label: '🛰️ Satellite', icon: '🛰️', name: 'Satellite' },
 ];
 
 interface AirQuality {
@@ -127,7 +128,14 @@ export default defineWidget<WeatherConfig>({
   supportsBar: true,
   defaultConfig: { location: '', units: 'imperial', label: '', showAirQuality: true, view: 'split', mapLayer: 'rain' },
   settings: [
-    { key: 'location', label: 'Location (blank = same as other weather tiles)', type: 'text', placeholder: 'e.g. Austin, TX or 40.71,-74.01' },
+    {
+      key: 'location',
+      label: 'Location (blank = same as other weather tiles)',
+      type: 'place',
+      placeholder: 'e.g. Austin, TX or 40.71,-74.01',
+      places: async () => ({}),
+      search: async (q) => Object.fromEntries((await findPlaces(q)).map((p) => [p.label, { name: p.country }])),
+    },
     {
       key: 'units',
       label: 'Units',
@@ -193,14 +201,14 @@ export default defineWidget<WeatherConfig>({
           root.replaceChildren(split.el);
           root.classList.add('wx-split-mode');
         }
-        split.left.replaceChildren(render(data, config, 'tall', Boolean(failed), splitDays, pick));
+        split.left.replaceChildren(render(upcoming(data), config, 'tall', Boolean(failed), splitDays, pick));
         split.setPlace(data);
         return;
       }
       split = null;
       root.classList.remove('wx-split-mode');
       root.replaceChildren(
-        data ? render(data, config, placement, Boolean(failed), undefined, pick) : failed ? message('⚠️', failed) : message('', 'Loading…'),
+        data ? render(upcoming(data), config, placement, Boolean(failed), undefined, pick) : failed ? message('⚠️', failed) : message('', 'Loading…'),
       );
     };
 
@@ -280,7 +288,7 @@ export default defineWidget<WeatherConfig>({
       const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 0;
       if (mapTile || !data || moved > 12) return;
       if (split && !split.left.contains(e.target as Node)) return;
-      openDetails(data, config);
+      openDetails(upcoming(data), config);
     });
 
     return {
@@ -292,6 +300,30 @@ export default defineWidget<WeatherConfig>({
     };
   },
 });
+
+const COORDS = /^\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*$/;
+
+/** Place suggestions for a typed name (Open-Meteo geocoding); typed "lat,lon" comes back as itself. */
+async function findPlaces(q: string): Promise<{ label: string; country: string }[]> {
+  if (COORDS.test(q)) return [{ label: q.replace(/\s+/g, ''), country: 'Coordinates' }];
+  try {
+    const res = await fetch(`/api/weather/places?${new URLSearchParams({ q })}`);
+    return res.ok ? await res.json() : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Drops days that are already over, so a forecast kept from before an outage
+ * (or a reboot without internet) doesn't call yesterday "Today".
+ */
+function upcoming(d: Forecast): Forecast {
+  const now = Date.now() / 1000;
+  const over = d.daily.findIndex((x) => x.date + 86400 > now);
+  if (over === 0) return d;
+  return { ...d, daily: over < 0 ? [] : d.daily.slice(over) };
+}
 
 /** Sheet for typing a new location. Blank means "same as the other weather tiles". */
 function pickLocation(own: string, current: string, save: (location: string) => void) {
@@ -306,8 +338,10 @@ function pickLocation(own: string, current: string, save: (location: string) => 
     sheet.close();
     if (loc !== own) save(loc);
   };
+  // Enter takes the top suggestion when there is one (typed coordinates have none).
+  let top = '';
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && input.value.trim()) done(input.value.trim());
+    if (e.key === 'Enter' && input.value.trim()) done(top || input.value.trim());
   });
 
   // Matching places drop down as you type; tapping one saves it.
@@ -317,32 +351,30 @@ function pickLocation(own: string, current: string, save: (location: string) => 
   const suggest = async () => {
     const q = input.value.trim();
     asked = q;
+    top = '';
     if (q.length < 2) return list.replaceChildren();
-    try {
-      const res = await fetch(`/api/weather/places?${new URLSearchParams({ q })}`);
-      const places: { label: string }[] = res.ok ? await res.json() : [];
-      if (asked !== q || !list.isConnected) return;
-      list.replaceChildren(
-        ...(places.length
-          ? places.slice(0, 6).map((p) =>
-              h(
-                'button',
-                {
-                  class: 'wx-suggest-item',
-                  // Keep focus in the field so the keyboard doesn't jump the list before the tap lands.
-                  onmousedown: (e: Event) => e.preventDefault(),
-                  onclick: () => done(p.label),
-                },
-                `📍 ${p.label}`,
-              ),
-            )
-          : [h('div', { class: 'wx-suggest-empty' }, 'No matching places')]),
-      );
-    } catch {
-      list.replaceChildren();
-    }
+    const places = await findPlaces(q);
+    if (asked !== q || !list.isConnected) return;
+    top = places[0]?.label ?? '';
+    list.replaceChildren(
+      ...(places.length
+        ? places.slice(0, 6).map((p) =>
+            h(
+              'button',
+              {
+                class: 'wx-suggest-item',
+                // Keep focus in the field so the keyboard doesn't jump the list before the tap lands.
+                onmousedown: (e: Event) => e.preventDefault(),
+                onclick: () => done(p.label),
+              },
+              `📍 ${p.label}`,
+            ),
+          )
+        : [h('div', { class: 'wx-suggest-empty' }, 'No matching places')]),
+    );
   };
   input.addEventListener('input', () => {
+    top = '';
     clearTimeout(timer);
     timer = window.setTimeout(suggest, 250);
   });
@@ -834,8 +866,8 @@ function dayContent(d: Forecast, index: number, hours: HourDetail[], tz: string 
   const padT = 34;
   const padB = 34;
   const temps = hours.map((x) => x.temp).filter((n): n is number => n !== null);
-  const tMin = Math.min(...temps);
-  const tMax = Math.max(...temps);
+  const tMin = temps.length ? Math.min(...temps) : 0;
+  const tMax = temps.length ? Math.max(...temps) : 0;
   const tSpan = Math.max(1, tMax - tMin);
   const slot = W / hours.length;
   const cx = (i: number) => i * slot + slot / 2;

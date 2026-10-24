@@ -11,6 +11,8 @@ export interface PlacePickerOptions {
   value?: string;
   /** The places to suggest; a function is called on every keystroke (or once, if it returns a promise). */
   places: Places | (() => Places | Promise<Places>);
+  /** Looks places up as you type (e.g. a geocoder) instead of filtering `places`; results keep their order. */
+  search?: (q: string) => Promise<Places>;
   exclude?: (code: string) => boolean;
   onPick: (code: string) => void;
   /** Offer a typed 3-letter code that isn't in `places`; the label says what that means. */
@@ -36,6 +38,7 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
   const list = h('div', { class: 'picker-list', role: 'listbox', hidden: true });
   let current = opts.value ?? '';
   let options: string[] = [];
+  let searchSeq = 0;
   let loaded: Places | null = typeof opts.places === 'function' ? null : opts.places;
   const getPlaces = async (): Promise<Places> => {
     if (typeof opts.places !== 'function') return opts.places;
@@ -75,7 +78,13 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
       options = [];
       return;
     }
-    const places = await getPlaces();
+    if (opts.search) {
+      // Wait for a pause in typing before asking the server.
+      const asked = ++searchSeq;
+      await new Promise((r) => setTimeout(r, 250));
+      if (asked !== searchSeq) return;
+    }
+    const places = opts.search ? await opts.search(q).catch(() => ({}) as Places) : await getPlaces();
     if (input.value.trim().toLowerCase() !== q) return; // typed on while loading
     const rank = (code: string, name: string) => {
       const c = code.toLowerCase();
@@ -86,12 +95,10 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
       if (n.split(/[\s,]+/).some((w) => w.startsWith(q))) return 3;
       return n.includes(q) ? 4 : 9;
     };
-    const matches = Object.entries(places)
+    const all = Object.entries(places)
       .filter(([code]) => !opts.exclude?.(code))
-      .map(([code, p]) => ({ code, name: p.name, tag: p.tag, r: rank(code, p.name) }))
-      .filter((m) => m.r < 9)
-      .sort((a, b) => a.r - b.r || a.name.localeCompare(b.name))
-      .slice(0, 8);
+      .map(([code, p]) => ({ code, name: p.name, tag: p.tag, r: opts.search ? 0 : rank(code, p.name) }));
+    const matches = (opts.search ? all : all.filter((m) => m.r < 9).sort((a, b) => a.r - b.r || a.name.localeCompare(b.name))).slice(0, 8);
     const raw = q.toUpperCase();
     options = matches.map((m) => m.code);
     const rows: Node[] = matches.map((m) => option(m.code, m.name, m.tag));
@@ -127,5 +134,5 @@ export function placePicker(opts: PlacePickerOptions): HTMLElement {
       }
     }, 150),
   );
-  return h('div', { class: `picker ${opts.class ?? ''}` }, input, list);
+  return h('div', { class: `picker place-picker ${opts.class ?? ''}` }, input, list);
 }
