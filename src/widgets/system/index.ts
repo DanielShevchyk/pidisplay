@@ -1,15 +1,16 @@
 import { h } from '../../core/dom';
 import { defineWidget, type Placement } from '../../core/types';
+import { openDetails } from './details';
 import './system.css';
 
-interface SystemConfig {
+export interface SystemConfig {
   refreshSeconds: number;
   tempUnit: 'c' | 'f';
   [key: string]: unknown;
 }
 
 /** Mirrors the payload from GET /api/system (server/system.js). Null = not available. */
-interface Stats {
+export interface Stats {
   time: number;
   hostname: string;
   ip: string | null;
@@ -35,9 +36,9 @@ interface Stats {
   network: { rxRate: number | null; txRate: number | null } | null;
 }
 
-type Level = 'ok' | 'warn' | 'bad';
+export type Level = 'ok' | 'warn' | 'bad';
 
-interface Metric {
+export interface Metric {
   label: string;
   /** 0–100, drives the ring or bar. */
   pct: number | null;
@@ -60,8 +61,8 @@ const LAYOUT: Record<Placement, { style: 'bar' | 'meters' | 'rings'; history: bo
 const HISTORY_LEN = 60;
 const RETRY_MS = 10_000;
 /** The Pi 4 firmware starts throttling at 80 °C (soft limit from 60 °C on some boards). */
-const TEMP_WARN = 70;
-const TEMP_BAD = 80;
+export const TEMP_WARN = 70;
+export const TEMP_BAD = 80;
 
 // Shared by every tile so a remount (resize, settings) keeps the graph.
 const history: { time: number; cpu: number | null; temp: number | null }[] = [];
@@ -127,6 +128,12 @@ export default defineWidget<SystemConfig>({
       timer = window.setTimeout(refresh, next);
     };
 
+    // Tap (top bar or tile) opens the detail sheet; in edit mode taps belong to the editor.
+    root.addEventListener('click', () => {
+      if (!el.closest('.editing')) openDetails(config);
+    });
+    root.classList.add('sys-tappable');
+
     paint();
     refresh();
 
@@ -142,12 +149,12 @@ export default defineWidget<SystemConfig>({
 
 // ---- Formatting -----------------------------------------------------------
 
-function level(pct: number | null, warn = 75, bad = 90): Level {
+export function level(pct: number | null, warn = 75, bad = 90): Level {
   if (pct === null) return 'ok';
   return pct >= bad ? 'bad' : pct >= warn ? 'warn' : 'ok';
 }
 
-function bytes(n: number): string {
+export function bytes(n: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
   while (n >= 1024 && i < units.length - 1) {
@@ -157,23 +164,23 @@ function bytes(n: number): string {
   return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${units[i]}`;
 }
 
-function rate(n: number | null): string {
+export function rate(n: number | null): string {
   return n === null ? '–' : `${bytes(n)}/s`;
 }
 
-function duration(sec: number): string {
+export function duration(sec: number): string {
   const d = Math.floor(sec / 86400);
   const hrs = Math.floor((sec % 86400) / 3600);
   const min = Math.floor((sec % 3600) / 60);
   return d ? `${d}d ${hrs}h` : hrs ? `${hrs}h ${min}m` : `${min}m`;
 }
 
-function temp(c: number | null, unit: 'c' | 'f'): string {
+export function temp(c: number | null, unit: 'c' | 'f'): string {
   if (c === null) return '–';
   return unit === 'f' ? `${Math.round(c * 1.8 + 32)}°F` : `${Math.round(c)}°C`;
 }
 
-function metrics(s: Stats, unit: 'c' | 'f'): Metric[] {
+export function metrics(s: Stats, unit: 'c' | 'f'): Metric[] {
   const pctOf = (used: number, total: number) => (total > 0 ? (used / total) * 100 : null);
   const mem = s.memory ? pctOf(s.memory.used, s.memory.total) : null;
   // Same as df's Use%: reserved root blocks count as neither used nor free.
@@ -214,7 +221,7 @@ function metrics(s: Stats, unit: 'c' | 'f'): Metric[] {
 }
 
 /** The one-line power/throttle verdict. A Pi 4 can't measure watts, only report trouble. */
-function powerStatus(s: Stats): { text: string; level: Level } {
+export function powerStatus(s: Stats): { text: string; level: Level } {
   const p = s.power;
   if (!p) return { text: 'Power n/a', level: 'ok' };
   if (p.underVoltage) return { text: 'Undervoltage now', level: 'bad' };
@@ -286,18 +293,18 @@ function render(s: Stats, config: SystemConfig, placement: Placement, stale: boo
   return body;
 }
 
-function worst(levels: Level[]): Level {
+export function worst(levels: Level[]): Level {
   return levels.includes('bad') ? 'bad' : levels.includes('warn') ? 'warn' : 'ok';
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
-function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
+export function svg(tag: string, attrs: Record<string, string | number>): SVGElement {
   const el = document.createElementNS(SVG, tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
   return el;
 }
 
-function ring(m: Metric) {
+export function ring(m: Metric) {
   const chart = svg('svg', { viewBox: '0 0 100 100', class: 'sys-ring-svg' });
   chart.append(
     svg('circle', { cx: 50, cy: 50, r: 42, class: 'sys-ring-track', pathLength: 100 }),
@@ -319,7 +326,7 @@ function ring(m: Metric) {
   );
 }
 
-function meter(m: Metric) {
+export function meter(m: Metric) {
   return h(
     'div',
     { class: 'sys-meter' },

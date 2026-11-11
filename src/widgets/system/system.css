@@ -177,3 +177,75 @@
 .sys-bar-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--success); }
 .sys-bar-dot.lvl-warn { background: var(--warning); }
 .sys-bar-dot.lvl-bad { background: var(--danger); }
+
+/* Tap to open the detail sheet (top bar and tiles). */
+.sys-tappable { cursor: pointer; }
+.bar-item .sys-tappable:active { opacity: 0.7; }
+
+/* ---- Detail sheet ---- */
+
+.sheet.sysd-sheet { width: min(1500px, 100%); max-height: 92%; }
+.sysd-body { display: flex; flex-direction: column; gap: 20px; font-variant-numeric: tabular-nums; }
+.sysd-body.stale > :not(.sys-stale) { opacity: 0.55; }
+.sysd-rings { height: 170px; flex: 0 0 auto; gap: 24px; }
+.sysd-rings .sys-ring { font-size: 22px; }
+.sysd-grid { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+.sysd-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.sysd-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sysd-range { margin: 0; }
+.sysd-label { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 16px; }
+.sysd-section { display: flex; flex-direction: column; gap: 10px; }
+.sysd-note { color: var(--text-dim); font-size: 18px; }
+
+.sysd-chart { display: flex; flex-direction: column; gap: 4px; }
+.sysd-chart-head { display: flex; align-items: baseline; gap: 14px; font-size: 20px; flex-wrap: wrap; }
+.sysd-chart-title { font-weight: 600; }
+.sysd-chart-now { font-size: 22px; }
+.sysd-chart-stats { margin-left: auto; color: var(--text-dim); font-size: 17px; }
+.sysd-chart-sub { color: var(--text-dim); font-size: 16px; }
+.sysd-plot { position: relative; }
+.sysd-svg { display: block; width: 100%; height: 110px; border-radius: 12px; background: var(--surface-2); }
+.sysd-axis-max { position: absolute; top: 4px; left: 10px; font-size: 13px; color: var(--text-dim); pointer-events: none; }
+.sysd-axis { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 14px; }
+.sysd-grid-line { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0.6; }
+.sysd-mark-warn,
+.sysd-mark-bad { stroke-width: 1.5; vector-effect: non-scaling-stroke; stroke-dasharray: 6 5; }
+.sysd-mark-warn { stroke: var(--warning); }
+.sysd-mark-bad { stroke: var(--danger); }
+.sysd-line { fill: none; stroke-width: 2.5; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.sysd-area { stroke: none; }
+
+/* Series colours: one hue per metric, area = 22% tint of the line. */
+.sysd-cpu { --c: var(--accent); }
+.sysd-iowait { --c: var(--danger); }
+.sysd-temp { --c: var(--warning); }
+.sysd-mem { --c: #a77bff; }
+.sysd-rx { --c: var(--success); }
+.sysd-tx { --c: var(--accent); }
+.sysd-line { stroke: var(--c); }
+.sysd-area { fill: color-mix(in srgb, var(--c) 22%, transparent); }
+.sysd-rx:not(svg *),
+.sysd-tx:not(svg *) { color: var(--c); }
+.sysd-legend { display: flex; gap: 12px; font-size: 16px; }
+:root[data-theme='light'] .sysd-mem { --c: #6a3fc4; }
+:root[data-theme='light'] .sysd-rx { --c: #13824f; }
+
+.sysd-cores { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }
+.sysd-cores .sys-meter { font-size: 19px; }
+
+.sysd-table { display: grid; gap: 8px 16px; font-size: 18px; align-items: baseline; }
+.sysd-table > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sysd-th { color: var(--text-dim); font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; }
+.sysd-net { grid-template-columns: minmax(0, 1.3fr) auto auto minmax(0, 1.4fr); }
+.sysd-procs { grid-template-columns: minmax(0, 1fr) auto auto; }
+.sysd-procs > span:nth-child(3n + 2),
+.sysd-procs > span:nth-child(3n) { text-align: right; }
+.sysd-errs { color: var(--warning); font-size: 14px; }
+
+.sysd-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; font-size: 19px; }
+.sysd-facts .sys-fact-label { font-size: 15px; }
+
+@media (max-width: 900px) {
+  .sysd-grid { grid-template-columns: 1fr; }
+  .sysd-rings { height: 130px; }
+}

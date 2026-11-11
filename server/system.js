@@ -41,6 +41,11 @@ export function createSystem({
   cpus = () => os.cpus(),
   now = () => Date.now(),
   diskPath = '/',
+  /** Background history sampling (see start()). */
+  historyMs = 10_000,
+  historyLen = 360,
+  clockTicks = 100,
+  pageSize = 4096,
 } = {}) {
   let prevCpu = null;
   let prevNet = null;
@@ -220,6 +225,169 @@ export function createSystem({
     };
   }
 
+  // ---- Rolling history + details -------------------------------------------
+  // A light background sampler keeps the last hour so the detail sheet has a
+  // graph the moment it opens. Each tick is four small /proc and /sys reads
+  // (never vcgencmd), every 10 s: well under a millisecond of CPU on a Pi 4.
+  const points = [];
+  let histTimer = null;
+  let histPrevStat = null;
+  let histPrevIfaces = null;
+  let lastIfaceRates = new Map();
+  let lastSplit = null;
+  let prevProcs = null;
+  let prevDetailIfaces = null;
+  let prevDetailStat = null;
+
+  /** Aggregate CPU line of /proc/stat: user, nice, system, idle, iowait, irq, softirq, steal. */
+  async function procStat() {
+    const text = await tryRead('/proc/stat');
+    const line = text?.split('\n').find((l) => l.startsWith('cpu '));
+    if (!line) return null;
+    const [user, nice, system, idle, iowait = 0, irq = 0, softirq = 0, steal = 0] = line.trim().split(/\s+/).slice(1).map(Number);
+    return { user: user + nice, system: system + irq + softirq, iowait, idle, total: user + nice + system + idle + iowait + irq + softirq + steal };
+  }
+
+  function cpuSplit(cur, prev) {
+    if (!cur || !prev) return null;
+    const total = cur.total - prev.total;
+    if (total <= 0) return null;
+    const pct = (k) => Math.round(((cur[k] - prev[k]) / total) * 1000) / 10;
+    const busy = Math.round(((total - (cur.idle - prev.idle) - (cur.iowait - prev.iowait)) / total) * 1000) / 10;
+    return { usage: busy, user: pct('user'), system: pct('system'), iowait: pct('iowait') };
+  }
+
+  /** Per-interface byte, packet, error and drop counters from /proc/net/dev (no loopback). */
+  async function interfaces() {
+    const text = await tryRead('/proc/net/dev');
+    if (!text) return null;
+    const list = [];
+    for (const line of text.split('\n').slice(2)) {
+      const i = line.indexOf(':');
+      if (i < 0) continue;
+      const name = line.slice(0, i).trim();
+      if (name === 'lo') continue;
+      const f = line.slice(i + 1).trim().split(/\s+/).map(Number);
+      list.push({ name, rx: f[0] || 0, rxPackets: f[1] || 0, rxErrors: f[2] || 0, rxDrops: f[3] || 0, tx: f[8] || 0, txPackets: f[9] || 0, txErrors: f[10] || 0, txDrops: f[11] || 0 });
+    }
+    return list;
+  }
+
+  function ifaceRates(cur, prev, t) {
+    const out = new Map();
+    if (!cur || !prev || t <= prev.t) return out;
+    const secs = (t - prev.t) / 1000;
+    for (const c of cur) {
+      const p = prev.list.find((x) => x.name === c.name);
+      if (!p || c.rx < p.rx || c.tx < p.tx) continue; // new interface or counter reset
+      out.set(c.name, { rxRate: Math.round((c.rx - p.rx) / secs), txRate: Math.round((c.tx - p.tx) / secs) });
+    }
+    return out;
+  }
+
+  async function tick() {
+    const t = now();
+    const [stat, mem, temp, ifs, mhz] = await Promise.all([
+      safe(procStat),
+      safe(memory),
+      safe(temperature),
+      safe(interfaces),
+      safe(() => tryRead('/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq')),
+    ]);
+    const split = cpuSplit(stat, histPrevStat);
+    histPrevStat = stat;
+    if (split) lastSplit = split;
+    const rates = ifaceRates(ifs, histPrevIfaces, t);
+    histPrevIfaces = ifs ? { list: ifs, t } : null;
+    if (rates.size) lastIfaceRates = rates;
+    const sum = (k) => (rates.size ? [...rates.values()].reduce((s, r) => s + r[k], 0) : null);
+    // The first tick only primes the counters.
+    if (!split && !rates.size) return;
+    points.push({
+      t,
+      cpu: split?.usage ?? null,
+      iowait: split?.iowait ?? null,
+      mem: mem?.used ?? null,
+      temp,
+      rx: sum('rxRate'),
+      tx: sum('txRate'),
+      mhz: mhz && Number.isFinite(Number(mhz)) ? Math.round(Number(mhz) / 1000) : null,
+    });
+    if (points.length > historyLen) points.splice(0, points.length - historyLen);
+  }
+
+  /** Reads utime+stime and RSS of every process, from /proc/<pid>/stat. */
+  async function processTimes() {
+    const pids = (await readdir('/proc').catch(() => [])).filter((d) => /^\d+$/.test(d));
+    const out = new Map();
+    await Promise.all(
+      pids.map(async (pid) => {
+        const text = await tryRead(`/proc/${pid}/stat`);
+        if (!text) return;
+        const open = text.indexOf('(');
+        const close = text.lastIndexOf(')');
+        if (open < 0 || close < open) return;
+        const f = text.slice(close + 2).split(' ');
+        // f[0] is field 3 (state); utime/stime are fields 14/15, rss field 24.
+        out.set(pid, { name: text.slice(open + 1, close), ticks: Number(f[11]) + Number(f[12]), rss: Number(f[21]) * pageSize });
+      }),
+    );
+    return out;
+  }
+
+  /** Top process groups by CPU (share of the whole machine) with memory, grouped by name. */
+  async function topProcesses(limit = 8) {
+    let cur = await processTimes();
+    let t = now();
+    let prev = prevProcs;
+    // Without a recent previous reading, take a short second one to diff against.
+    if (!prev || t - prev.t > 30_000 || t <= prev.t) {
+      prevProcs = { map: cur, t };
+      await new Promise((r) => setTimeout(r, 500));
+      prev = prevProcs;
+      cur = await processTimes();
+      t = Math.max(now(), prev.t + 500);
+    }
+    prevProcs = { map: cur, t };
+    if (!cur.size) return { count: 0, top: [] };
+    const cores = Math.max(1, cpus().length);
+    const scale = 100 / (((t - prev.t) / 1000) * clockTicks * cores);
+    const groups = new Map();
+    for (const [pid, p] of cur) {
+      const before = prev.map.get(pid);
+      const delta = before && before.name === p.name ? Math.max(0, p.ticks - before.ticks) : 0;
+      const g = groups.get(p.name) ?? { name: p.name, count: 0, cpu: 0, mem: 0 };
+      g.count++;
+      g.cpu += delta * scale;
+      g.mem += p.rss || 0;
+      groups.set(p.name, g);
+    }
+    const top = [...groups.values()]
+      .sort((a, b) => b.cpu - a.cpu || b.mem - a.mem)
+      .slice(0, limit)
+      .map((g) => ({ ...g, cpu: Math.round(g.cpu * 10) / 10 }));
+    return { count: cur.size, top };
+  }
+
+  async function details() {
+    const t = now();
+    const [ifs, procs, stat] = await Promise.all([safe(interfaces), safe(() => topProcesses()), safe(procStat)]);
+    let rates = prevDetailIfaces && t - prevDetailIfaces.t < 30_000 ? ifaceRates(ifs, prevDetailIfaces, t) : new Map();
+    if (!rates.size) rates = lastIfaceRates;
+    prevDetailIfaces = ifs ? { list: ifs, t } : null;
+    // CPU split since the sheet's last refresh (falls back to the last history tick's).
+    const split = (prevDetailStat && t - prevDetailStat.t < 30_000 ? cpuSplit(stat, prevDetailStat.stat) : null) ?? lastSplit;
+    prevDetailStat = stat ? { stat, t } : null;
+    return {
+      time: t,
+      intervalMs: historyMs,
+      history: points,
+      cpuSplit: split,
+      processes: procs,
+      interfaces: (ifs ?? []).map((i) => ({ ...i, rxRate: rates.get(i.name)?.rxRate ?? null, txRate: rates.get(i.name)?.txRate ?? null })),
+    };
+  }
+
   return {
     async get() {
       if (cache && now() - cache.time < CACHE_MS) return cache;
@@ -227,5 +395,18 @@ export function createSystem({
       cache = await pending;
       return cache;
     },
+    details,
+    /** Starts the background history sampler (the server calls this; tests call tick). */
+    start() {
+      if (histTimer) return;
+      tick().catch(() => {});
+      histTimer = setInterval(() => tick().catch(() => {}), historyMs);
+      histTimer.unref?.();
+    },
+    stop() {
+      clearInterval(histTimer);
+      histTimer = null;
+    },
+    tick,
   };
 }

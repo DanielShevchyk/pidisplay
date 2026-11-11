@@ -115,3 +115,51 @@ test('caches a sample for concurrent and rapid requests', async () => {
   await sys.get();
   assert.equal(calls, before);
 });
+
+test('keeps a rolling history and reports per-interface rates and top processes', async () => {
+  const pi = fakePi();
+  let stat = 0;
+  const procs = { 1: 0, 2: 0 };
+  const files = {
+    '/proc/meminfo': MEMINFO,
+    '/sys/class/thermal/thermal_zone0/temp': '50000',
+  };
+  const readFile = async (f) => {
+    if (f === '/proc/stat') {
+      stat++;
+      // +70 user, +20 idle, +10 iowait per read => 70% busy, 10% iowait.
+      return `cpu  ${70 * stat} 0 0 ${20 * stat} ${10 * stat} 0 0 0 0 0\ncpu0 1 2 3 4\n`;
+    }
+    const m = f.match(/^\/proc\/(\d+)\/stat$/);
+    if (m) {
+      procs[m[1]] += m[1] === '1' ? 50 : 10;
+      return `${m[1]} (${m[1] === '1' ? 'chromium' : 'node server'}) S 0 0 0 0 0 0 0 0 0 0 ${procs[m[1]]} 0 0 0 0 0 0 0 0 0 1000 0`;
+    }
+    return pi.opts.readFile(f).catch(() => {
+      if (f in files) return files[f];
+      throw new Error('nope');
+    });
+  };
+  const sys = createSystem({ ...pi.opts, readFile, readdir: async () => ['1', '2', 'self'], historyLen: 3 });
+
+  await sys.tick(); // primes the counters
+  for (let i = 0; i < 4; i++) {
+    pi.advance(10_000);
+    await sys.tick();
+  }
+  const d = await sys.details();
+  assert.equal(d.history.length, 3);
+  const last = d.history.at(-1);
+  assert.equal(last.cpu, 70);
+  assert.equal(last.iowait, 10);
+  assert.equal(last.temp, 50);
+  assert.equal(last.rx, 200); // 2000 bytes over 10 s
+  assert.equal(last.tx, 100);
+  assert.equal(d.interfaces.length, 1);
+  assert.equal(d.interfaces[0].name, 'eth0');
+  assert.equal(d.interfaces[0].rxRate, 200);
+  assert.equal(d.processes.count, 2);
+  assert.equal(d.processes.top[0].name, 'chromium');
+  assert.ok(d.processes.top[0].cpu > d.processes.top[1].cpu);
+  assert.equal(d.processes.top[0].mem, 1000 * 4096);
+});

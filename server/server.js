@@ -228,6 +228,8 @@ export function createServer({
     broadcast: (s) => broadcast('sleep', s),
   });
   if (startSleep) sleep.start();
+  // Same flag: only the real server keeps the System widget's rolling history.
+  if (startSleep) system.start?.();
   let ringingIds = new Set();
   function wakeForNewRinging(snapshot) {
     const now = new Set([...snapshot.timers, ...snapshot.alarms].filter((x) => x.state === 'ringing').map((x) => x.id));
@@ -531,6 +533,7 @@ export function createServer({
     }
 
     if (resource === 'system' && !key && req.method === 'GET') return send(res, 200, await system.get());
+    if (resource === 'system' && key === 'details' && req.method === 'GET') return send(res, 200, await system.details());
 
     if (resource === 'fares' && !key && req.method === 'GET') {
       const summary = await readJson(faresFile, null).catch(() => null);
@@ -813,6 +816,7 @@ export function createServer({
     stocks.stop();
     voice.stop();
     sleep.stop();
+    system.stop?.();
     youtube.stop();
     vacuum.stop();
     for (const res of clients) res.end();
