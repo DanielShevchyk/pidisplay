@@ -15,7 +15,7 @@ export class CheckinError extends Error {
 const bad = (message) => new CheckinError(400, message);
 const isInt = (v, min, max) => Number.isInteger(v) && v >= min && v <= max;
 
-export const TYPES = ['scale', 'hours', 'weight', 'yesno', 'choice'];
+export const TYPES = ['scale', 'hours', 'time', 'weight', 'yesno', 'choice'];
 const MAX_QUESTIONS = 30;
 const MAX_NOTE = 500;
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -24,13 +24,17 @@ const ID_RE = /^[a-z0-9-]{1,40}$/;
 /**
  * Built-in questions. Ids are stored with every answer, so never rename one.
  * "low"/"high" label the ends of a 1-5 scale; lowerIsBetter flips its colors and trend arrows.
- * required: Save stays off until it's answered. Weight is in pounds. A "choice"
+ * required: Save stays off until it's answered. Weight is in pounds; a time is minutes
+ * after midnight. A "choice"
  * question (built-in only) stores one of its option values.
  */
 export const DEFAULT_QUESTIONS = [
   { id: 'sleep', label: 'How well did you sleep?', short: 'Sleep', type: 'scale', low: 'Terrible', high: 'Great', enabled: true },
-  { id: 'hours', label: 'About how many hours did you sleep?', short: 'Hours slept', type: 'hours', enabled: true },
-  { id: 'weight', label: "What's your weight this morning?", short: 'Weight', type: 'weight', required: true, enabled: true },
+  { id: 'bedtime', label: 'When do you think you fell asleep?', short: 'Fell asleep', type: 'time', enabled: true },
+  { id: 'waketime', label: 'When did you wake up?', short: 'Woke up', type: 'time', enabled: true },
+  // Worked out from the two times above when they're answered; asking it directly is off by default.
+  { id: 'hours', label: 'About how many hours did you sleep?', short: 'Hours slept', type: 'hours', enabled: false },
+  { id: 'weight', label: "What's your weight this morning?", short: 'Weight', type: 'weight', enabled: true },
   { id: 'energy', label: "How's your energy?", short: 'Energy', type: 'scale', low: 'Drained', high: 'Full', enabled: true },
   { id: 'mood', label: 'How are you feeling overall?', short: 'Mood', type: 'scale', low: 'Awful', high: 'Great', enabled: true },
   { id: 'stress', label: 'How stressed do you feel?', short: 'Stress', type: 'scale', low: 'Calm', high: 'Very', lowerIsBetter: true, enabled: true },
@@ -91,7 +95,9 @@ function text(v, name, max, required = true) {
 /** Checks one answer against its question; returns the value to store. */
 export function validAnswer(q, v) {
   if (q.type === 'scale' && isInt(v, 1, 5)) return v;
-  if (q.type === 'hours' && typeof v === 'number' && v >= 0 && v <= 16 && Math.round(v * 2) === v * 2) return v;
+  // Tenths: hours worked out from bed and wake times are kept to a tenth.
+  if (q.type === 'hours' && typeof v === 'number' && v >= 0 && v <= 16 && Math.abs(Math.round(v * 10) - v * 10) < 1e-6) return Math.round(v * 10) / 10;
+  if (q.type === 'time' && isInt(v, 0, 24 * 60 - 1)) return v;
   if (q.type === 'weight' && typeof v === 'number' && v >= 20 && v <= 800) {
     const tenths = Math.round(v * 10);
     if (Math.abs(tenths - v * 10) < 1e-6) return tenths / 10;
@@ -176,6 +182,15 @@ function normalizeQuestions(list) {
   }
 }
 
+/** Hours (tenths) from falling asleep to waking, crossing midnight when it needs to. */
+export function sleptHours(bedtime, waketime) {
+  const minutes = (waketime - bedtime + 24 * 60) % (24 * 60);
+  return Math.round((minutes / 60) * 10) / 10;
+}
+
+/** Files saved before this version get one-time changes in normalize(). */
+const VERSION = 2;
+
 function newProfile(id, name, emoji) {
   return { id, name, emoji, prompt: true, questions: structuredClone(DEFAULT_QUESTIONS), entries: {} };
 }
@@ -205,7 +220,17 @@ function normalize(saved) {
       entries: p.entries && typeof p.entries === 'object' ? p.entries : {},
     }));
   if (!profiles.length) profiles = [newProfile('me', 'Me', '🙂')];
-  return { settings, profiles, skipped: typeof s.skipped === 'string' ? s.skipped : null };
+  if ((s.version ?? 1) < 2) {
+    // Version 2 (Dan, 2026-11-11): ask when you fell asleep and woke up instead of
+    // hours slept (hours are worked out from them), and weight is no longer required.
+    for (const p of profiles) {
+      for (const q of p.questions) {
+        if (q.id === 'hours') q.enabled = false;
+        if (q.id === 'weight') delete q.required;
+      }
+    }
+  }
+  return { version: VERSION, settings, profiles, skipped: typeof s.skipped === 'string' ? s.skipped : null };
 }
 
 /** CSV of every person's days, oldest first, one column per question (by short name). */
@@ -225,7 +250,9 @@ export function toCsv(state) {
       const values = columns.map((c) => {
         const q = p.questions.find((x) => x.short === c);
         const v = q ? e.answers?.[q.id] : undefined;
-        return q?.type === 'choice' ? (q.options.find((o) => o.value === v)?.label ?? v) : v;
+        if (q?.type === 'choice') return q.options.find((o) => o.value === v)?.label ?? v;
+        if (q?.type === 'time' && typeof v === 'number') return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
+        return v;
       });
       rows.push([p.name, date, ...values, e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
     }
@@ -305,6 +332,9 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
           if (v === null || v === undefined) continue;
           answers[id] = validAnswer(find(p, id), v);
         }
+        // Hours slept from the two times, unless hours were answered directly.
+        if (typeof answers.bedtime === 'number' && typeof answers.waketime === 'number' && answers.hours === undefined && p.questions.some((q) => q.id === 'hours'))
+          answers.hours = sleptHours(answers.bedtime, answers.waketime);
         const note = text(body.note, 'Note', MAX_NOTE, false);
         const missing = p.questions.find((q) => q.enabled && q.required && answers[q.id] === undefined);
         if (missing) throw bad(`${missing.short} is required`);

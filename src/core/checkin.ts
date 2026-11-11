@@ -4,8 +4,8 @@
 // notices a new day.
 import { call, onServerEvent } from './api';
 
-/** weight is pounds; choice (built-in only, e.g. medication) stores one option's value. */
-export type QuestionType = 'scale' | 'hours' | 'weight' | 'yesno' | 'choice';
+/** weight is pounds; time is minutes after midnight; choice (built-in only, e.g. medication) stores one option's value. */
+export type QuestionType = 'scale' | 'hours' | 'time' | 'weight' | 'yesno' | 'choice';
 export type Answer = number | boolean | string;
 
 export interface Question {
@@ -154,6 +154,15 @@ class CheckinStore {
 
 export const active = (b: Book) => b.questions.filter((q) => q.enabled);
 
+/**
+ * What the charts, averages and "what goes with what" use: the questions that are on,
+ * plus hours slept when it's worked out from the fell-asleep and woke-up times.
+ */
+export const charted = (b: Book) => {
+  const on = (id: string) => b.questions.some((q) => q.id === id && q.enabled);
+  return b.questions.filter((q) => q.enabled || (q.id === 'hours' && on('bedtime') && on('waketime')));
+};
+
 export const checkin = new CheckinStore();
 
 // ---- Dates ----------------------------------------------------------------
@@ -196,6 +205,7 @@ export function formatAnswer(q: Question, v: Answer | undefined): string {
   if (q.type === 'yesno') return v ? 'Yes' : 'No';
   if (q.type === 'hours') return `${v} h`;
   if (q.type === 'weight') return `${v} lb`;
+  if (q.type === 'time' && typeof v === 'number') return formatMinutes(v);
   if (q.type === 'choice') return q.options?.find((o) => o.value === v)?.label ?? String(v);
   return String(v);
 }
@@ -230,4 +240,10 @@ export function average(values: number[]): number | null {
 /** Numbers answered for q on the given days. */
 export function valuesFor(book: Book, q: Question, days: string[]): number[] {
   return days.map((d) => book.entries[d]?.answers[q.id]).filter((v): v is number => typeof v === 'number');
+}
+
+/** Hours (tenths) from falling asleep to waking, crossing midnight; matches server/checkin.js. */
+export function sleptHours(bedtime: number, waketime: number): number {
+  const minutes = (waketime - bedtime + 24 * 60) % (24 * 60);
+  return Math.round((minutes / 60) * 10) / 10;
 }

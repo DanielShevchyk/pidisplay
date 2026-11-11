@@ -2,7 +2,7 @@ process.env.TZ = 'America/Los_Angeles';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCheckin, DEFAULT_QUESTIONS, toCsv } from './checkin.js';
+import { createCheckin, DEFAULT_QUESTIONS, sleptHours, toCsv } from './checkin.js';
 
 const at = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm).getTime();
 
@@ -42,13 +42,18 @@ test('saves a day, validates answers, and refuses future days', async () => {
 
   const put = (date, answers) => call('PUT', `checkin/profiles/me/entries/${date}`, { answers: { weight: 180, ...answers } });
   await assert.rejects(put('2026-10-13', { sleep: 6 }), /answer it can't take/);
-  await assert.rejects(put('2026-10-13', { hours: 7.3 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { hours: 7.33 }), /answer it can't take/);
+  await assert.rejects(put('2026-10-13', { bedtime: 1440 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { alcohol: 1 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { nope: 1 }), /Unknown question/);
   await assert.rejects(put('2026-10-13', { weight: 15 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { weight: 180.25 }), /answer it can't take/);
   await assert.rejects(put('2026-10-13', { meds: 'maybe' }), /answer it can't take/);
-  // Weight is required; medication is not.
+  // Weight and medication are optional.
+  await call('PUT', 'checkin/profiles/me/entries/2026-10-11', { answers: { sleep: 3 } });
+  // A question marked required in settings has to be answered.
+  const qs = (await call('GET', 'checkin')).profiles[0].questions;
+  await call('PUT', 'checkin/profiles/me/questions', qs.map((q) => (q.id === 'weight' ? { ...q, required: true } : q)));
   await assert.rejects(call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { sleep: 3, meds: 'taken' } }), /Weight is required/);
   assert.equal((await put('2026-10-12', { weight: 180.2 })).profiles[0].entries['2026-10-12'].answers.weight, 180.2);
   await assert.rejects(put('2026-10-14', { sleep: 3 }), /hasn't happened/);
@@ -127,7 +132,11 @@ test('a file from before profiles becomes one profile', async () => {
   // Built-in questions added since then appear in their usual places, on or off as by default.
   assert.deepEqual(s.profiles[0].questions.map((q) => q.id), DEFAULT_QUESTIONS.map((q) => q.id));
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').enabled, true);
-  assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').required, true);
+  // Version 2: weight isn't required and hours slept is asked as two times instead.
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').required, undefined);
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'hours').enabled, false);
+  assert.equal(s.profiles[0].questions.find((q) => q.id === 'bedtime').enabled, true);
+  assert.equal(s.version, 2);
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'alcohol').enabled, false);
   assert.equal(s.profiles[0].entries['2026-10-01'].answers.sleep, 2);
   assert.equal(s.settings.promptAt, 360);
@@ -169,4 +178,25 @@ test('broadcasts when the day rolls over', async () => {
   checkin.tick();
   assert.equal(events.length, 1);
   assert.equal(events[0].today, '2026-10-14');
+});
+
+test('hours slept come from the fell-asleep and woke-up times', async () => {
+  assert.equal(sleptHours(23 * 60 + 15, 7 * 60), 7.8);
+  assert.equal(sleptHours(60, 8 * 60 + 30), 7.5);
+  const { call } = setup();
+  let s = await call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { bedtime: 22 * 60 + 45, waketime: 6 * 60 + 30 } });
+  assert.deepEqual(s.profiles[0].entries['2026-10-13'].answers, { bedtime: 1365, waketime: 390, hours: 7.8 });
+  // Hours answered directly win.
+  s = await call('PUT', 'checkin/profiles/me/entries/2026-10-12', { answers: { bedtime: 1380, waketime: 420, hours: 7 } });
+  assert.equal(s.profiles[0].entries['2026-10-12'].answers.hours, 7);
+  // A file saved at version 2 keeps a question Dan turned back on, and a required weight.
+  const saved = { version: 2, profiles: [{ id: 'me', name: 'Me', questions: DEFAULT_QUESTIONS.map((q) => (q.id === 'hours' ? { ...q, enabled: true } : q.id === 'weight' ? { ...q, required: true } : q)), entries: {} }] };
+  const again = await setup(saved).call('GET', 'checkin');
+  assert.equal(again.profiles[0].questions.find((q) => q.id === 'hours').enabled, true);
+  assert.equal(again.profiles[0].questions.find((q) => q.id === 'weight').required, true);
+});
+
+test('CSV writes times as 24-hour clock times', () => {
+  const csv = toCsv({ profiles: [{ name: 'Dan', questions: [{ id: 'bedtime', short: 'Fell asleep', type: 'time' }], entries: { '2026-10-13': { answers: { bedtime: 1365 }, at: 0 } } }] });
+  assert.equal(csv, 'person,date,Fell asleep,note,answered at\nDan,2026-10-13,22:45,,\n');
 });

@@ -277,3 +277,9 @@
 .ci-pop .ci-actions .btn { min-height: 64px; }
 .ci-stat-val { white-space: nowrap; }
 .ci-stat-val small { font-size: 16px; font-weight: 400; color: var(--text-dim); }
+
+/* Fell-asleep and woke-up times, and the sleep they add up to. */
+.ci-time { display: flex; flex-direction: column; gap: 4px; }
+.ci-time-value { font-size: 26px; }
+.ci-slept { font-size: 17px; text-align: center; }
+.ci-slept:empty { display: none; }

@@ -2,7 +2,7 @@
 // taps. Used by the morning popup, the tile's "Check in" button and the history
 // list (to fill in or fix a past day).
 import { h } from '../../core/dom';
-import { active, checkin, dayLabel, goodness, goodnessColor, type Answer, type Book, type Question } from '../../core/checkin';
+import { active, checkin, dayLabel, formatMinutes, goodness, goodnessColor, sleptHours, type Answer, type Book, type Question } from '../../core/checkin';
 
 export interface FormOptions {
   profile: string;
@@ -26,6 +26,9 @@ function lastNumber(book: Book, q: Question, date: string): number | null {
 }
 
 const lastHours = (book: Book, q: Question, date: string) => lastNumber(book, q, date) ?? 7;
+/** Starting guess for a time: the last answer, else 11 PM to fall asleep and 7 AM to wake. */
+const lastTime = (book: Book, q: Question, date: string) => lastNumber(book, q, date) ?? (q.id === 'bedtime' ? 23 * 60 : 7 * 60);
+const DAY = 24 * 60;
 const tenths = (v: number) => Math.round(v * 10) / 10;
 
 export function renderForm(opts: FormOptions): HTMLElement {
@@ -76,6 +79,56 @@ export function renderForm(opts: FormOptions): HTMLElement {
       { class: 'ci-scale' },
       h('div', { class: 'ci-opts' }, ...buttons),
       (q.low || q.high) && h('div', { class: 'ci-ends' }, h('span', {}, q.low ?? ''), h('span', {}, q.high ?? '')),
+    );
+  }
+
+  // Under the woke-up row: how long that makes, so a wrong AM/PM shows at once.
+  const slept = h('div', { class: 'ci-slept' });
+  const paintSlept = () => {
+    const bed = answers.bedtime;
+    const wake = answers.waketime;
+    if (typeof bed !== 'number' || typeof wake !== 'number') {
+      slept.textContent = '';
+      return;
+    }
+    const hours = sleptHours(bed, wake);
+    const mins = (wake - bed + DAY) % DAY;
+    slept.textContent = `That's ${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} min of sleep`;
+    slept.style.color = goodnessColor(goodness({ id: 'hours', label: '', short: '', type: 'hours', enabled: true }, hours));
+  };
+
+  /** A clock time in 15-minute steps. Tapping the guess takes it; tapping a set time clears it. */
+  function timeRow(q: Question): HTMLElement {
+    const value = h('button', { class: 'ci-hours-value ci-time-value' });
+    const paint = () => {
+      const v = answers[q.id];
+      value.classList.toggle('unset', typeof v !== 'number');
+      value.textContent = typeof v === 'number' ? formatMinutes(v) : `${formatMinutes(lastTime(book, q, opts.date))}?`;
+      paintSlept();
+    };
+    const step = (d: number) => {
+      const cur = typeof answers[q.id] === 'number' ? (answers[q.id] as number) : lastTime(book, q, opts.date);
+      answers[q.id] = (((Math.round(cur / 15) * 15 + d) % DAY) + DAY) % DAY;
+      paint();
+      refreshSave();
+    };
+    value.addEventListener('click', () => {
+      answers[q.id] = typeof answers[q.id] === 'number' ? null : lastTime(book, q, opts.date);
+      paint();
+      refreshSave();
+    });
+    paint();
+    return h(
+      'div',
+      { class: 'ci-time' },
+      h(
+        'div',
+        { class: 'ci-hours' },
+        h('button', { class: 'ci-opt', onclick: () => step(-15), 'aria-label': '15 minutes earlier' }, '−'),
+        value,
+        h('button', { class: 'ci-opt', onclick: () => step(15), 'aria-label': '15 minutes later' }, '+'),
+      ),
+      q.id === 'waketime' && slept,
     );
   }
 
@@ -207,7 +260,9 @@ export function renderForm(opts: FormOptions): HTMLElement {
       h('div', { class: 'ci-label' }, q.label, q.required && h('span', { class: 'ci-required' }, 'required')),
       q.type === 'scale'
         ? scaleRow(q)
-        : q.type === 'hours'
+        : q.type === 'time'
+          ? timeRow(q)
+          : q.type === 'hours'
           ? hoursRow(q)
           : q.type === 'weight'
             ? weightRow(q)

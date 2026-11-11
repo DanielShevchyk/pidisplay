@@ -3,7 +3,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import {
-  active,
+  charted,
   checkin,
   dayLabel,
   daysBack,
@@ -122,7 +122,7 @@ export function renderPanel(
 
   const book = () => checkin.book(view.profile);
   const selected = (b: Book): Question[] => {
-    const shown = active(b).filter(isNumeric);
+    const shown = charted(b).filter(isNumeric);
     const picked = shown.filter((q) => view.metrics.includes(q.id));
     if (picked.length) return picked;
     // Two lines read better than six; sleep and mood when they're on.
@@ -185,7 +185,7 @@ export function renderPanel(
     const sel = selected(b);
     legend.replaceChildren(...(opts.compact ? sel.map((q) => h('span', { style: `color:${colorOf(b, q)}` }, q.short)) : []));
     metrics.replaceChildren(
-      ...active(b)
+      ...charted(b)
         .filter(isNumeric)
         .map((q) =>
           h(
@@ -200,8 +200,8 @@ export function renderPanel(
     empty.textContent = answered < 2 ? 'Trends show up here after a few mornings.' : '';
     empty.hidden = answered >= 2;
     drawChart(chart, b, sel.map((q) => ({ q, color: colorOf(b, q) })), view.range);
-    statsRow.replaceChildren(...stats(b, active(b), view.range).map(statCard));
-    const fs = factors(b, active(b), view.range);
+    statsRow.replaceChildren(...stats(b, charted(b), view.range).map(statCard));
+    const fs = factors(b, charted(b), view.range);
     factorList.replaceChildren(...(fs.length ? [h('div', { class: 'ci-sub' }, 'What goes with what'), ...fs.map(factorCard)] : []));
   }
 
@@ -398,7 +398,7 @@ export function openSettingsSheet(profile: string | undefined) {
     );
   }
 
-  const typeName: Record<QuestionType, string> = { scale: '1–5', hours: 'hours', weight: 'pounds', yesno: 'yes/no', choice: 'choice' };
+  const typeName: Record<QuestionType, string> = { scale: '1–5', hours: 'hours', time: 'time', weight: 'pounds', yesno: 'yes/no', choice: 'choice' };
 
   function questionForm(b: Book): HTMLElement {
     let type: QuestionType = 'scale';
