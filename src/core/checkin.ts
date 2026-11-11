@@ -184,6 +184,11 @@ export function daysBack(last: string, n: number): string[] {
   return out;
 }
 
+/** The latest day on or before today with a check-in, or null. */
+export function lastEntryDate(b: Book): string | null {
+  return Object.keys(b.entries).filter((d) => d <= b.today).sort().pop() ?? null;
+}
+
 const fmtDay = new Intl.DateTimeFormat([], { weekday: 'short', month: 'short', day: 'numeric' });
 
 /** "Today", "Yesterday" or "Mon, Oct 12". */

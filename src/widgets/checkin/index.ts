@@ -1,5 +1,5 @@
 import { h } from '../../core/dom';
-import { checkin } from '../../core/checkin';
+import { checkin, dayLabel, lastEntryDate, type Book } from '../../core/checkin';
 import { defineWidget } from '../../core/types';
 import { answerPills, DEFAULT_VIEW, openFormSheet, openTrendsSheet, renderPanel, type View } from './panel';
 import './checkin.css';
@@ -44,6 +44,11 @@ export default defineWidget({
     // The tile follows the person last picked in its trends sheet.
     const root = h('button', { class: `ci-sum size-${placement}` });
     el.append(root);
+    const last = (b: Book) => lastEntryDate(b);
+    const lastLine = (b: Book) => {
+      const d = last(b);
+      return d ? `Last: ${dayLabel(d, b.today)}` : 'No check-ins yet';
+    };
     const render = () => {
       const b = checkin.book(view.profile);
       if (!b) return;
@@ -60,6 +65,8 @@ export default defineWidget({
               h('div', { class: 'ci-sum-icon' }, multi ? b.emoji : '☀️'),
               h('div', { class: 'ci-sum-cta' }, 'Check in'),
               h('div', { class: 'ci-sum-sub' }, multi ? b.name : 'How are you today?'),
+              h('div', { class: 'ci-sum-last' }, lastLine(b)),
+              ...(placement !== 'small' && last(b) ? [h('div', { class: 'ci-sum-pills' }, ...answerPills(b, last(b)!, 3))] : []),
             ]),
       );
     };

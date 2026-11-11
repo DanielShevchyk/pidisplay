@@ -11,6 +11,7 @@ import {
   formatMinutes,
   goodness,
   goodnessColor,
+  lastEntryDate,
   type Book,
   type CheckinSettings,
   type Profile,
@@ -67,6 +68,18 @@ export function answerPills(book: Book, date: string, limit = 99): HTMLElement[]
         h('b', {}, formatAnswer(q, v)),
       );
     });
+}
+
+/** "Last: Yesterday" plus that day's answers (opens the history), or "No check-ins yet". */
+export function lastRow(book: Book, limit = 99): HTMLElement {
+  const last = lastEntryDate(book);
+  if (!last) return h('div', { class: 'ci-last none' }, 'No check-ins yet');
+  return h(
+    'button',
+    { class: 'ci-last', onclick: () => openHistorySheet(book.id) },
+    h('span', { class: 'ci-last-label' }, `Last: ${dayLabel(last, book.today)}`),
+    ...answerPills(book, last, limit),
+  );
 }
 
 /** A row of person chips (only when there is more than one person). */
@@ -170,6 +183,8 @@ export function renderPanel(
             { class: 'btn btn-primary ci-start', onclick: () => openFormSheet(b.id) },
             opts.compact ? 'Check in' : many() ? `☀️ Check in for ${b.name}` : '☀️ Check in for today',
           ),
+      // Not done today: the person's latest check-in, so the tile still says how they've been.
+      ...(entry ? [] : [lastRow(b, opts.narrow ? 2 : opts.compact ? 3 : 99)]),
     );
 
     ranges.replaceChildren(

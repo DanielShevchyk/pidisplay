@@ -123,6 +123,22 @@
   background: var(--surface-2);
   text-align: left;
 }
+.ci-last {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 4px;
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  text-align: left;
+}
+.ci-last.none { font-size: 16px; }
+.ci-last-label { font-weight: 600; margin-right: 4px; white-space: nowrap; }
+.ci-panel.compact .ci-last { flex-wrap: nowrap; overflow: hidden; }
 .ci-today-label { font-weight: 600; color: var(--success); margin-right: 4px; white-space: nowrap; }
 
 .ci-ranges, .ci-metrics { flex: none; gap: 8px; }
@@ -232,6 +248,8 @@
 .ci-sum-sub { font-size: min(7cqw, 11cqh); color: var(--text-dim); }
 .ci-sum.size-medium .ci-sum-cta { font-size: min(7cqw, 22cqh); }
 .ci-sum.size-medium .ci-sum-sub { font-size: min(4cqw, 13cqh); }
+.ci-sum-last { font-size: min(6cqw, 10cqh); color: var(--text-dim); font-weight: 600; }
+.ci-sum.size-medium .ci-sum-last { font-size: min(3.5cqw, 12cqh); }
 .ci-sum-title { font-size: min(9cqw, 14cqh); font-weight: 600; }
 .ci-sum-pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .ci-sum.size-small .ci-sum-pills { flex-direction: column; align-items: stretch; }
@@ -283,3 +301,6 @@
 .ci-time-value { font-size: 26px; }
 .ci-slept { font-size: 17px; text-align: center; }
 .ci-slept:empty { display: none; }
+/* Medium tile before today's check-in: the last day's answers on one line under "Last:". */
+.ci-sum.size-medium:not(.done) .ci-sum-pills { flex-wrap: nowrap; max-width: 100%; overflow: hidden; }
+.ci-sum.size-medium:not(.done):has(.ci-sum-pills) .ci-sum-icon { font-size: min(14cqw, 20cqh); }
