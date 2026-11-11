@@ -212,7 +212,16 @@ export function createServer({
     };
     const done = notifyQueue.then(async () => {
       const list = await readJson(notificationsFile, []);
-      await writeJson(notificationsFile, [n, ...list].slice(0, MAX_NOTIFICATIONS));
+      // The same alert again (same source and title) replaces the old entry and counts up,
+      // so a repeating alert is one line in the bell, not dozens.
+      const prev = list.find((x) => x.source === n.source && x.title === n.title);
+      if (prev) {
+        n.count = (prev.count ?? 1) + 1;
+        n.replaces = prev.id;
+      }
+      const rest = prev ? list.filter((x) => x !== prev) : list;
+      const { replaces, ...saved } = n;
+      await writeJson(notificationsFile, [saved, ...rest].slice(0, MAX_NOTIFICATIONS));
       broadcast('notification', n);
       return n;
     });
@@ -696,9 +705,11 @@ export function createServer({
         return send(res, 201, n);
       }
       if (req.method === 'DELETE') {
-        const next = key ? list.filter((n) => n.id !== key) : [];
+        // /api/notifications/<id>, ?source=<name> (one group), or everything.
+        const source = key ? null : url.searchParams.get('source');
+        const next = key ? list.filter((n) => n.id !== key) : source ? list.filter((n) => n.source !== source) : [];
         await writeJson(notificationsFile, next);
-        broadcast('notifications-cleared', { id: key ?? null });
+        broadcast('notifications-cleared', { id: key ?? null, ...(source && { source }) });
         return send(res, 204);
       }
     }

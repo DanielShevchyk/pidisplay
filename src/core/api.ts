@@ -34,6 +34,9 @@ export const api = {
   async dismissNotification(id?: string): Promise<void> {
     await request('DELETE', id ? `/api/notifications/${encodeURIComponent(id)}` : '/api/notifications');
   },
+  async dismissNotificationSource(source: string): Promise<void> {
+    await request('DELETE', `/api/notifications?source=${encodeURIComponent(source)}`);
+  },
   /** Closes the kiosk browser on the Pi and leaves the desktop showing. */
   async exitToDesktop(): Promise<void> {
     const res = await request('POST', '/api/kiosk/exit');

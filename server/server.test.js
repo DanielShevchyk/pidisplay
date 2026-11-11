@@ -54,6 +54,24 @@ test('stores widget data by key and rejects path tricks', async () => {
   assert.equal((await fetch(`${base}/api/store/..%2Fsecrets`)).status, 400);
 });
 
+test('a repeated notification replaces the old one and counts up; clearing by source', async () => {
+  await fetch(`${base}/api/notifications`, { method: 'DELETE' });
+  const post = async (b) => (await fetch(`${base}/api/notifications`, json('POST', b))).json();
+  const a = await post({ title: 'TSM is below $449', body: 'Now $396', source: 'Stocks' });
+  await post({ title: 'Seoul $704', source: 'Farewatcher' });
+  const b = await post({ title: 'TSM is below $449', body: 'Now $388', source: 'Stocks' });
+  assert.equal(b.count, 2);
+  assert.equal(b.replaces, a.id);
+  let list = await (await fetch(`${base}/api/notifications`)).json();
+  assert.deepEqual(list.map((n) => [n.title, n.count ?? 1]), [['TSM is below $449', 2], ['Seoul $704', 1]]);
+  assert.equal(list[0].body, 'Now $388');
+  assert.equal(list[0].replaces, undefined);
+  await fetch(`${base}/api/notifications?source=Stocks`, { method: 'DELETE' });
+  list = await (await fetch(`${base}/api/notifications`)).json();
+  assert.deepEqual(list.map((n) => n.source), ['Farewatcher']);
+  await fetch(`${base}/api/notifications`, { method: 'DELETE' });
+});
+
 test('posts, lists and clears notifications', async () => {
   const res = await fetch(`${base}/api/notifications`, json('POST', { title: 'Hi', level: 'alert' }));
   assert.equal(res.status, 201);

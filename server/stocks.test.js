@@ -173,6 +173,42 @@ test('daily alerts fire at most once per trading day; percent moves both ways', 
   assert.equal(s2.notes.length, 1);
 });
 
+test('daily price alerts ring once per crossing, not every day the price stays past the line', async () => {
+  let price = 90;
+  let at = OPEN;
+  const fetchImpl = async () => {
+    const body = yahooChart('TSM', price, 100);
+    body.chart.result[0].meta.regularMarketTime = at / 1000;
+    return reply(body);
+  };
+  const { stocks, call, notes, clock } = setup({ saved: { symbols: ['TSM'] }, fetchImpl });
+  await call('POST', 'alerts', { symbol: 'TSM', kind: 'below', value: 95, repeat: 'daily' });
+  await stocks.poll();
+  assert.equal(notes.length, 1);
+  // Next trading days, still below: quiet.
+  for (const d of [1, 2]) {
+    clock.t = at = OPEN + d * 86400 * 1000;
+    await stocks.poll();
+  }
+  assert.equal(notes.length, 1, 'still below the line, no new ring');
+  // Back above, then below again on a later day: rings again.
+  clock.t = at = OPEN + 3 * 86400 * 1000;
+  price = 97;
+  await stocks.poll();
+  clock.t = at = OPEN + 4 * 86400 * 1000;
+  price = 93;
+  await stocks.poll();
+  assert.equal(notes.length, 2);
+});
+
+test('older saved daily price alerts that already fired stay quiet until the price crosses back', async () => {
+  const fetchImpl = async () => reply(yahooChart('TSM', 90, 100));
+  const alert = { id: 'a1', symbol: 'TSM', kind: 'below', value: 95, repeat: 'daily', enabled: true, note: '', firedAt: 1, firedDay: '2026-01-01', firedPrice: 90 };
+  const { stocks, notes } = setup({ saved: { symbols: ['TSM'], alerts: [alert] }, fetchImpl });
+  await stocks.poll();
+  assert.equal(notes.length, 0);
+});
+
 test('watchlist: validates symbols, drops removed quotes, adding an alert watches its symbol', async () => {
   const fetchImpl = async () => reply(yahooChart('X', 10, 10));
   const { call, stocks } = setup({ fetchImpl });

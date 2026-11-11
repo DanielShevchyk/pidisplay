@@ -295,7 +295,7 @@ export function openAlertEditor(existing: StockAlert | null, symbol: string, bac
     repeat.replaceChildren(
       ...([
         ['once', 'Once, then turn off'],
-        ['daily', 'Once every trading day'],
+        ['daily', isPct() ? 'Once every trading day' : 'Each time it crosses (max once a day)'],
       ] as const).map(([id, label]) => h('button', { class: `chip${a.repeat === id ? ' active' : ''}`, onclick: () => ((a.repeat = id), show()) }, label)),
     );
   };
@@ -385,7 +385,7 @@ export function openAlertsList(back: () => void = () => {}) {
                 'button',
                 { class: 'stk-al-main', onclick: () => openAlertEditor(a, a.symbol, reopen) },
                 h('span', { class: 'stk-al-sym' }, a.symbol),
-                h('span', { class: 'stk-al-meta' }, [describeAlert(a, s.quotes[a.symbol]?.currency), a.repeat === 'daily' ? 'every trading day' : 'once', a.note].filter(Boolean).join(' · ')),
+                h('span', { class: 'stk-al-meta' }, [describeAlert(a, s.quotes[a.symbol]?.currency), a.repeat === 'daily' ? (a.kind === 'up' || a.kind === 'down' ? 'every trading day' : 'each time it crosses') : 'once', a.note].filter(Boolean).join(' · ')),
               ),
               h('input', {
                 type: 'checkbox',

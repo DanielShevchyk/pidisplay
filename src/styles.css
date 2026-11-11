@@ -559,4 +559,10 @@ select { font: inherit; color: inherit; }
 .level-warning { border-left-color: var(--warning); }
 .level-alert { border-left-color: var(--danger); }
 .notif-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.notif-group { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
+.notif-group-head { display: flex; align-items: center; gap: 10px; font-size: 20px; }
+.notif-group-head .btn { margin-left: auto; }
+.notif-group-n { padding: 2px 10px; border-radius: 999px; background: var(--surface-2); color: var(--text-dim); font-size: 15px; }
+.notif-count { color: var(--text-dim); font-weight: 600; }
+.toast-more { justify-content: center; font-weight: 600; color: var(--text-dim); }
 @keyframes toast-in { from { transform: translateX(40px); opacity: 0; } }

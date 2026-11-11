@@ -93,6 +93,10 @@ export interface AppNotification {
   source: string;
   level: NotificationLevel;
   time: string;
+  /** How many times this same alert (source + title) has come in; missing = 1. */
+  count?: number;
+  /** Only on the live event: the older entry this one replaces. */
+  replaces?: string;
 }
 
 export interface NotificationInput {

@@ -590,9 +590,19 @@ export function createStocks({
   function checkAlerts(symbol) {
     const q = state.quotes[symbol];
     for (const a of state.alerts) {
-      if (a.symbol !== symbol || !a.enabled || !alertMet(a, q)) continue;
+      if (a.symbol !== symbol || !a.enabled) continue;
+      const price = a.kind === 'above' || a.kind === 'below';
+      if (!alertMet(a, q)) {
+        // A repeating price alert re-arms once the price is back on the other side.
+        if (price && a.holding !== false) a.holding = false;
+        continue;
+      }
       const day = marketDay(q.time);
       if (a.repeat === 'daily' && a.firedDay === day) continue;
+      // Still past the line since it last fired (older saves: fired before, so assume so):
+      // ring again only after it crosses back and over again, not every morning.
+      if (a.repeat === 'daily' && price && (a.holding ?? Boolean(a.firedDay))) continue;
+      a.holding = true;
       a.firedAt = now();
       a.firedDay = day;
       a.firedPrice = q.price;
@@ -744,7 +754,7 @@ export function createStocks({
         const a = cleanAlert(body ?? {}, null);
         const watch = !state.symbols.includes(a.symbol);
         if (watch && state.symbols.length >= MAX_SYMBOLS) throw new StocksError(409, `The watchlist is full (${MAX_SYMBOLS} symbols)`);
-        state.alerts.push({ id: `alert-${now().toString(36)}-${(counter++).toString(36)}`, enabled: true, note: '', ...a, firedAt: null, firedDay: null, firedPrice: null, created: now() });
+        state.alerts.push({ id: `alert-${now().toString(36)}-${(counter++).toString(36)}`, enabled: true, note: '', ...a, firedAt: null, firedDay: null, firedPrice: null, holding: false, created: now() });
         if (watch) state.symbols.push(a.symbol);
         commit();
         // Check the new alert against a fresh price straight away.
@@ -758,6 +768,7 @@ export function createStocks({
         // Turning an alert back on, or changing its condition, re-arms it.
         if (next.enabled && (!state.alerts[i].enabled || next.value !== state.alerts[i].value || next.kind !== state.alerts[i].kind)) {
           next.firedDay = null;
+          next.holding = false;
         }
         state.alerts[i] = next;
         commit();
