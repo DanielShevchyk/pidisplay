@@ -32,13 +32,28 @@ export const DEFAULT_QUESTIONS = [
   { id: 'sleep', label: 'How well did you sleep?', short: 'Sleep', type: 'scale', low: 'Terrible', high: 'Great', enabled: true },
   { id: 'bedtime', label: 'When do you think you fell asleep?', short: 'Fell asleep', type: 'time', enabled: true },
   { id: 'waketime', label: 'When did you wake up?', short: 'Woke up', type: 'time', enabled: true },
+  // Consensus Sleep Diary core item; time asleep alone misses a broken night.
+  {
+    id: 'wakings',
+    label: 'How many times did you wake up in the night?',
+    short: 'Night wakings',
+    type: 'choice',
+    options: [
+      { value: '0', label: 'None' },
+      { value: '1', label: '1' },
+      { value: '2', label: '2' },
+      { value: '3', label: '3+' },
+    ],
+    enabled: false,
+  },
   // Worked out from the two times above when they're answered; asking it directly is off by default.
   { id: 'hours', label: 'About how many hours did you sleep?', short: 'Hours slept', type: 'hours', enabled: false },
   { id: 'weight', label: "What's your weight this morning?", short: 'Weight', type: 'weight', enabled: true },
   { id: 'energy', label: "How's your energy?", short: 'Energy', type: 'scale', low: 'Drained', high: 'Full', enabled: true },
   { id: 'mood', label: 'How are you feeling overall?', short: 'Mood', type: 'scale', low: 'Awful', high: 'Great', enabled: true },
   { id: 'stress', label: 'How stressed do you feel?', short: 'Stress', type: 'scale', low: 'Calm', high: 'Very', lowerIsBetter: true, enabled: true },
-  { id: 'body', label: 'How does your body feel?', short: 'Body', type: 'scale', low: 'Sore / unwell', high: 'Great', enabled: true },
+  // Off by default since 2026-11-11: it tracked energy and mood closely; sick or sore days go in the note.
+  { id: 'body', label: 'How does your body feel?', short: 'Body', type: 'scale', low: 'Sore / unwell', high: 'Great', enabled: false },
   {
     id: 'meds',
     label: 'Medication today?',
@@ -189,7 +204,7 @@ export function sleptHours(bedtime, waketime) {
 }
 
 /** Files saved before this version get one-time changes in normalize(). */
-const VERSION = 2;
+const VERSION = 3;
 
 function newProfile(id, name, emoji) {
   return { id, name, emoji, prompt: true, questions: structuredClone(DEFAULT_QUESTIONS), entries: {} };
@@ -229,6 +244,11 @@ function normalize(saved) {
         if (q.id === 'weight') delete q.required;
       }
     }
+  }
+  if ((s.version ?? 1) < 3) {
+    // Version 3 (review, 2026-11-11): "How does your body feel?" moved with energy and
+    // mood, so it's off to keep the morning short. Its answers stay; it can be turned back on.
+    for (const p of profiles) for (const q of p.questions) if (q.id === 'body') q.enabled = false;
   }
   return { version: VERSION, settings, profiles, skipped: typeof s.skipped === 'string' ? s.skipped : null };
 }

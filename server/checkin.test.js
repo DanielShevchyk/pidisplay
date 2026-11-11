@@ -136,7 +136,7 @@ test('a file from before profiles becomes one profile', async () => {
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'weight').required, undefined);
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'hours').enabled, false);
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'bedtime').enabled, true);
-  assert.equal(s.version, 2);
+  assert.equal(s.version, 3);
   assert.equal(s.profiles[0].questions.find((q) => q.id === 'alcohol').enabled, false);
   assert.equal(s.profiles[0].entries['2026-10-01'].answers.sleep, 2);
   assert.equal(s.settings.promptAt, 360);
@@ -194,6 +194,18 @@ test('hours slept come from the fell-asleep and woke-up times', async () => {
   const again = await setup(saved).call('GET', 'checkin');
   assert.equal(again.profiles[0].questions.find((q) => q.id === 'hours').enabled, true);
   assert.equal(again.profiles[0].questions.find((q) => q.id === 'weight').required, true);
+  // Version 3: "body" goes off once (it was on by default before), night wakings arrive off.
+  const v2 = { version: 2, profiles: [{ id: 'me', name: 'Me', questions: DEFAULT_QUESTIONS.filter((q) => q.id !== 'wakings').map((q) => (q.id === 'body' ? { ...q, enabled: true } : q)), entries: {} }] };
+  const v3 = await setup(v2).call('GET', 'checkin');
+  assert.equal(v3.profiles[0].questions.find((q) => q.id === 'body').enabled, false);
+  assert.deepEqual(v3.profiles[0].questions.map((q) => q.id), DEFAULT_QUESTIONS.map((q) => q.id));
+  assert.equal(v3.profiles[0].questions.find((q) => q.id === 'wakings').enabled, false);
+  // Turned back on after that, it stays on.
+  const kept = await setup({ ...v2, version: 3 }).call('GET', 'checkin');
+  assert.equal(kept.profiles[0].questions.find((q) => q.id === 'body').enabled, true);
+  // Wakings take one of their options.
+  const w = await setup(v2).call('PUT', 'checkin/profiles/me/entries/2026-10-13', { answers: { wakings: '2' } });
+  assert.equal(w.profiles[0].entries['2026-10-13'].answers.wakings, '2');
 });
 
 test('CSV writes times as 24-hour clock times', () => {

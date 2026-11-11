@@ -221,7 +221,9 @@ export function goodness(q: Question, v: Answer): number | null {
     return Math.max(0, 1 - (v < 7.5 ? 7.5 - v : v - 9) / 3.5);
   }
   // Medication: taken is good, planned is on its way; "none today" is neutral.
-  if (q.type === 'choice') return v === 'taken' ? 1 : v === 'planned' ? 0.6 : null;
+  if (q.id === 'meds') return v === 'taken' ? 1 : v === 'planned' ? 0.6 : null;
+  // Night wakings: none is best, 3 or more is a broken night.
+  if (q.id === 'wakings') return ({ '0': 1, '1': 0.75, '2': 0.4, '3': 0.1 } as Record<string, number>)[String(v)] ?? null;
   // Weight has no good or bad here; trends show it plainly.
   return null;
 }
