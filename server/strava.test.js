@@ -28,7 +28,7 @@ function activity(id, daysAgo, extra = {}) {
 }
 
 /** A pretend Strava: an activity list, token endpoint and rate-limit headers. */
-function fakeStrava({ list = [], scopeOk = true, readUsage = '1,1' } = {}) {
+function fakeStrava({ list = [], scopeOk = true, readUsage = '1,1', inactive = false } = {}) {
   const calls = [];
   const headers = new Map([
     ['x-readratelimit-limit', '100,1000'],
@@ -55,6 +55,9 @@ function fakeStrava({ list = [], scopeOk = true, readUsage = '1,1' } = {}) {
       });
     }
     if (u.pathname === '/oauth/deauthorize') return respond(200, {});
+    if (inactive && u.pathname.startsWith('/api/v3/')) {
+      return respond(403, { message: 'Forbidden', errors: [{ resource: 'Application', field: 'Status', code: 'Inactive' }] });
+    }
     if (!scopeOk && u.pathname.startsWith('/api/v3/athlete/activities')) {
       return respond(401, { message: 'Authorization Error', errors: [{ resource: 'AccessToken', field: 'activity:read_permission', code: 'missing' }] });
     }
@@ -228,5 +231,15 @@ test('a rejected refresh token signs out and keeps the app credentials', async (
   const snap = await strava.snapshot();
   assert.equal(snap.connected, false);
   assert.equal(snap.configured, true);
+  await fs.rm(dir, { recursive: true });
+});
+
+test('an inactive Strava API app is explained, not just "Forbidden"', async () => {
+  const { strava, dir } = await setup(fakeStrava({ inactive: true }));
+  await connect(strava);
+  await strava.syncNow();
+  const snap = await strava.snapshot();
+  assert.match(snap.error, /inactive/);
+  assert.equal(snap.connected, true);
   await fs.rm(dir, { recursive: true });
 });
