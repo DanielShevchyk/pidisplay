@@ -122,6 +122,18 @@
       ]
     },
     {
+      "id": "strava",
+      "name": "Strava",
+      "tiles": [
+        {
+          "id": "strava-full",
+          "widget": "strava",
+          "size": "full",
+          "config": {}
+        }
+      ]
+    },
+    {
       "id": "calendar",
       "name": "Calendar",
       "tiles": [

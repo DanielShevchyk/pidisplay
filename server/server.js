@@ -27,6 +27,7 @@ import { createYouTube, YouTubeError } from './youtube.js';
 import { createFaresConfig, FaresConfigError } from './fares-config.js';
 import { createCheckin, CheckinError } from './checkin.js';
 import { createVacuum, VacuumError } from './vacuum.js';
+import { createStrava, StravaError } from './strava.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -147,6 +148,8 @@ export function createServer({
   sleep = undefined,
   youtube = undefined,
   vacuum = undefined,
+  strava = undefined,
+  stravaAutoStart = true,
   // Stand-in for the Dreame cloud (tests and demo screenshots).
   vacuumCloudFactory = undefined,
   startSleep = false,
@@ -309,6 +312,19 @@ export function createServer({
     notify: (n) => void addNotification({ ...n, source: 'Vacuum' }).catch(() => {}),
   });
 
+  // Strava: app credentials + tokens in strava.json (a secret, written by deploy/strava.ps1
+  // and the sign-in callback, never sent to the browser); activities in strava-data.json.
+  strava ??= createStrava({
+    configFile: path.join(dataDir, 'strava.json'),
+    dataFile: path.join(dataDir, 'strava-data.json'),
+    detailsFile: path.join(dataDir, 'strava-details.json'),
+    redirectUri: `http://127.0.0.1:${Number(process.env.PORT) || 8080}/api/strava/callback`,
+    fetchImpl,
+    broadcast: (s) => broadcast('strava', s),
+    notify: (n) => void addNotification({ ...n, source: 'Strava' }).catch(() => {}),
+    autoStart: stravaAutoStart,
+  });
+
   // Linked TVs (YouTube lounge tokens) and play history in youtube.json; see docs/YOUTUBE.md.
   const youtubeFile = path.join(dataDir, 'youtube.json');
   youtube ??= createYouTube({
@@ -469,6 +485,15 @@ export function createServer({
         return await handleSpotify(req, res, url, parts, key);
       } catch (err) {
         if (err instanceof SpotifyError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'strava') {
+      try {
+        return await handleStrava(req, res, url, parts, key);
+      } catch (err) {
+        if (err instanceof StravaError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }
@@ -745,6 +770,33 @@ export function createServer({
     return send(res, 200, result);
   }
 
+  async function handleStrava(req, res, url, parts, key) {
+    // Sign-in runs in a browser tab (on the Pi, or on the laptop through an SSH tunnel).
+    if (key === 'login' && req.method === 'GET') {
+      try {
+        res.writeHead(302, { Location: await strava.loginUrl(url.searchParams.get('return')), 'Cache-Control': 'no-store' });
+        return res.end();
+      } catch (err) {
+        if (!(err instanceof StravaError)) throw err;
+        return sendPage(res, err.status, 'Strava', err.message, url.searchParams.get('return')?.startsWith('/') ? '/' : null);
+      }
+    }
+    if (key === 'callback' && req.method === 'GET') {
+      try {
+        const { returnTo } = await strava.callback(url.searchParams);
+        broadcast('strava', { connected: true });
+        return sendPage(res, 200, 'Strava connected', 'PiDisplay is downloading your activities now.', returnTo);
+      } catch (err) {
+        if (!(err instanceof StravaError)) throw err;
+        return sendPage(res, err.status, 'Strava sign-in failed', err.message, null);
+      }
+    }
+    const body = req.method === 'GET' ? null : await readBody(req);
+    const result = await strava.handle(req.method, parts, body);
+    if (key === 'client' || key === 'logout' || key === 'reload') broadcast('strava', { connected: Boolean(result.connected) });
+    return send(res, 200, result);
+  }
+
   async function handleNetwork(req, res, url, resource, action) {
     const { wifi, bluetooth } = network;
     if (req.method === 'GET' && !action) {
@@ -830,6 +882,7 @@ export function createServer({
     system.stop?.();
     youtube.stop();
     vacuum.stop();
+    strava.stop();
     for (const res of clients) res.end();
   });
 
