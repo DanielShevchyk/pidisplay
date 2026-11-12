@@ -177,6 +177,10 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
     async def summary(pid: int = Person):
         return metrics.summary(conn, pid)
 
+    @app.get("/api/insights")
+    async def insights(target: int = Query(10, ge=1, le=40), pid: int = Person):
+        return metrics.insights(conn, pid, target=target)
+
     @app.get("/api/exercises")
     async def exercises(pid: int = Person):
         return metrics.exercises(conn, pid)

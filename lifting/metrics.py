@@ -280,3 +280,139 @@ def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> di
         "stalled": [e["label"] for e in exercises(conn, pid) if e["stalled"]],
         "totals": dict(counts),
     }
+
+
+# ---- Insights for the dashboard tile ------------------------------------------------------
+
+# Groups that get a weekly set target; jumps and core work are tracked but not judged.
+NO_TARGET = {"Plyometrics", "Core", "Other"}
+PUSH = {"Chest", "Shoulders", "Side delts", "Triceps"}
+PULL = {"Back", "Biceps", "Rear delts"}
+MAX_GAIN = 0.02  # projections assume at most 2% e1RM gain per week
+
+
+def _slope_per_week(points: list[tuple[str, float]]) -> float | None:
+    """Least-squares slope (units per week) of (date, value) points; None if too few."""
+    if len(points) < 3:
+        return None
+    xs = [Date.fromisoformat(d).toordinal() / 7 for d, _ in points]
+    if max(xs) - min(xs) < 1:  # under a week of data: too early to call
+        return None
+    ys = [v for _, v in points]
+    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+    den = sum((x - mx) ** 2 for x in xs)
+    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den if den else None
+
+
+def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, target: int = 10, weeks: int = 8) -> dict:
+    """Volume, overall progress, projections and shortcomings for one person."""
+    today = today or Date.today()
+    vol = volume(conn, pid, weeks, today)
+    this_week, last_week = vol["weeks"][-1], vol["weeks"][-2] if len(vol["weeks"]) > 1 else None
+
+    # Rolling last 7 days and last 28 days per muscle group, plus when each was last trained.
+    since7 = (today - timedelta(days=6)).isoformat()
+    since28 = (today - timedelta(days=27)).isoformat()
+    last7: dict[str, set] = defaultdict(set)
+    last28: dict[str, set] = defaultdict(set)
+    last_hit: dict[str, str] = {}
+    for r in _rows(conn, pid):
+        g = r["muscle_group"] or "Other"
+        key = (r["session_id"], r["exercise_id"], r["set_number"])
+        last_hit[g] = max(last_hit.get(g, ""), r["date"])
+        if r["date"] >= since28:
+            last28[g].add(key)
+        if r["date"] >= since7:
+            last7[g].add(key)
+
+    # Progress and projections per exercise as logged (name + variation): different
+    # stances or machines aren't comparable, so they aren't mixed here.
+    hist = history(conn, pid)
+    variations: dict[str, int] = defaultdict(int)
+    for ex in hist.values():
+        variations[ex["name"]] += 1
+    lifts = []
+    for ex in hist.values():
+        pts = [(x["date"], x["e1rm"]) for x in ex["sessions"] if x["e1rm"] is not None]
+        if not pts:
+            continue
+        first, latest = pts[0][1], pts[-1][1]
+        best = max(v for _, v in pts)
+        span = (Date.fromisoformat(pts[-1][0]) - Date.fromisoformat(pts[0][0])).days
+        # A trend needs 3+ sessions over 2+ weeks; the projection's weekly gain is capped
+        # at MAX_GAIN of the best e1RM, since early sessions jump a lot (technique, warming
+        # up to a new machine) and a straight line would run away.
+        slope = _slope_per_week(pts) if len(pts) >= 3 and span >= 14 else None
+        rate = min(slope, best * MAX_GAIN) if slope is not None else None
+        lifts.append({
+            "exercise_id": ex["exercise_id"],
+            "name": ex["label"] if variations[ex["name"]] > 1 else ex["name"],
+            "sessions": len(pts),
+            "first_e1rm": first, "latest_e1rm": latest, "best_e1rm": best,
+            "change_pct": round((latest / first - 1) * 100, 1) if len(pts) > 1 and first else None,
+            "lb_per_week": round(slope, 1) if slope is not None else None,
+            "projected_4wk": round(best + rate * 4, 1) if rate is not None and rate > 0 else None,
+            "projection_capped": bool(slope is not None and rate is not None and rate < slope),
+            "stalled": ex["stalled"],
+            "last_date": pts[-1][0],
+        })
+    # Most-logged first, then most recent.
+    lifts.sort(key=lambda x: x["name"])
+    lifts.sort(key=lambda x: x["last_date"], reverse=True)
+    lifts.sort(key=lambda x: x["sessions"], reverse=True)
+    changes = [x["change_pct"] for x in lifts if x["change_pct"] is not None]
+    overall = round(sum(changes) / len(changes), 1) if changes else None
+
+    # Shortcomings, most important first.
+    short: list[dict] = []
+    trained = sorted(g for g in last_hit if g not in NO_TARGET)
+    for g in trained:
+        n = len(last7.get(g, ()))
+        if n < target:
+            short.append({"kind": "low_volume", "group": g, "sets": n, "target": target,
+                          "text": f"{g}: {n} of {target} sets in the last 7 days"})
+    for g in trained:
+        idle = (today - Date.fromisoformat(last_hit[g])).days
+        if idle >= 8:
+            short.append({"kind": "idle", "group": g, "days": idle, "text": f"{g}: not trained for {idle} days"})
+    for x in lifts:
+        if x["stalled"]:
+            short.append({"kind": "stalled", "lift": x["name"], "text": f"{x['name']}: no e1RM gain in 3 sessions"})
+        elif x["lb_per_week"] is not None and x["lb_per_week"] < 0:
+            short.append({"kind": "declining", "lift": x["name"], "text": f"{x['name']}: trending down {abs(x['lb_per_week'])} lb/week"})
+    push = sum(len(v) for g, v in last28.items() if g in PUSH)
+    pull = sum(len(v) for g, v in last28.items() if g in PULL)
+    if push and pull and max(push, pull) / min(push, pull) >= 1.5:
+        more, less = ("push", "pull") if push > pull else ("pull", "push")
+        short.append({"kind": "balance", "push": push, "pull": pull,
+                      "text": f"More {more} than {less}: {max(push, pull)} vs {min(push, pull)} sets in 4 weeks"})
+    order = {"stalled": 0, "declining": 1, "low_volume": 2, "balance": 3, "idle": 4}
+    short.sort(key=lambda s: (order[s["kind"]], s.get("sets", 0)))
+
+    # Dunk: touch height trend toward the rim + 6 in.
+    touch = [(m["date"], _inches(m["value"], m["unit"])) for m in conn.execute(
+        "SELECT * FROM measurements WHERE person_id = ? AND type IN ('standing_touch_height', 'approach_touch_height') ORDER BY date",
+        (pid,))]
+    dunk_out = None
+    if touch:
+        best_touch = max(v for _, v in touch)
+        slope = _slope_per_week(touch)
+        goal = RIM_IN + 6
+        weeks_to_goal = round((goal - best_touch) / slope) if slope and slope > 0 and best_touch < goal else None
+        dunk_out = {"best_in": round(best_touch, 1), "goal_in": goal, "to_go_in": round(max(0, goal - best_touch), 1),
+                    "in_per_week": round(slope, 2) if slope is not None else None, "weeks_to_goal": weeks_to_goal}
+
+    prs30 = [p for p in prs(conn, pid, 500) if p["date"] >= (today - timedelta(days=29)).isoformat()]
+    return {
+        "target": target,
+        "weeks": [{"week_start": w["week_start"], "total": w["total"]} for w in vol["weeks"]],
+        "this_week": this_week["total"],
+        "last_week": last_week["total"] if last_week else None,
+        # Every group trained so far, 0 when not in the last 7 days.
+        "groups_7d": {g: len(last7.get(g, ())) for g in sorted(last_hit)},
+        "overall_change_pct": overall,
+        "lifts": lifts,
+        "prs_30d": len(prs30),
+        "shortcomings": short,
+        "dunk": dunk_out,
+    }

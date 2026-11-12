@@ -40,6 +40,15 @@ show();
 
 async function renderTrend(el) {
   const exercises = (await api('api/exercises')).filter((e) => e.session_count > 0);
+  // #trend?ex=<id> (from the dashboard tile) opens that exercise.
+  const wanted = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('ex'));
+  const hit = wanted && exercises.find((e) => e.id === wanted);
+  if (hit) {
+    state.name = hit.name;
+    state.exerciseId = hit.id;
+    saveState();
+    history.replaceState(null, '', '#trend');
+  }
   if (!exercises.length) {
     el.replaceChildren(h('div', { class: 'empty' }, 'No lifts yet. ', h('a', { href: 'import' }, 'Import some sessions'), '.'));
     return;

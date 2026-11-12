@@ -253,3 +253,26 @@ def test_migrates_a_database_from_before_profiles(tmp_path, monkeypatch):
         assert c.app.state.conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert c.delete("/api/sessions/7").status_code == 200
         assert c.get("/api/sets").json() == []
+
+
+def test_insights(tmp_path):
+    from lifting.db import connect
+    from lifting.importer import run_import
+    conn = connect(tmp_path / "i.db")
+    days = ["2026-10-01", "2026-10-08", "2026-10-15", "2026-10-22"]
+    run_import(conn, {"sessions": [
+        {"date": d, "day": "A", "sets": [s("Belt squat", 1, 200 + 40 * n, 5), s("Lat pulldown", 1, 100, 10)]}
+        for n, d in enumerate(days)
+    ]})
+    i = metrics.insights(conn, 1, today=date(2026, 10, 23), target=10)
+    squat = next(x for x in i["lifts"] if x["name"] == "Belt squat")
+    # +40 lb/session is ~47 lb/week of e1RM; the projection caps the weekly gain at 2% of best.
+    assert squat["lb_per_week"] > 40 and squat["projection_capped"]
+    assert squat["projected_4wk"] == round(squat["best_e1rm"] * 1.08, 1)
+    pulldown = next(x for x in i["lifts"] if x["name"] == "Lat pulldown")
+    assert pulldown["change_pct"] == 0.0 and pulldown["stalled"] is True
+    kinds = [x["kind"] for x in i["shortcomings"]]
+    assert kinds[0] == "stalled"
+    assert {"group": "Quads", "sets": 1} == {k: next(x for x in i["shortcomings"] if x.get("group") == "Quads")[k] for k in ("group", "sets")}
+    assert i["groups_7d"] == {"Back": 1, "Quads": 1}
+    assert i["this_week"] == 2 and i["dunk"] is None

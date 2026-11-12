@@ -26,6 +26,19 @@ someone, so two tiles can follow two people; tapping a tile opens the tracker on
 `deploy/update.sh` installs everything (python3-venv, packages, units) on every deploy;
 packages are only reinstalled when `lifting/requirements.txt` changes.
 
+## The tile
+
+Built around the training rather than the last session: sets this week (with last week),
+overall strength change (average e1RM change since each lift's first session), PRs in the
+last 30 days, sets per week, sets per muscle group over the last 7 days against a target
+(⚙ setting, default 10), progress per lift with a 4-week projection, and what needs work
+(stalled or declining lifts, muscle groups under target, push/pull imbalance over 4 weeks,
+groups not trained for 8+ days). Smaller sizes show less. Tap a section to open the
+tracker there; a lift opens its trend.
+
+Projections need 3 sessions of the lift over at least 2 weeks; they follow the trend line
+but assume at most 2% e1RM gain per week, since early sessions jump a lot.
+
 ## Pages
 
 - **Trends**: per lift, estimated 1RM and top-set weight over time. Lifts are grouped by name; pick a variation for a like-for-like line, or "All variations".
