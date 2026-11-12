@@ -1,10 +1,10 @@
 // Log: every set in a table, filterable by date and exercise, with inline edit and delete.
 // Tabs for sessions, exercises (muscle group / equipment) and measurements too.
-import { api, BASIS, h, longDate, nav, num, toast } from './common.js';
+import { api, BASIS, currentPerson, h, longDate, nav, num, peopleReady, setPerson, toast } from './common.js';
 
 nav('log');
 const main = document.getElementById('main');
-const TABS = [['sets', 'Sets'], ['sessions', 'Sessions'], ['exercises', 'Exercises'], ['measurements', 'Measurements']];
+const TABS = [['sets', 'Sets'], ['sessions', 'Sessions'], ['exercises', 'Exercises'], ['measurements', 'Measurements'], ['people', 'People']];
 const SET_TYPES = ['warmup', 'working', 'mechanical_drop'];
 const TYPE_LABEL = { warmup: 'warmup', working: 'working', mechanical_drop: 'mech. drop' };
 const MTYPES = ['bodyweight', 'standing_touch_height', 'approach_touch_height', 'box_jump_height'];
@@ -31,7 +31,7 @@ async function render() {
     body,
   );
   try {
-    await { sets: renderSets, sessions: renderSessions, exercises: renderExercises, measurements: renderMeasurements }[t](body);
+    await { sets: renderSets, sessions: renderSessions, exercises: renderExercises, measurements: renderMeasurements, people: renderPeople }[t](body);
   } catch (e) {
     body.replaceChildren(h('p', { class: 'error' }, `Couldn't load: ${e.message}`));
   }
@@ -220,6 +220,7 @@ async function renderSets(el) {
 
 async function renderSessions(el) {
   const rows = await api('api/sessions');
+  const people = await peopleReady;
   if (!rows.length) return el.append(h('div', { class: 'empty' }, 'No sessions yet.'));
   const tbody = h('tbody', {});
   const view = (s) => {
@@ -236,14 +237,20 @@ async function renderSessions(el) {
     return tr;
   };
   const edit = (s) => {
+    const who = h('select', {}, ...people.map((p) => h('option', { value: String(p.id), selected: p.id === s.person_id }, p.name)));
     const date = h('input', { type: 'date', value: s.date });
     const day = h('input', { type: 'text', value: s.day_label, size: 3, maxlength: 8 });
     const notes = h('input', { type: 'text', value: s.notes || '', class: 'wide', style: 'width:100%' });
-    const tr = h('tr', { class: 'editing' }, h('td', {}, date), h('td', {}, day), h('td', { class: 'num' }, String(s.set_rows)), h('td', {}, notes),
+    const tr = h('tr', { class: 'editing' }, h('td', {}, date, people.length > 1 ? h('label', { class: 'field', style: 'margin-top:6px' }, 'Person', who) : null), h('td', {}, day), h('td', { class: 'num' }, String(s.set_rows)), h('td', {}, notes),
       h('td', { class: 'actions' },
         h('button', { class: 'btn btn-sm btn-primary', onclick: async () => {
           try {
-            const next = await api(`api/sessions/${s.id}`, { method: 'PATCH', json: { date: date.value, day_label: day.value, notes: notes.value } });
+            const next = await api(`api/sessions/${s.id}`, { method: 'PATCH', json: { date: date.value, day_label: day.value, notes: notes.value, person_id: Number(who.value) } });
+            if (next.person_id !== s.person_id) {
+              tr.remove();
+              toast(`Moved to ${people.find((p) => p.id === next.person_id)?.name}`);
+              return;
+            }
             tr.replaceWith(view({ ...s, ...next }));
             toast('Saved');
           } catch (e) {
@@ -274,7 +281,7 @@ async function renderExercises(el) {
       h('td', {}, x.stalled ? h('span', { class: 'badge stall' }, 'stalled') : null),
       h('td', { class: 'actions' },
         h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(edit(x)) }, 'Edit'),
-        x.session_count ? null : deleteButton(async () => {
+        x.all_sessions ? null : deleteButton(async () => {
           await api(`api/exercises/${x.id}`, { method: 'DELETE' });
           tr.remove();
         })));
@@ -303,7 +310,7 @@ async function renderExercises(el) {
   };
   rows.forEach((x) => tbody.append(view(x)));
   el.append(list,
-    h('p', { class: 'dim', style: 'margin:4px 0 12px' }, 'Muscle group drives the weekly volume chart. Name + variation identify an exercise on import, so renaming one means future imports with the old name create a new exercise.'),
+    h('p', { class: 'dim', style: 'margin:4px 0 12px' }, `Exercises are shared by everyone; Sessions counts ${currentPerson()?.name ?? 'this person'}'s. Muscle group drives the weekly volume chart. Name + variation identify an exercise on import, so renaming one means future imports with the old name create a new exercise.`),
     h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, ...['Exercise', 'Variation', 'Muscle group', 'Equipment', 'Sessions', '', ''].map((x, i) => h('th', { class: i === 4 ? 'num' : '' }, x)))), tbody)));
 }
 
@@ -351,4 +358,57 @@ async function renderMeasurements(el) {
   };
   rows.forEach((m) => tbody.append(view(m)));
   el.append(h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Type'), h('th', { class: 'num' }, 'Value'), h('th', {}, 'Notes'), h('th', {}, ''))), tbody)));
+}
+
+// ---- People -------------------------------------------------------------------------
+
+async function renderPeople(el) {
+  const people = await api('api/people');
+  const me = currentPerson();
+  const tbody = h('tbody', {});
+  const view = (p) => {
+    const tr = h('tr', {},
+      h('td', {}, p.name, me && p.id === me.id ? h('span', { class: 'badge', style: 'margin-left:10px' }, 'showing') : null),
+      h('td', { class: 'num' }, String(p.sessions)), h('td', {}, p.last_date ? longDate(p.last_date) : '–'), h('td', { class: 'num' }, String(p.measurements)),
+      h('td', { class: 'actions' },
+        me && p.id === me.id ? null : h('button', { class: 'btn btn-sm btn-primary', onclick: () => setPerson(p.id) }, 'Show'),
+        h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(edit(p)) }, 'Rename'),
+        people.length > 1 ? deleteButton(async () => {
+          await api(`api/people/${p.id}`, { method: 'DELETE' });
+          toast(`Deleted ${p.name} and their ${p.sessions} sessions`);
+          if (me && p.id === me.id) setPerson(people.find((x) => x.id !== p.id).id);
+          else render();
+        }) : null));
+    return tr;
+  };
+  const edit = (p) => {
+    const name = h('input', { type: 'text', value: p.name, maxlength: 40 });
+    const save = async () => {
+      try {
+        await api(`api/people/${p.id}`, { method: 'PATCH', json: { name: name.value } });
+        location.reload();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    };
+    name.addEventListener('keydown', (e) => e.key === 'Enter' && save());
+    return h('tr', { class: 'editing' }, h('td', { colspan: 4 }, name),
+      h('td', { class: 'actions' }, h('button', { class: 'btn btn-sm btn-primary', onclick: save }, 'Save'), h('button', { class: 'btn btn-sm', onclick: () => render() }, 'Cancel')));
+  };
+  people.forEach((p) => tbody.append(view(p)));
+  const newName = h('input', { type: 'text', placeholder: 'Name', maxlength: 40 });
+  const add = async () => {
+    try {
+      const p = await api('api/people', { method: 'POST', json: { name: newName.value } });
+      setPerson(p.id);
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
+  newName.addEventListener('keydown', (e) => e.key === 'Enter' && add());
+  el.append(
+    h('p', { class: 'dim', style: 'margin:4px 0 12px' }, 'Everyone has their own sessions, PRs and measurements; the exercise list is shared. Deleting a person deletes all of their data.'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', { class: 'num' }, 'Sessions'), h('th', {}, 'Last session'), h('th', { class: 'num' }, 'Measurements'), h('th', {}, ''))), tbody)),
+    h('div', { class: 'row', style: 'margin-top:18px' }, h('label', { class: 'field' }, 'Add a person', newName), h('button', { class: 'btn btn-primary', onclick: add }, 'Add')),
+  );
 }

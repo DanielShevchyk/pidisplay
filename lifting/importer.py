@@ -1,7 +1,10 @@
 """POST /import: sessions[] with nested sets[], plus measurements[] (format of lifting_backfill.json).
 
-Re-importing is safe: sessions are upserted by date + day label, sets by
-session + exercise (name + variation) + set_number + segment, measurements by date + type.
+Everything goes to one person: the payload's "person" (a name; created if new), else the
+person the caller picked (the Import page's switcher), else the default person.
+
+Re-importing is safe: sessions are upserted by person + date + day label, sets by
+session + exercise (name + variation) + set_number + segment, measurements by person + date + type.
 A re-imported row overwrites the stored one, so a corrected export fixes mistakes.
 The whole import is one transaction: any invalid row rejects all of it.
 """
@@ -13,7 +16,7 @@ from datetime import date as Date
 from typing import Any
 
 from .catalog import guess_equipment, guess_muscle_group
-from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx
+from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx, default_person
 
 # value_<unit> keys accepted on measurements, e.g. "value_in": 111.
 UNIT_KEYS = {"value_in": "in", "value_lb": "lb", "value_kg": "kg", "value_cm": "cm"}
@@ -188,22 +191,36 @@ def exercise_id(conn: sqlite3.Connection, name: str, variation: str, muscle_grou
 SET_FIELDS = ("set_type", "weight_lb", "load_basis", "reps", "duration_s", "height_in", "approx", "inferred", "notes")
 
 
-def run_import(conn: sqlite3.Connection, payload: Any) -> dict:
+def run_import(conn: sqlite3.Connection, payload: Any, person_id: int | None = None) -> dict:
     sessions, measurements = parse(payload)
+    named = _text(payload.get("person")) if isinstance(payload.get("person"), str) else None
+    if named and len(named) > 40:
+        raise ImportError_(["person: name is too long (40 characters at most)"])
     stats = {k: 0 for k in (
         "sessions_created", "sessions_updated", "sets_added", "sets_updated", "sets_unchanged",
         "exercises_created", "measurements_added", "measurements_updated", "measurements_unchanged",
     )}
+    stats["person_created"] = False
     with Tx(conn):
+        if named:
+            row = conn.execute("SELECT id FROM people WHERE name = ?", (named,)).fetchone()
+            pid = row["id"] if row else None
+            if pid is None:
+                pid = conn.execute("INSERT INTO people (name) VALUES (?)", (named,)).lastrowid
+                stats["person_created"] = True
+        else:
+            pid = person_id or default_person(conn)
+        stats["person_id"] = pid
+        stats["person"] = conn.execute("SELECT name FROM people WHERE id = ?", (pid,)).fetchone()["name"]
         for s in sessions:
-            row = conn.execute("SELECT id, notes FROM sessions WHERE date = ? AND day_label = ?", (s["date"], s["day_label"])).fetchone()
+            row = conn.execute("SELECT id, notes FROM sessions WHERE person_id = ? AND date = ? AND day_label = ?", (pid, s["date"], s["day_label"])).fetchone()
             if row:
                 sid = row["id"]
                 if s["has_notes"] and s["notes"] != row["notes"]:
                     conn.execute("UPDATE sessions SET notes = ? WHERE id = ?", (s["notes"], sid))
                     stats["sessions_updated"] += 1
             else:
-                sid = conn.execute("INSERT INTO sessions (date, day_label, notes) VALUES (?, ?, ?)", (s["date"], s["day_label"], s["notes"])).lastrowid
+                sid = conn.execute("INSERT INTO sessions (person_id, date, day_label, notes) VALUES (?, ?, ?, ?)", (pid, s["date"], s["day_label"], s["notes"])).lastrowid
                 stats["sessions_created"] += 1
             for st in s["sets"]:
                 eid, created = exercise_id(conn, st["exercise"], st["variation"], st["muscle_group"], st["equipment"])
@@ -225,10 +242,10 @@ def run_import(conn: sqlite3.Connection, payload: Any) -> dict:
                 else:
                     stats["sets_unchanged"] += 1
         for m in measurements:
-            old = conn.execute("SELECT id, value, unit, approx, notes FROM measurements WHERE date = ? AND type = ?", (m["date"], m["type"])).fetchone()
+            old = conn.execute("SELECT id, value, unit, approx, notes FROM measurements WHERE person_id = ? AND date = ? AND type = ?", (pid, m["date"], m["type"])).fetchone()
             vals = (m["value"], m["unit"], m["approx"], m["notes"])
             if old is None:
-                conn.execute("INSERT INTO measurements (date, type, value, unit, approx, notes) VALUES (?, ?, ?, ?, ?, ?)", (m["date"], m["type"], *vals))
+                conn.execute("INSERT INTO measurements (person_id, date, type, value, unit, approx, notes) VALUES (?, ?, ?, ?, ?, ?, ?)", (pid, m["date"], m["type"], *vals))
                 stats["measurements_added"] += 1
             elif (old["value"], old["unit"], old["approx"], old["notes"]) != vals:
                 conn.execute("UPDATE measurements SET value = ?, unit = ?, approx = ?, notes = ? WHERE id = ?", (*vals, old["id"]))

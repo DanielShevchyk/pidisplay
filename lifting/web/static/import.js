@@ -1,5 +1,5 @@
 // Paste (or pick) an export in the lifting_backfill.json format and import it.
-import { api, h, nav } from './common.js';
+import { api, currentPerson, h, nav, peopleReady } from './common.js';
 
 nav('import');
 const main = document.getElementById('main');
@@ -30,7 +30,7 @@ go.addEventListener('click', async () => {
     const r = await api('import', { method: 'POST', body: text, headers: { 'Content-Type': 'application/json' } });
     const line = (label, n) => (n ? h('li', {}, `${label}: ${n}`) : null);
     result.replaceChildren(
-      h('p', { class: 'ok' }, '✓ Imported.'),
+      h('p', { class: 'ok' }, `✓ Imported for ${r.person}${r.person_created ? ' (new person)' : ''}.`),
       h('ul', {},
         line('Sessions added', r.sessions_created), line('Sessions with new notes', r.sessions_updated),
         line('Sets added', r.sets_added), line('Sets changed', r.sets_updated), line('Sets already there', r.sets_unchanged),
@@ -49,13 +49,17 @@ go.addEventListener('click', async () => {
   }
 });
 
+const forWhom = h('span', {});
+peopleReady.then(() => forWhom.replaceChildren(currentPerson()?.name ?? 'the first person'));
 main.append(
-  h('h2', { style: 'margin:0 0 8px' }, 'Import sessions'),
+  h('h2', { style: 'margin:0 0 8px' }, 'Import sessions for ', forWhom),
+  h('p', { class: 'dim', style: 'margin:0 0 6px' }, 'Change who with 👤 at the top, or put "person": "Name" in the JSON (a new name adds that person).'),
   h('p', { class: 'dim', style: 'margin:0 0 12px' }, 'Re-importing is safe: sessions match by date + day, sets by exercise, variation, set number and segment, so repeats update instead of duplicating.'),
   area,
   h('div', { class: 'row', style: 'margin:12px 0' }, go, h('button', { class: 'btn', onclick: () => { area.value = ''; area.dispatchEvent(new Event('input')); result.replaceChildren(); } }, 'Clear'), h('label', { class: 'field' }, 'Or pick a file', file)),
   result,
   h('details', { style: 'margin-top:20px' }, h('summary', {}, 'Format'), h('pre', { class: 'example' }, `{
+  "person": "Dan",            (optional: otherwise the person picked at the top)
   "sessions": [
     { "date": "2026-11-03", "day": "A", "notes": "optional",
       "sets": [

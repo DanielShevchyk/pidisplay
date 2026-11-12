@@ -11,16 +11,20 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import metrics
-from .db import LOAD_BASES, SET_TYPES, Tx, connect
+from .db import LOAD_BASES, SET_TYPES, Tx, connect, default_person, find_person
 from .importer import ImportError_, _date, run_import
 
 WEB = Path(__file__).resolve().parent / "web"
+
+
+class PersonIn(BaseModel):
+    name: str
 
 
 class SetPatch(BaseModel):
@@ -39,6 +43,7 @@ class SetPatch(BaseModel):
 
 
 class SessionPatch(BaseModel):
+    person_id: Optional[int] = None
     date: Optional[str] = None
     day_label: Optional[str] = None
     notes: Optional[str] = None
@@ -93,18 +98,27 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 
+    async def person_id(person: Optional[str] = Query(None, description="Person id or name; blank = the default person")) -> int:
+        """Every view and write is for one person, picked with ?person= (async: runs on the event loop)."""
+        pid = find_person(conn, person)
+        if pid is None:
+            raise HTTPException(404, f"No person called {person!r}")
+        return pid
+
+    Person = Depends(person_id)
+
     @app.get("/api/health")
     async def health():
         return {"ok": True}
 
-    async def do_import(request: Request):
+    async def do_import(request: Request, pid: int = Person):
         raw = await request.body()
         try:
             payload = json.loads(raw.decode("utf-8-sig"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             return JSONResponse({"ok": False, "errors": [f"Not valid JSON: {e}"]}, status_code=400)
         try:
-            stats = run_import(conn, payload)
+            stats = run_import(conn, payload, pid)
         except ImportError_ as e:
             return JSONResponse({"ok": False, "errors": e.errors}, status_code=400)
         return {"ok": True, **stats}
@@ -112,47 +126,92 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
     app.post("/import")(do_import)
     app.post("/api/import")(do_import)
 
+    # ---- People --------------------------------------------------------------------
+
+    def clean_name(name: str) -> str:
+        name = " ".join((name or "").split())
+        if not name:
+            raise HTTPException(400, "Name can't be empty")
+        if len(name) > 40:
+            raise HTTPException(400, "Name is too long (40 characters at most)")
+        return name
+
+    @app.get("/api/people")
+    async def people():
+        default_person(conn)  # there is always at least one
+        return [dict(r) for r in conn.execute(
+            """SELECT p.id, p.name, (SELECT count(*) FROM sessions WHERE person_id = p.id) AS sessions,
+                      (SELECT max(date) FROM sessions WHERE person_id = p.id) AS last_date,
+                      (SELECT count(*) FROM measurements WHERE person_id = p.id) AS measurements
+               FROM people p ORDER BY p.id""")]
+
+    @app.post("/api/people")
+    async def add_person(body: PersonIn):
+        name = clean_name(body.name)
+        try:
+            pid = conn.execute("INSERT INTO people (name) VALUES (?)", (name,)).lastrowid
+        except sqlite3.IntegrityError as e:
+            raise HTTPException(409, f"There is already someone called {name}") from e
+        return {"id": pid, "name": name}
+
+    @app.patch("/api/people/{pid}")
+    async def rename_person(pid: int, body: PersonIn):
+        name = clean_name(body.name)
+        try:
+            if conn.execute("UPDATE people SET name = ? WHERE id = ?", (name, pid)).rowcount == 0:
+                raise HTTPException(404, "Not found")
+        except sqlite3.IntegrityError as e:
+            raise HTTPException(409, f"There is already someone called {name}") from e
+        return {"id": pid, "name": name}
+
+    @app.delete("/api/people/{pid}")
+    async def delete_person(pid: int):
+        """Deletes the person with all their sessions, sets and measurements."""
+        if conn.execute("SELECT count(*) FROM people").fetchone()[0] <= 1:
+            raise HTTPException(409, "Keep at least one person")
+        return delete("people", pid)
+
     # ---- Read views ----------------------------------------------------------------
 
     @app.get("/api/summary")
-    async def summary():
-        return metrics.summary(conn)
+    async def summary(pid: int = Person):
+        return metrics.summary(conn, pid)
 
     @app.get("/api/exercises")
-    async def exercises():
-        return metrics.exercises(conn)
+    async def exercises(pid: int = Person):
+        return metrics.exercises(conn, pid)
 
     @app.get("/api/trend")
-    async def trend_by_name(name: str):
-        t = metrics.trend_by_name(conn, name)
+    async def trend_by_name(name: str, pid: int = Person):
+        t = metrics.trend_by_name(conn, pid, name)
         if t is None:
             raise HTTPException(404, "No sets for that exercise")
         return t
 
     @app.get("/api/trend/{exercise_id}")
-    async def trend(exercise_id: int):
-        t = metrics.trend(conn, exercise_id)
+    async def trend(exercise_id: int, pid: int = Person):
+        t = metrics.trend(conn, pid, exercise_id)
         if t is None:
             raise HTTPException(404, "No such exercise")
         return t
 
     @app.get("/api/volume")
-    async def volume(weeks: int = Query(8, ge=1, le=52)):
-        return metrics.volume(conn, weeks)
+    async def volume(weeks: int = Query(8, ge=1, le=52), pid: int = Person):
+        return metrics.volume(conn, pid, weeks)
 
     @app.get("/api/prs")
-    async def prs(limit: int = Query(30, ge=1, le=500)):
-        return metrics.prs(conn, limit)
+    async def prs(limit: int = Query(30, ge=1, le=500), pid: int = Person):
+        return metrics.prs(conn, pid, limit)
 
     @app.get("/api/dunk")
-    async def dunk():
-        return metrics.dunk(conn)
+    async def dunk(pid: int = Person):
+        return metrics.dunk(conn, pid)
 
     @app.get("/api/sessions")
-    async def sessions():
+    async def sessions(pid: int = Person):
         return [dict(r) for r in conn.execute(
             """SELECT ss.*, count(s.id) AS set_rows FROM sessions ss LEFT JOIN sets s ON s.session_id = ss.id
-               GROUP BY ss.id ORDER BY ss.date DESC, ss.id DESC""")]
+               WHERE ss.person_id = ? GROUP BY ss.id ORDER BY ss.date DESC, ss.id DESC""", (pid,))]
 
     @app.get("/api/sets")
     async def sets(
@@ -161,8 +220,9 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         exercise_id: Optional[int] = None,
         name: Optional[str] = None,
         include_warmups: bool = True,
+        pid: int = Person,
     ):
-        where, params = [], []
+        where, params = ["ss.person_id = ?"], [pid]
         if date_from:
             where.append("ss.date >= ?"); params.append(date_from)
         if date_to:
@@ -176,7 +236,7 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         rows = conn.execute(
             f"""SELECT s.*, ss.date, ss.day_label, e.name, e.variation FROM sets s
                 JOIN sessions ss ON ss.id = s.session_id JOIN exercises e ON e.id = s.exercise_id
-                {'WHERE ' + ' AND '.join(where) if where else ''}
+                WHERE {' AND '.join(where)}
                 ORDER BY ss.date DESC, ss.id DESC, s.id""",
             params,
         ).fetchall()
@@ -190,8 +250,9 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         return out
 
     @app.get("/api/measurements")
-    async def measurements():
-        return [{**dict(r), "approx": bool(r["approx"])} for r in conn.execute("SELECT * FROM measurements ORDER BY date DESC, id DESC")]
+    async def measurements(pid: int = Person):
+        return [{**dict(r), "approx": bool(r["approx"])} for r in conn.execute(
+            "SELECT * FROM measurements WHERE person_id = ? ORDER BY date DESC, id DESC", (pid,))]
 
     # ---- Edits ---------------------------------------------------------------------
 
@@ -251,7 +312,9 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
             changes["day_label"] = (changes["day_label"] or "").strip().upper()
         if "notes" in changes:
             changes["notes"] = (changes["notes"] or "").strip() or None
-        return patch("sessions", session_id, changes, ("date", "day_label", "notes"))
+        if "person_id" in changes and not conn.execute("SELECT 1 FROM people WHERE id = ?", (changes["person_id"],)).fetchone():
+            raise HTTPException(400, "No such person")
+        return patch("sessions", session_id, changes, ("person_id", "date", "day_label", "notes"))
 
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(session_id: int):
@@ -274,14 +337,12 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         return delete("exercises", ex_id)
 
     @app.post("/api/measurements")
-    async def add_measurement(body: MeasurementIn):
-        m = body.model_dump()
-        stats = run_import_or_400({"measurements": [m]})
-        return stats
+    async def add_measurement(body: MeasurementIn, pid: int = Person):
+        return run_import_or_400({"measurements": [body.model_dump()]}, pid)
 
-    def run_import_or_400(payload: dict):
+    def run_import_or_400(payload: dict, pid: int):
         try:
-            return {"ok": True, **run_import(conn, payload)}
+            return {"ok": True, **run_import(conn, payload, pid)}
         except ImportError_ as e:
             raise HTTPException(400, "; ".join(e.errors)) from e
 

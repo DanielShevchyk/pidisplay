@@ -14,6 +14,39 @@ function store(key, value) {
 const theme = params.get('theme') || store('lifting-theme') || store('pidisplay.theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 if (params.get('theme')) store('lifting-theme', theme);
 document.documentElement.dataset.theme = theme;
+// Inside the dashboard's full-screen frame its ✕ sits over the nav's right end.
+if (window.self !== window.top) document.documentElement.classList.add('embedded');
+
+// ---- People ---------------------------------------------------------------------------
+// The person whose numbers every page shows: ?person= (id or name, e.g. from the
+// dashboard tile), else the last one picked here, else the first person.
+let personRef = params.get('person') || store('lifting-person') || '';
+let peopleList = [];
+
+export const peopleReady = fetch('api/people', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : []))
+  .catch(() => [])
+  .then((list) => {
+    peopleList = list;
+    const ref = String(personRef).toLowerCase();
+    const match = list.find((p) => String(p.id) === ref) || list.find((p) => p.name.toLowerCase() === ref) || list[0];
+    personRef = match ? String(match.id) : '';
+    if (match) store('lifting-person', personRef);
+    return list;
+  });
+
+export function currentPerson() {
+  return peopleList.find((p) => String(p.id) === personRef) || null;
+}
+
+export function setPerson(id) {
+  store('lifting-person', String(id));
+  // Drop ?person so the pick sticks across the page links.
+  const url = new URL(location.href);
+  url.searchParams.delete('person');
+  location.replace(url.toString());
+  if (url.toString() === location.href) location.reload();
+}
 
 export function nav(active) {
   const links = [
@@ -28,6 +61,15 @@ export function nav(active) {
   for (const [id, label, href] of links) {
     el.append(h('a', { href, class: id === active ? 'active' : '', 'data-view': id }, label));
   }
+  const who = h('label', { class: 'who' });
+  el.append(h('span', { class: 'spacer' }), who);
+  peopleReady.then((list) => {
+    if (!list.length) return;
+    const sel = h('select', { 'aria-label': 'Person', onchange: () => (sel.value === 'manage' ? (location.href = 'log#people') : setPerson(sel.value)) },
+      ...list.map((p) => h('option', { value: String(p.id), selected: String(p.id) === personRef }, p.name)),
+      h('option', { value: 'manage' }, 'Add or edit people…'));
+    who.replaceChildren(h('span', { class: 'who-icon' }, '👤'), sel);
+  });
   document.body.prepend(el);
   return el;
 }
@@ -48,8 +90,14 @@ export function h(tag, attrs = {}, ...children) {
   return el;
 }
 
+/** Calls the service; data paths get &person= for the current person automatically. */
 export async function api(path, opts = {}) {
+  await peopleReady;
+  if (personRef && !opts.anyPerson && /^(api\/|import)/.test(path) && !path.startsWith('api/people')) {
+    path += `${path.includes('?') ? '&' : '?'}person=${encodeURIComponent(personRef)}`;
+  }
   const init = { ...opts, headers: { ...(opts.headers || {}) } };
+  delete init.anyPerson;
   if (opts.json !== undefined) {
     init.body = JSON.stringify(opts.json);
     init.headers['Content-Type'] = 'application/json';

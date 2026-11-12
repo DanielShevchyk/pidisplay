@@ -119,8 +119,8 @@ def test_rep_pr_and_stall(tmp_path):
     conn = connect(tmp_path / "x.db")
     days = ["2026-10-01", "2026-10-03", "2026-10-05", "2026-10-07", "2026-10-09", "2026-10-10"]
     plan = [(100, 10), (100, 12), (95, 10), (100, 11), (90, 15), (95, 12)]
-    run_import(conn, {"sessions": [{"date": d, "day": "A", "sets": [s("Row", 1, w, r)]} for d, (w, r) in zip(days, plan)]})
-    h = next(iter(metrics.history(conn).values()))
+    pid = run_import(conn, {"sessions": [{"date": d, "day": "A", "sets": [s("Row", 1, w, r)]} for d, (w, r) in zip(days, plan)]})["person_id"]
+    h = next(iter(metrics.history(conn, pid).values()))
     kinds = [x["pr"]["kinds"] if x["pr"] else None for x in h["sessions"]]
     assert kinds[1] == ["e1rm", "reps"]  # 100 x 12 beats 100 x 10 both ways
     assert kinds[2] is None and kinds[3] is None
@@ -128,14 +128,14 @@ def test_rep_pr_and_stall(tmp_path):
     assert kinds[5] is None
     assert h["stalled"] is True  # the last 3 sessions with an e1RM (95x10, 100x11, 95x12) don't beat 100x12
     run_import(conn, {"sessions": [{"date": "2026-10-11", "day": "A", "sets": [s("Row", 1, 100, 15)]}]})
-    h = next(iter(metrics.history(conn).values()))
+    h = next(iter(metrics.history(conn, pid).values()))
     assert h["sessions"][-1]["pr"]["kinds"] == ["reps"]  # beats 90 x 15
     assert h["sessions"][-1]["pr"]["previous_weight_at_reps"] == 90
 
 
 def test_weekly_volume_counts_drop_set_once(client):
     client.post("/import", json=SAMPLE)
-    v = metrics.volume(client.app.state.conn, 2, today=date(2026, 11, 5))
+    v = metrics.volume(client.app.state.conn, 1, 2, today=date(2026, 11, 5))
     week = v["weeks"][-1]
     assert week["week_start"] == "2026-11-02"
     assert week["groups"] == {"Biceps": 2, "Core": 1, "Plyometrics": 1, "Quads": 4}
@@ -183,3 +183,73 @@ def test_backup(tmp_path, client):
     files = sorted(p.name for p in out.iterdir())
     assert files == ["lifting-2026-11-02.db", "lifting-2026-11-03.db", "lifting-2026-11-04.db"]
     assert sqlite3.connect(out / files[-1]).execute("SELECT count(*) FROM sets").fetchone()[0] == 11
+
+
+def test_people_are_kept_apart(client):
+    me = client.post("/import", json=SAMPLE).json()
+    assert me["person"] == "Me" and me["person_id"] == 1
+    other = copy.deepcopy(SAMPLE)
+    other["person"] = "Alex"
+    r = client.post("/import", json=other).json()
+    assert r["person_created"] and r["person"] == "Alex" and r["sessions_created"] == 2 and r["sets_added"] == 11
+    assert client.post("/import", json=other).json()["sets_unchanged"] == 11  # matched by name now
+    assert [p["name"] for p in client.get("/api/people").json()] == ["Me", "Alex"]
+    # Same exercises, separate numbers.
+    assert client.patch("/api/sets/1", json={"weight_lb": 300}).status_code == 200
+    me_t = client.get("/api/trend", params={"name": "Belt squat"}).json()["sessions"]
+    alex_t = client.get("/api/trend", params={"name": "Belt squat", "person": "alex"}).json()["sessions"]
+    assert me_t[0]["top_weight"] == 270 and alex_t[0]["top_weight"] == 270  # set 1 is a warmup
+    assert len(client.get("/api/sets", params={"person": 2}).json()) == 11
+    assert client.get("/api/summary", params={"person": "Alex"}).json()["person"]["name"] == "Alex"
+    assert client.get("/api/summary", params={"person": "Nobody"}).status_code == 404
+    # A measurement goes to whoever is picked.
+    client.post("/api/measurements", params={"person": 2}, json={"date": "2026-11-10", "type": "bodyweight", "value": 150})
+    assert client.get("/api/dunk").json()["series"]["bodyweight"] == []
+    assert client.get("/api/dunk", params={"person": 2}).json()["series"]["bodyweight"][0]["value"] == 150
+    # Import into the picked person via ?person=.
+    r = client.post("/import", params={"person": 2}, json={"sessions": [{"date": "2026-11-20", "day": "C", "sets": [s("Row", 1, 50, 10)]}]}).json()
+    assert r["person"] == "Alex"
+
+
+def test_people_crud(client):
+    client.post("/import", json=SAMPLE)
+    assert client.post("/api/people", json={"name": "  Sam  "}).json() == {"id": 2, "name": "Sam"}
+    assert client.post("/api/people", json={"name": "sam"}).status_code == 409
+    assert client.post("/api/people", json={"name": " "}).status_code == 400
+    assert client.patch("/api/people/1", json={"name": "Dan"}).json()["name"] == "Dan"
+    sid = client.get("/api/sessions").json()[0]["id"]
+    assert client.patch(f"/api/sessions/{sid}", json={"person_id": 2}).status_code == 200
+    assert len(client.get("/api/sessions", params={"person": "Sam"}).json()) == 1
+    assert client.delete("/api/people/1").status_code == 200  # takes their sessions and sets along
+    conn = client.app.state.conn
+    assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 1
+    assert conn.execute("SELECT count(*) FROM sets s LEFT JOIN sessions ss ON ss.id = s.session_id WHERE ss.id IS NULL").fetchone()[0] == 0
+    assert client.delete("/api/people/2").status_code == 409  # keep at least one
+
+
+OLD_SCHEMA = """
+CREATE TABLE exercises (id INTEGER PRIMARY KEY, name TEXT NOT NULL, variation TEXT NOT NULL DEFAULT '', muscle_group TEXT, equipment TEXT, UNIQUE (name, variation));
+CREATE TABLE sessions (id INTEGER PRIMARY KEY, date TEXT NOT NULL, day_label TEXT NOT NULL DEFAULT '', notes TEXT, UNIQUE (date, day_label));
+CREATE TABLE sets (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, exercise_id INTEGER NOT NULL REFERENCES exercises(id), set_number INTEGER NOT NULL, segment INTEGER NOT NULL DEFAULT 1, set_type TEXT NOT NULL DEFAULT 'working', weight_lb REAL, load_basis TEXT, reps INTEGER, duration_s REAL, height_in REAL, approx INTEGER NOT NULL DEFAULT 0, inferred INTEGER NOT NULL DEFAULT 0, notes TEXT, UNIQUE (session_id, exercise_id, set_number, segment));
+CREATE TABLE measurements (id INTEGER PRIMARY KEY, date TEXT NOT NULL, type TEXT NOT NULL, value REAL NOT NULL, unit TEXT NOT NULL, approx INTEGER NOT NULL DEFAULT 0, notes TEXT, UNIQUE (date, type));
+INSERT INTO exercises VALUES (1, 'Row', '', 'Back', NULL);
+INSERT INTO sessions VALUES (7, '2026-11-03', 'A', 'old');
+INSERT INTO sets (session_id, exercise_id, set_number, weight_lb, reps) VALUES (7, 1, 1, 100, 10);
+INSERT INTO measurements VALUES (3, '2026-11-03', 'bodyweight', 180, 'lb', 0, NULL);
+"""
+
+
+def test_migrates_a_database_from_before_profiles(tmp_path, monkeypatch):
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(OLD_SCHEMA)
+    old.close()
+    monkeypatch.setenv("LIFTING_DEFAULT_PERSON", "Dan")
+    with TestClient(create_app(path)) as c:
+        assert c.get("/api/people").json()[0]["name"] == "Dan"
+        assert c.get("/api/sessions").json()[0]["id"] == 7
+        assert c.get("/api/sets").json()[0]["weight_lb"] == 100
+        assert c.get("/api/measurements").json()[0]["value"] == 180
+        assert c.app.state.conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert c.delete("/api/sessions/7").status_code == 200
+        assert c.get("/api/sets").json() == []

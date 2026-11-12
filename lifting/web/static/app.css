@@ -196,3 +196,7 @@ pre.example { background: var(--surface-2); border-radius: 12px; padding: 12px; 
 }
 .flags { display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
 .flags label.check { min-height: 40px; }
+.nav .who { display: inline-flex; align-items: center; gap: 8px; }
+.nav .who select { min-height: 56px; min-width: 160px; font-size: 20px; border-radius: 28px; padding: 0 18px; }
+.nav .who-icon { font-size: 22px; }
+.embedded .nav { padding-right: 104px; }

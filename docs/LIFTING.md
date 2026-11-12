@@ -4,6 +4,15 @@ A weightlifting log for the wall display: SQLite (WAL mode) behind a small Pytho
 FastAPI service (`lifting/`), with a touch dashboard the **Lifting** tile opens full
 screen. Lifting only; runs and rides belong to the Strava widget.
 
+## People
+
+Several people can use it. Each has their own sessions, PRs, volume, measurements and
+dunk goal; the exercise list (with muscle groups) is shared. Switch with 👤 at the top
+right of every page; add, rename or delete people on **Log › People** (deleting someone
+deletes all of their data). The first person is named by `LIFTING_DEFAULT_PERSON` in the
+unit (Dan). A Lifting tile shows the first person unless its ⚙ **Person** setting names
+someone, so two tiles can follow two people; tapping a tile opens the tracker on that person.
+
 ## Pieces
 
 | What | Where |
@@ -28,19 +37,23 @@ packages are only reinstalled when `lifting/requirements.txt` changes.
 
 ## Import format
 
-`POST /import` (or the Import page) takes the `lifting_backfill.json` format: `sessions[]`
+`POST /import` (or the Import page) takes the `lifting_backfill.json` format, plus an
+optional top-level `"person": "Name"` (a new name adds that person; without it the import
+goes to `?person=` / the person picked on the page, else the first person): `sessions[]`
 with `date`, `day` (A/B/C/D), `notes` and nested `sets[]`, plus `measurements[]`. The
 Import page shows a full example. Re-importing is safe:
 
-- sessions are matched by date + day label (notes are updated),
+- sessions are matched by person + date + day label (notes are updated),
 - sets by session + exercise + variation + set number + segment (changed fields are updated),
-- measurements by date + type.
+- measurements by person + date + type.
 
 The whole import is one transaction: one bad row rejects the lot and the page lists every
 problem. Muscle group and equipment are guessed from the exercise name unless a set
 carries `muscle_group` / `equipment`; fix guesses on Log › Exercises.
 
-From the laptop: `.\deploy\lifting.ps1 -Import C:\path\lifting_backfill.json`.
+From the laptop: `.\deploy\lifting.ps1 -Import C:\path\lifting_backfill.json` (add `-Person Alex` for someone else).
+
+Every API endpoint takes `?person=` (id or name); without it, it is the first person.
 
 ## How the numbers work
 

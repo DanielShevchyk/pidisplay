@@ -11,7 +11,8 @@
 - Stall: the best e1RM of the last 3 sessions is no higher than before them.
 - Volume: working sets per muscle group per week (Monday start); the segments of one
   mechanical drop set count as one set.
-Exercises are compared per name + variation, as stored.
+Exercises are compared per name + variation, as stored. Every number is for one person
+(pid); the exercise list itself is shared by everyone.
 """
 from __future__ import annotations
 
@@ -36,13 +37,13 @@ def set_e1rm(row) -> float | None:
     return epley(row["weight_lb"], row["reps"])
 
 
-def _rows(conn: sqlite3.Connection, where: str = "", params: tuple = ()) -> list[sqlite3.Row]:
+def _rows(conn: sqlite3.Connection, pid: int, where: str = "", params: tuple = ()) -> list[sqlite3.Row]:
     return conn.execute(
         f"""SELECT s.*, ss.date, ss.day_label, e.name, e.variation, e.muscle_group
             FROM sets s JOIN sessions ss ON ss.id = s.session_id JOIN exercises e ON e.id = s.exercise_id
-            WHERE s.set_type != 'warmup' {where}
+            WHERE s.set_type != 'warmup' AND ss.person_id = ? {where}
             ORDER BY ss.date, ss.id, s.set_number, s.segment""",
-        params,
+        (pid, *params),
     ).fetchall()
 
 
@@ -50,17 +51,17 @@ def _label(name: str, variation: str) -> str:
     return f"{name} ({variation})" if variation else name
 
 
-def history(conn: sqlite3.Connection, exercise_id: int | None = None, name: str | None = None) -> dict:
+def history(conn: sqlite3.Connection, pid: int, exercise_id: int | None = None, name: str | None = None) -> dict:
     """Per exercise: its sessions in order with best e1RM, top set and PR info.
 
     With name, every variation of that exercise is treated as one lift (key: the name).
     """
     if name:
-        rows = _rows(conn, "AND lower(e.name) = lower(?)", (name,))
+        rows = _rows(conn, pid, "AND lower(e.name) = lower(?)", (name,))
     elif exercise_id:
-        rows = _rows(conn, "AND s.exercise_id = ?", (exercise_id,))
+        rows = _rows(conn, pid, "AND s.exercise_id = ?", (exercise_id,))
     else:
-        rows = _rows(conn)
+        rows = _rows(conn, pid)
     by_ex: dict = {}
     for r in rows:
         key = r["name"].lower() if name else r["exercise_id"]
@@ -150,13 +151,17 @@ def stalled(entries: list[dict]) -> bool:
     return max(vals[-3:]) <= max(vals[:-3]) + EPS
 
 
-def exercises(conn: sqlite3.Connection) -> list[dict]:
-    hist = history(conn)
+def exercises(conn: sqlite3.Connection, pid: int) -> list[dict]:
+    """Every exercise, with this person's session count, last date, latest e1RM and stall flag."""
+    hist = history(conn, pid)
     out = []
     for e in conn.execute(
-        """SELECT e.*, count(DISTINCT s.session_id) AS session_count, max(ss.date) AS last_date
-           FROM exercises e LEFT JOIN sets s ON s.exercise_id = e.id LEFT JOIN sessions ss ON ss.id = s.session_id
-           GROUP BY e.id ORDER BY e.name, e.variation"""
+        """SELECT e.*, count(DISTINCT ss.id) AS session_count, max(ss.date) AS last_date,
+                  (SELECT count(DISTINCT s2.session_id) FROM sets s2 WHERE s2.exercise_id = e.id) AS all_sessions
+           FROM exercises e LEFT JOIN sets s ON s.exercise_id = e.id
+           LEFT JOIN sessions ss ON ss.id = s.session_id AND ss.person_id = ?
+           GROUP BY e.id ORDER BY e.name, e.variation""",
+        (pid,),
     ):
         h = hist.get(e["id"])
         latest = next((x["e1rm"] for x in reversed(h["sessions"]) if x["e1rm"] is not None), None) if h else None
@@ -168,12 +173,12 @@ def exercises(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
-def trend_by_name(conn: sqlite3.Connection, name: str) -> dict | None:
-    return history(conn, name=name).get(name.lower())
+def trend_by_name(conn: sqlite3.Connection, pid: int, name: str) -> dict | None:
+    return history(conn, pid, name=name).get(name.lower())
 
 
-def trend(conn: sqlite3.Connection, exercise_id: int) -> dict | None:
-    h = history(conn, exercise_id).get(exercise_id)
+def trend(conn: sqlite3.Connection, pid: int, exercise_id: int) -> dict | None:
+    h = history(conn, pid, exercise_id).get(exercise_id)
     if not h:
         row = conn.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
         if not row:
@@ -183,9 +188,9 @@ def trend(conn: sqlite3.Connection, exercise_id: int) -> dict | None:
     return h
 
 
-def prs(conn: sqlite3.Connection, limit: int = 30) -> list[dict]:
+def prs(conn: sqlite3.Connection, pid: int, limit: int = 30) -> list[dict]:
     out = []
-    for ex in history(conn).values():
+    for ex in history(conn, pid).values():
         for s in ex["sessions"]:
             if s["pr"]:
                 out.append({"date": s["date"], "day_label": s["day_label"], "session_id": s["session_id"],
@@ -200,12 +205,12 @@ def week_start(d: str) -> str:
     return (day - timedelta(days=day.weekday())).isoformat()
 
 
-def volume(conn: sqlite3.Connection, weeks: int = 8, today: Date | None = None) -> dict:
+def volume(conn: sqlite3.Connection, pid: int, weeks: int = 8, today: Date | None = None) -> dict:
     today = today or Date.today()
     this_week = today - timedelta(days=today.weekday())
     starts = [(this_week - timedelta(weeks=i)).isoformat() for i in range(weeks - 1, -1, -1)]
     counted: dict[str, dict[str, set]] = {w: defaultdict(set) for w in starts}
-    for r in _rows(conn, "AND ss.date >= ?", (starts[0],)):
+    for r in _rows(conn, pid, "AND ss.date >= ?", (starts[0],)):
         w = week_start(r["date"])
         if w in counted:
             counted[w][r["muscle_group"] or "Other"].add((r["session_id"], r["exercise_id"], r["set_number"]))
@@ -220,9 +225,9 @@ def _inches(value: float, unit: str) -> float:
     return value / CM_PER_IN if unit == "cm" else value
 
 
-def dunk(conn: sqlite3.Connection) -> dict:
+def dunk(conn: sqlite3.Connection, pid: int) -> dict:
     series: dict[str, list[dict]] = {"standing_touch_height": [], "approach_touch_height": [], "box_jump_height": [], "bodyweight": []}
-    for m in conn.execute("SELECT * FROM measurements ORDER BY date, id"):
+    for m in conn.execute("SELECT * FROM measurements WHERE person_id = ? ORDER BY date, id", (pid,)):
         if m["type"] not in series:
             continue
         value = m["value"] if m["type"] == "bodyweight" else round(_inches(m["value"], m["unit"]), 1)
@@ -232,8 +237,9 @@ def dunk(conn: sqlite3.Connection) -> dict:
     for r in conn.execute(
         """SELECT ss.date, max(s.height_in) AS h, e.variation FROM sets s JOIN sessions ss ON ss.id = s.session_id
            JOIN exercises e ON e.id = s.exercise_id
-           WHERE lower(e.name) LIKE '%box jump%' AND s.height_in IS NOT NULL AND s.set_type != 'warmup'
-           GROUP BY ss.id ORDER BY ss.date"""
+           WHERE ss.person_id = ? AND lower(e.name) LIKE '%box jump%' AND s.height_in IS NOT NULL AND s.set_type != 'warmup'
+           GROUP BY ss.id ORDER BY ss.date""",
+        (pid,),
     ):
         series["box_jump_height"].append({"date": r["date"], "value": r["h"], "unit": "in", "approx": False, "notes": r["variation"], "source": "sets"})
     series["box_jump_height"].sort(key=lambda p: p["date"])
@@ -243,9 +249,10 @@ def dunk(conn: sqlite3.Connection) -> dict:
 NEXT_DAY = {"A": "B", "B": "C", "C": "D", "D": "A"}
 
 
-def summary(conn: sqlite3.Connection, today: Date | None = None) -> dict:
+def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> dict:
     today = today or Date.today()
-    last = conn.execute("SELECT * FROM sessions ORDER BY date DESC, id DESC LIMIT 1").fetchone()
+    person = conn.execute("SELECT id, name FROM people WHERE id = ?", (pid,)).fetchone()
+    last = conn.execute("SELECT * FROM sessions WHERE person_id = ? ORDER BY date DESC, id DESC LIMIT 1", (pid,)).fetchone()
     last_out = None
     if last:
         lifts = conn.execute(
@@ -256,14 +263,20 @@ def summary(conn: sqlite3.Connection, today: Date | None = None) -> dict:
         ).fetchall()
         last_out = {"date": last["date"], "day_label": last["day_label"], "notes": last["notes"],
                     "exercises": [{"label": _label(l["name"], l["variation"]), "name": l["name"], "top_weight": l["top"], "sets": l["sets"]} for l in lifts]}
-    vol = volume(conn, 1, today)["weeks"][0]
-    counts = conn.execute("SELECT (SELECT count(*) FROM sessions) AS sessions, (SELECT count(*) FROM sets) AS sets").fetchone()
+    vol = volume(conn, pid, 1, today)["weeks"][0]
+    counts = conn.execute(
+        """SELECT (SELECT count(*) FROM sessions WHERE person_id = :p) AS sessions,
+                  (SELECT count(*) FROM sets s JOIN sessions ss ON ss.id = s.session_id WHERE ss.person_id = :p) AS sets""",
+        {"p": pid},
+    ).fetchone()
     return {
+        "person": dict(person) if person else None,
+        "people_count": conn.execute("SELECT count(*) FROM people").fetchone()[0],
         "last_session": last_out,
         "next_day": NEXT_DAY.get(last["day_label"]) if last else "A",
         "this_week": {"week_start": vol["week_start"], "working_sets": vol["total"],
-                      "sessions": conn.execute("SELECT count(*) FROM sessions WHERE date >= ?", (vol["week_start"],)).fetchone()[0]},
-        "recent_prs": prs(conn, 5),
-        "stalled": [e["label"] for e in exercises(conn) if e["stalled"]],
+                      "sessions": conn.execute("SELECT count(*) FROM sessions WHERE person_id = ? AND date >= ?", (pid, vol["week_start"])).fetchone()[0]},
+        "recent_prs": prs(conn, pid, 5),
+        "stalled": [e["label"] for e in exercises(conn, pid) if e["stalled"]],
         "totals": dict(counts),
     }

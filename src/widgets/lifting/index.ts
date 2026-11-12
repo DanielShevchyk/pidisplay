@@ -8,6 +8,8 @@ import { defineWidget, type Placement } from '../../core/types';
 import './lifting.css';
 
 interface LiftingConfig {
+  /** Whose numbers: a person's name in the tracker; '' = the first person. */
+  person: string;
   /** Exercise name for the trend line; '' picks the most-logged weighted lift. */
   lift: string;
   [key: string]: unknown;
@@ -22,6 +24,8 @@ interface Pr {
   kinds: string[];
 }
 interface Summary {
+  person: { id: number; name: string } | null;
+  people_count: number;
   last_session: { date: string; day_label: string; exercises: { label: string; name: string; top_weight: number | null; sets: number }[] } | null;
   next_day: string;
   this_week: { working_sets: number; sessions: number };
@@ -41,9 +45,14 @@ interface Trend {
 const BASE = '/lifting/';
 const REFRESH_MS = 5 * 60_000;
 
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(BASE + path, { cache: 'no-store' });
-  if (!res.ok) throw new Error(res.status === 502 ? 'Lifting service is not running' : `HTTP ${res.status}`);
+async function get<T>(path: string, person: string): Promise<T> {
+  const url = BASE + path + (person ? `${path.includes('?') ? '&' : '?'}person=${encodeURIComponent(person)}` : '');
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) {
+    if (res.status === 502) throw new Error('Lifting service is not running');
+    if (res.status === 404 && person) throw new Error(`No one called "${person}" in the tracker. Check the tile's settings.`);
+    throw new Error(`HTTP ${res.status}`);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -61,9 +70,11 @@ function ago(iso: string): string {
 const num = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1).replace(/\.0$/, ''));
 
 /** Opens the tracker full screen. Rotation holds while it is open. */
-export function openTracker(view = 'trend', onClose?: () => void) {
+export function openTracker(view = 'trend', person = '', onClose?: () => void) {
   document.querySelector('.lift-overlay')?.remove();
-  const frame = h('iframe', { class: 'lift-frame', src: `${BASE}?theme=${currentTheme()}#${view}`, title: 'Lifting tracker' });
+  const q = new URLSearchParams({ theme: currentTheme() });
+  if (person) q.set('person', person);
+  const frame = h('iframe', { class: 'lift-frame', src: `${BASE}?${q}#${view}`, title: 'Lifting tracker' });
   const close = () => {
     overlay.remove();
     onClose?.();
@@ -104,19 +115,19 @@ function sparkline(values: number[]): SVGSVGElement {
   return svg;
 }
 
-function render(root: HTMLElement, placement: Placement, s: Summary, trend: Trend | null) {
+function render(root: HTMLElement, placement: Placement, s: Summary, trend: Trend | null, showName: boolean) {
   const last = s.last_session;
   const big = placement === 'large' || placement === 'xlarge' || placement === 'full' || placement === 'tall';
   const head = h(
     'div',
     { class: 'lift-head' },
-    h('span', { class: 'lift-title' }, '🏋️ Lifting'),
+    h('span', { class: 'lift-title' }, (showName || s.people_count > 1) && s.person ? `🏋️ ${s.person.name}` : '🏋️ Lifting'),
     h('span', { class: 'lift-next' }, `Day ${s.next_day} next`),
   );
   const lastLine = last
     ? h('div', { class: 'lift-last' }, `Day ${last.day_label} · ${ago(last.date)}`)
     : h('div', { class: 'lift-last' }, 'No sessions yet. Tap to import.');
-  const week = h('div', { class: 'lift-week' }, h('b', {}, String(s.this_week.working_sets)), ' sets this week', s.this_week.sessions ? ` · ${s.this_week.sessions} session${s.this_week.sessions === 1 ? '' : 's'}` : '');
+  const week = h('div', { class: 'lift-week' }, h('b', {}, String(s.this_week.working_sets)), s.this_week.working_sets === 1 ? ' set this week' : ' sets this week', s.this_week.sessions ? ` · ${s.this_week.sessions} session${s.this_week.sessions === 1 ? '' : 's'}` : '');
 
   if (placement === 'small' || placement === 'bar') {
     root.replaceChildren(head, lastLine, week);
@@ -156,44 +167,57 @@ export default defineWidget<LiftingConfig>({
   icon: '🏋️',
   sizes: ['small', 'medium', 'tall', 'large', 'xlarge', 'full'],
   defaultSize: 'large',
-  defaultConfig: { lift: '' },
-  settings: [{ key: 'lift', label: 'Trend line for (exercise name; blank = most logged)', type: 'text', placeholder: 'Belt squat' }],
+  defaultConfig: { person: '', lift: '' },
+  settings: [
+    { key: 'person', label: 'Person (name in the tracker; blank = the first person)', type: 'text', placeholder: 'Dan' },
+    { key: 'lift', label: 'Trend line for (exercise name; blank = most logged)', type: 'text', placeholder: 'Belt squat' },
+  ],
 
-  mount(el, { config, placement, sharedStorage }) {
+  mount(el, { config, placement, storage }) {
     let alive = true;
-    const root = h('button', { class: `lift size-${placement}`, onclick: () => openTracker('trend', () => void refresh()) });
+    const person = String(config.person || '').trim();
+    // With a person set, the tile shows their name instead of "Lifting".
+    const showName = Boolean(person);
+    // The tracker opens on the tile's person (the first person when the setting is blank).
+    let shownId: number | undefined;
+    const root = h('button', {
+      class: `lift size-${placement}`,
+      onclick: () => openTracker('trend', person || (shownId ? String(shownId) : ''), () => void refresh()),
+    });
     el.append(root);
 
     async function refresh() {
       try {
-        const s = await get<Summary>('api/summary');
+        const s = await get<Summary>('api/summary', person);
         let trend: Trend | null = null;
         if (placement !== 'small' && placement !== 'medium' && placement !== 'bar') {
           let name = String(config.lift || '').trim();
           if (!name) {
-            const ex = await get<Exercise[]>('api/exercises');
+            const ex = await get<Exercise[]>('api/exercises', person);
             const counts = new Map<string, number>();
             for (const e of ex) if (e.has_e1rm) counts.set(e.name, (counts.get(e.name) ?? 0) + e.session_count);
             name = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
           }
-          if (name) trend = await get<Trend>(`api/trend?name=${encodeURIComponent(name)}`).catch(() => null);
+          if (name) trend = await get<Trend>(`api/trend?name=${encodeURIComponent(name)}`, person).catch(() => null);
         }
         if (!alive) return;
-        render(root, placement, s, trend);
-        sharedStorage.save({ s, trend: placement === 'small' || placement === 'medium' ? null : trend }).catch(() => {});
+        shownId = s.person?.id;
+        render(root, placement, s, trend, showName);
+        // Per tile: two tiles can follow two people.
+        storage.save({ s, trend }).catch(() => {});
       } catch (err) {
         if (!alive) return;
         if (!root.childElementCount) {
-          root.replaceChildren(h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, '🏋️ Lifting')), h('div', { class: 'lift-dim' }, (err as Error).message));
+          root.replaceChildren(h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, `🏋️ ${person || 'Lifting'}`)), h('div', { class: 'lift-dim' }, (err as Error).message));
         }
       }
     }
 
     // Show the last numbers right away (e.g. after a reboot), then fetch fresh ones.
-    sharedStorage
+    storage
       .load<{ s: Summary; trend: Trend | null } | null>(null)
       .then((cached) => {
-        if (alive && cached?.s && !root.childElementCount) render(root, placement, cached.s, cached.trend);
+        if (alive && cached?.s && !root.childElementCount) render(root, placement, cached.s, cached.trend, showName);
       })
       .catch(() => {});
     void refresh();
