@@ -154,6 +154,9 @@ function compactStreams(s) {
   };
 }
 
+/** Strava's error list as "resource:field:code", e.g. "Application:Status:Inactive". */
+const detail = (body) => (body?.errors ?? []).map((e) => [e.resource, e.field, e.code].filter(Boolean).join(':')).join(', ');
+
 /** Explains a failed API answer in words someone at the display can act on. */
 function apiError(status, body) {
   const fields = (body?.errors ?? []).map((e) => `${e.field ?? ''}:${e.code ?? ''}`).join(' ');
@@ -163,7 +166,12 @@ function apiError(status, body) {
   if (status === 401) return new StravaError(401, 'Strava signed this display out. Connect Strava again.');
   if (status === 404) return new StravaError(404, 'Strava doesn\'t have that activity any more.');
   if (status === 429) return new StravaError(429, 'Strava\'s request limit is used up for now; the display waits and tries again.');
-  return new StravaError(502, body?.message ? `Strava: ${body.message}` : `Strava answered ${status}`);
+  if (status === 403 && /Application:Status:Inactive/i.test(detail(body))) {
+    // Since July 2026 Strava turns off API apps whose owner has no Strava subscription.
+    return new StravaError(403, 'Strava says this API app is inactive (Application Status: Inactive). Strava now only serves API apps whose owner has a Strava subscription; check the app on strava.com/settings/api or ask developers@strava.com.');
+  }
+  const why = detail(body);
+  return new StravaError(502, body?.message ? `Strava: ${body.message}${why ? ` (${why})` : ''}` : `Strava answered ${status}`);
 }
 
 export function createStrava({
@@ -416,7 +424,7 @@ export function createStrava({
         throw new StravaError(429, now() < blockedUntil ? 'Strava\'s request limit is used up for now; the display waits and tries again.' : 'Saving Strava requests for now; try again in a few minutes.');
       }
       const token = await accessToken(attempt > 0);
-      const res = await fetchImpl(`${API}${pathAndQuery}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetchImpl(`${API}${pathAndQuery}`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': 'PiDisplay/1.0' } });
       readHeaders(res);
       const text = await res.text();
       let body = null;
@@ -429,6 +437,7 @@ export function createStrava({
       if (res.status === 429) blockAfter429();
       if (!res.ok) {
         const err = apiError(res.status, body);
+        console.error(`Strava ${res.status} for ${pathAndQuery.split('?')[0]}: ${text.slice(0, 500)}`);
         if (err.status === 401) {
           const c = await loadConfig();
           await saveConfig({ clientId: c.clientId, clientSecret: c.clientSecret });
