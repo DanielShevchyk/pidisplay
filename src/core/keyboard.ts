@@ -36,9 +36,22 @@ const LAYOUTS: Record<Layer, string[][]> = {
 
 const LABELS: Record<string, string> = { '⌫': '⌫', '↵': 'Enter', '⇧': '⇧', '␣': 'space', hide: 'Hide ⌄' };
 
+// Tag checks, not instanceof: fields inside a same-origin iframe (the lifting
+// dashboard) belong to another window, whose HTMLInputElement is a different class.
+const isTextarea = (el: Element): el is HTMLTextAreaElement => el.tagName === 'TEXTAREA';
+
 function isField(el: Element | null): el is Field {
-  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
-  return el instanceof HTMLInputElement && TEXT_TYPES.has(el.type) && !el.readOnly && !el.disabled;
+  if (!el) return false;
+  if (isTextarea(el)) return !el.readOnly && !el.disabled;
+  const input = el as HTMLInputElement;
+  return el.tagName === 'INPUT' && TEXT_TYPES.has(input.type) && !input.readOnly && !input.disabled;
+}
+
+let attachTo: ((doc: Document) => void) | null = null;
+
+/** Lets the keyboard type into fields of another same-origin document, e.g. an iframe's. */
+export function attachKeyboard(doc: Document): void {
+  attachTo?.(doc);
 }
 
 export function initKeyboard(): void {
@@ -124,7 +137,7 @@ export function initKeyboard(): void {
   }
 
   function canSelect(el: Field) {
-    return el instanceof HTMLTextAreaElement || SELECTABLE.has(el.type);
+    return isTextarea(el) || SELECTABLE.has(el.type);
   }
 
   function insert(text: string) {
@@ -155,12 +168,12 @@ export function initKeyboard(): void {
 
   function enter() {
     const el = target!;
-    if (el instanceof HTMLTextAreaElement) return insert('\n');
+    if (isTextarea(el)) return insert('\n');
     const ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true });
     el.dispatchEvent(ev);
     el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
     // Like a phone keyboard: Enter on a single-line field means done.
-    if (document.activeElement === el) el.blur();
+    if (el.ownerDocument.activeElement === el) el.blur();
   }
 
   function show(el: Field) {
@@ -187,20 +200,24 @@ export function initKeyboard(): void {
     document.body.classList.remove('osk-open');
   }
 
-  document.addEventListener('focusin', (e) => {
-    if (isField(e.target as Element)) show(e.target as Field);
-  });
-
-  document.addEventListener('focusout', (e) => {
-    const el = e.target as Element;
-    if (!isField(el)) return;
-    // Typing here is programmatic, so the browser won't fire change on blur by itself.
-    const before = startValues.get(el);
-    startValues.delete(el);
-    if (before !== undefined && before !== el.value) el.dispatchEvent(new Event('change', { bubbles: true }));
-    // Focus may be moving straight to another field; only hide if it isn't.
-    setTimeout(() => {
-      if (!isField(document.activeElement)) hide();
+  function listen(doc: Document) {
+    doc.addEventListener('focusin', (e) => {
+      if (isField(e.target as Element)) show(e.target as Field);
     });
-  });
+
+    doc.addEventListener('focusout', (e) => {
+      const el = e.target as Element;
+      if (!isField(el)) return;
+      // Typing here is programmatic, so the browser won't fire change on blur by itself.
+      const before = startValues.get(el);
+      startValues.delete(el);
+      if (before !== undefined && before !== el.value) el.dispatchEvent(new Event('change', { bubbles: true }));
+      // Focus may be moving straight to another field; only hide if it isn't.
+      setTimeout(() => {
+        if (!isField(doc.activeElement) && !isField(document.activeElement)) hide();
+      });
+    });
+  }
+  listen(document);
+  attachTo = listen;
 }

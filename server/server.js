@@ -156,6 +156,8 @@ export function createServer({
   // Farewatcher's own config: the ntfy topic used by "Send to phone" for ticket links.
   faresConfigFile = process.env.FAREWATCHER_CONFIG || path.join(os.homedir(), 'fare_watch', 'config.json'),
   faresSettings = undefined,
+  // The lifting tracker (lifting/, a Python service), shown under /lifting/.
+  liftingUrl = process.env.LIFTING_URL || 'http://127.0.0.1:8090',
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -842,9 +844,41 @@ export function createServer({
     res.end(await fs.readFile(file));
   }
 
+  // Pass /lifting/... through to the lifting service, so its pages share this origin:
+  // the dashboard can then show them in a frame and type into them with its keyboard.
+  function proxyLifting(req, res, url) {
+    const target = new URL(liftingUrl);
+    const headers = { ...req.headers, host: target.host };
+    const upstream = http.request(
+      { hostname: target.hostname, port: target.port, method: req.method, path: url.pathname.slice('/lifting'.length) + url.search, headers },
+      (up) => {
+        res.writeHead(up.statusCode ?? 502, up.headers);
+        up.pipe(res);
+      },
+    );
+    upstream.on('error', () => {
+      if (res.headersSent) return res.end();
+      if (url.pathname.startsWith('/lifting/api/') || req.method !== 'GET') {
+        return send(res, 502, { error: 'The lifting service is not running' });
+      }
+      res.writeHead(502, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-store' });
+      res.end(
+        '<!doctype html><meta charset="utf-8"><body style="font:22px system-ui;background:#0b0e13;color:#eef2f7;padding:40px">' +
+          '<h2>The lifting tracker isn\'t running</h2><p>On the Pi: <code>sudo systemctl status pidisplay-lifting</code>' +
+          ' and <code>journalctl -u pidisplay-lifting</code>. Redeploying installs it.</p>',
+      );
+    });
+    req.pipe(upstream);
+  }
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
+      if (url.pathname === '/lifting') {
+        res.writeHead(301, { Location: `/lifting/${url.search}` });
+        return res.end();
+      }
+      if (url.pathname.startsWith('/lifting/')) return proxyLifting(req, res, url);
       if (url.pathname.startsWith('/api/')) await handleApi(req, res, url);
       else if (req.method === 'GET' || req.method === 'HEAD') await serveStatic(req, res, url);
       else throw new HttpError(405, 'Method not allowed');

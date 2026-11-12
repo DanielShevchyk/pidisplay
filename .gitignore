@@ -9,3 +9,8 @@ farewatcher/backups/
 farewatcher/*.log
 farewatcher/config.json
 farewatcher/__pycache__/
+
+# Lifting tracker: the database lives in PIDISPLAY_DATA
+__pycache__/
+*.db-wal
+*.db-shm

@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up the lifting tracker database to a dated file
+
+[Service]
+Type=oneshot
+User=dan
+WorkingDirectory=/home/dan/pidisplay
+Environment=LIFTING_DB=/home/dan/pidisplay-data/lifting.db
+Environment=LIFTING_BACKUP_DIR=/home/dan/pidisplay-data/lifting-backups
+Environment=LIFTING_BACKUP_KEEP=60
+# Standard library only, so the system Python is enough.
+ExecStart=/usr/bin/python3 -m lifting.backup

@@ -373,7 +373,7 @@ export class App {
   private tick() {
     const { rotateSeconds, resumeAfterSeconds } = this.layout.settings;
     if (this.editing || this.sleep.asleep || rotateSeconds <= 0 || this.layout.pages.length < 2) return;
-    if (document.querySelector('.sheet-backdrop')) return;
+    if (document.querySelector('.sheet-backdrop, [data-hold-rotation]')) return;
     const now = Date.now();
     if (now < this.holdUntil) return;
     if (now - this.lastInteraction < resumeAfterSeconds * 1000) return;

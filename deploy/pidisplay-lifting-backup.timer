@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly lifting tracker backup
+
+[Timer]
+OnCalendar=*-*-* 03:15
+# Catch up after the Pi was off at 03:15.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

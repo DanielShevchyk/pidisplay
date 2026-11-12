@@ -1,0 +1,38 @@
+.lift {
+  width: 100%; height: 100%; display: flex; flex-direction: column; gap: 8px;
+  padding: 16px 18px; text-align: left; background: none; border: 0; color: var(--text);
+  overflow: hidden; min-height: 0;
+}
+.lift-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.lift-title { font-weight: 600; font-size: 20px; }
+.lift-next { font-size: 16px; color: var(--accent); white-space: nowrap; }
+.lift-last { font-size: min(22px, 9cqw); }
+.lift-week { color: var(--text-dim); font-size: 17px; }
+.lift-week b { color: var(--text); font-size: 20px; }
+.lift-dim { color: var(--text-dim); }
+.lift-pr { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lift-prs { display: flex; flex-direction: column; gap: 4px; }
+.lift-badge {
+  display: inline-block; margin-right: 8px; padding: 0 7px; border-radius: 8px;
+  border: 1px solid var(--warning); color: var(--warning); font-size: 13px; font-weight: 700; vertical-align: 2px;
+}
+.lift-trend { flex: 1 1 auto; min-height: 70px; display: flex; flex-direction: column; }
+.lift-trend-head { display: flex; justify-content: space-between; gap: 8px; font-size: 16px; color: var(--text-dim); }
+.lift-trend-head b { color: var(--text); font-weight: 600; white-space: nowrap; }
+.lift-spark { flex: 1; width: 100%; min-height: 50px; }
+.lift-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.lift-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 17px; }
+.lift-list li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); padding: 3px 0; }
+.lift-stall { color: var(--warning); font-size: 16px; }
+.lift.size-small { gap: 4px; padding: 12px 14px; }
+.lift.size-small .lift-next { display: none; }
+
+/* The full tracker over the dashboard (openTracker). */
+.lift-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); }
+body.osk-open .lift-overlay { bottom: var(--osk-h, 0px); }
+.lift-frame { width: 100%; height: 100%; border: 0; display: block; }
+.lift-close {
+  position: absolute; top: 12px; right: 16px; z-index: 1;
+  min-width: 64px; min-height: 56px; font-size: 26px; border-radius: 28px;
+  box-shadow: 0 4px 14px var(--shadow);
+}

@@ -86,6 +86,41 @@ for _ in $(seq 1 30); do
 done
 curl -fs http://127.0.0.1:8080/api/health >/dev/null || { echo "Server did not come up"; exit 1; }
 
+# Lifting tracker (docs/LIFTING.md): a Python FastAPI service on port 8090 with its
+# own venv, plus a nightly database backup. Its data stays in ~/pidisplay-data.
+setup_lifting() {
+  dpkg -s python3-venv >/dev/null 2>&1 || sudo apt-get install -y python3-venv || return 1
+  local venv="$HOME/.local/share/pidisplay-lifting/venv"
+  local want
+  want=$(tr -d '\r' < lifting/requirements.txt | sha256sum | cut -d' ' -f1)
+  # Reinstall packages only when requirements.txt changed (or the venv is missing).
+  if [ ! -x "$venv/bin/uvicorn" ] || [ "$(cat "$venv/.requirements-hash" 2>/dev/null)" != "$want" ]; then
+    python3 -m venv "$venv" || return 1
+    "$venv/bin/pip" install --quiet --upgrade pip || true
+    "$venv/bin/pip" install --quiet -r lifting/requirements.txt || return 1
+    echo "$want" > "$venv/.requirements-hash"
+  fi
+  mkdir -p "$HOME/pidisplay-data/lifting-backups"
+  for u in pidisplay-lifting.service pidisplay-lifting-backup.service pidisplay-lifting-backup.timer; do
+    tr -d '\r' < "deploy/$u" > "/tmp/$u"
+    sudo install -m 644 -o root -g root "/tmp/$u" "/etc/systemd/system/$u"
+    rm -f "/tmp/$u"
+  done
+  sudo systemctl daemon-reload
+  sudo systemctl enable pidisplay-lifting pidisplay-lifting-backup.timer
+  sudo systemctl restart pidisplay-lifting
+  sudo systemctl start pidisplay-lifting-backup.timer
+  for _ in $(seq 1 30); do
+    curl -fs http://127.0.0.1:8090/api/health >/dev/null && return 0
+    sleep 1
+  done
+  echo "Lifting service did not come up: journalctl -u pidisplay-lifting"
+  return 1
+}
+if ! setup_lifting; then
+  echo "WARNING: Lifting tracker setup failed (see above). The dashboard itself is updated; rerun the deploy to retry."
+fi
+
 # Spotify Connect receiver for the Spotify widget (docs/SPOTIFY.md). A failure here
 # (say, no internet for apt) warns but doesn't undo the dashboard update above.
 setup_spotify() {

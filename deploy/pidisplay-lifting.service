@@ -1,0 +1,20 @@
+[Unit]
+Description=PiDisplay lifting tracker (FastAPI + SQLite)
+After=network.target
+
+[Service]
+Type=simple
+User=dan
+WorkingDirectory=/home/dan/pidisplay
+# The database lives with the dashboard's other data, which redeploys never touch.
+Environment=PIDISPLAY_DATA=/home/dan/pidisplay-data
+Environment=LIFTING_DB=/home/dan/pidisplay-data/lifting.db
+# 0.0.0.0 so a phone on the home Wi-Fi can open http://piboy.local:8090/import.
+# No login: anyone on the LAN can edit the log. Use 127.0.0.1 to keep it to the Pi
+# (the wall display reaches it through PiDisplay's /lifting/ either way).
+ExecStart=/home/dan/.local/share/pidisplay-lifting/venv/bin/uvicorn --factory lifting.app:create_app --host 0.0.0.0 --port 8090 --no-access-log
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
