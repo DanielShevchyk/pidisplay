@@ -172,7 +172,7 @@ def test_pages_and_summary(client):
     for p in ("/", "/log", "/import"):
         assert client.get(p).status_code == 200
     sm = client.get("/api/summary").json()
-    assert sm["last_session"]["date"] == "2026-11-05" and sm["next_day"] == "C"
+    assert sm["last_session"]["date"] == "2026-11-05" and sm["next_day"] == "A"  # only A and B so far
 
 
 def test_backup(tmp_path, client):
@@ -276,3 +276,35 @@ def test_insights(tmp_path):
     assert {"group": "Quads", "sets": 1} == {k: next(x for x in i["shortcomings"] if x.get("group") == "Quads")[k] for k in ("group", "sets")}
     assert i["groups_7d"] == {"Back": 1, "Quads": 1}
     assert i["this_week"] == 2 and i["dunk"] is None
+
+
+def test_review_fixes(tmp_path):
+    from lifting.db import connect
+    from lifting.importer import run_import
+    assert metrics.epley(300, 1) == 300 and metrics.epley(300, 3) == 330
+    conn = connect(tmp_path / "r.db")
+    run_import(conn, {"sessions": [
+        {"date": "2026-10-01", "day": "A", "sets": [s("Overhead press", 1, 50, 15)]},           # no e1RM (15 reps)
+        {"date": "2026-10-03", "day": "B", "sets": [s("Overhead press", 1, 40, 8)]},            # first e1RM: baseline
+        {"date": "2026-10-05", "day": "C", "sets": [s("Overhead press", 1, 60, 8, inferred=True)]},  # assumed numbers
+        {"date": "2026-10-07", "day": "A", "sets": [s("Overhead press", 1, 45, 8)]},
+    ]})
+    h = next(iter(metrics.history(conn, 1).values()))["sessions"]
+    assert h[1]["pr"] is None and h[2]["pr"] is None
+    assert h[2]["e1rm"] == 76.0  # still charted
+    assert h[3]["pr"] is None  # 45 x 8 doesn't beat the (assumed) 60 x 8
+    assert metrics.next_day(conn, 1) == "B"  # A, B, C used; last was A
+    run_import(conn, {"sessions": [{"date": "2026-10-08", "day": "C", "sets": [s("Overhead press", 1, 45, 8)]}]})
+    assert metrics.next_day(conn, 1) == "A"  # no D ever logged, so C wraps to A
+    # A group idle for 8+ days is flagged once, not also as low volume.
+    i = metrics.insights(conn, 1, today=date(2026, 10, 20))
+    assert [x["kind"] for x in i["shortcomings"] if x.get("group") == "Shoulders"] == ["idle"]
+
+
+def test_measurement_edit_is_validated(client):
+    client.post("/import", json=SAMPLE)
+    mid = client.get("/api/measurements").json()[0]["id"]
+    assert client.patch(f"/api/measurements/{mid}", json={"type": "wingspan"}).status_code == 400
+    assert client.patch(f"/api/measurements/{mid}", json={"date": "2026-02-31"}).status_code == 400
+    assert client.patch(f"/api/measurements/{mid}", json={"value": 112}).json()["value"] == 112
+    assert client.post("/api/people", json={"name": "42"}).status_code == 400

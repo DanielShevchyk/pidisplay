@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import metrics
-from .db import LOAD_BASES, SET_TYPES, Tx, connect, default_person, find_person
+from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx, connect, default_person, find_person
 from .importer import ImportError_, _date, run_import
 
 WEB = Path(__file__).resolve().parent / "web"
@@ -134,6 +134,8 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
             raise HTTPException(400, "Name can't be empty")
         if len(name) > 40:
             raise HTTPException(400, "Name is too long (40 characters at most)")
+        if name.isdigit():
+            raise HTTPException(400, "A name can't be only digits")  # ?person= takes ids too
         return name
 
     @app.get("/api/people")
@@ -356,6 +358,14 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         for k in ("date", "type", "value", "unit"):
             if k in changes and changes[k] in (None, ""):
                 raise HTTPException(400, f"{k} can't be empty")
+        if "type" in changes and changes["type"] not in MEASUREMENT_TYPES:
+            raise HTTPException(400, f"type must be one of {', '.join(MEASUREMENT_TYPES)}")
+        if "date" in changes:
+            errs: list[str] = []
+            if not _date(changes["date"], "date", errs):
+                raise HTTPException(400, errs[0])
+        if "value" in changes and changes["value"] < 0:
+            raise HTTPException(400, "value can't be negative")
         if "approx" in changes:
             changes["approx"] = 1 if changes["approx"] else 0
         if "notes" in changes:

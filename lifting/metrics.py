@@ -4,6 +4,8 @@
   mechanical drop set only the first segment counts (the later segments are the same
   weight after a grip switch, so they'd only understate it).
 - Top-set weight: heaviest working set of the exercise in the session.
+- A single (1 rep) counts as its own weight. Sets marked inferred (assumed numbers) are
+  charted but never claim a PR.
 - PR: a session's best e1RM beats every earlier session of that exercise, or a set beats
   the heaviest weight earlier lifted for at least as many reps (if it's the most reps
   ever, it must at least match the heaviest weight ever). An exercise's first session
@@ -28,6 +30,8 @@ CM_PER_IN = 2.54
 def epley(weight: float | None, reps: int | None) -> float | None:
     if weight is None or reps is None or reps < 1 or reps > 12 or weight <= 0:
         return None
+    if reps == 1:
+        return float(weight)  # a single is the 1RM itself; Epley would add 3.3%
     return weight * (1 + reps / 30)
 
 
@@ -104,12 +108,16 @@ def history(conn: sqlite3.Connection, pid: int, exercise_id: int | None = None, 
             if out:  # the first session is only a baseline
                 kinds: list[str] = []
                 pr_set = None
-                if best and (best_prior is None or best[0] > best_prior + EPS):
+                # Sets with assumed ("inferred") numbers are charted but can't claim a PR.
+                real = [(e, r) for e, r in with_e if not r["inferred"]]
+                best_real = max(real, key=lambda t: t[0]) if real else None
+                # Needs an earlier e1RM to beat: the first scoreable session is the baseline.
+                if best_real and best_prior is not None and best_real[0] > best_prior + EPS:
                     kinds.append("e1rm")
-                    pr_set = best[1]
+                    pr_set = best_real[1]
                 rep_prs = []
                 for r in sets:
-                    if r["weight_lb"] is None or not r["reps"] or (r["set_type"] == "mechanical_drop" and r["segment"] > 1):
+                    if r["weight_lb"] is None or not r["reps"] or r["inferred"] or (r["set_type"] == "mechanical_drop" and r["segment"] > 1):
                         continue
                     at_least = [w for n, w in lifted if n >= r["reps"]]
                     heaviest = max((w for _, w in lifted), default=None)
@@ -246,7 +254,21 @@ def dunk(conn: sqlite3.Connection, pid: int) -> dict:
     return {"series": series, "rim_in": RIM_IN}
 
 
-NEXT_DAY = {"A": "B", "B": "C", "C": "D", "D": "A"}
+def next_day(conn: sqlite3.Connection, pid: int) -> str | None:
+    """The day label after the last session's, cycling through the labels this person has used
+    (A, B, C -> A again if there has never been a D). None when sessions carry no labels."""
+    labels = [r["day_label"] for r in conn.execute(
+        "SELECT day_label FROM sessions WHERE person_id = ? ORDER BY date, id", (pid,))]
+    cycle = sorted({l for l in labels if l})
+    if not cycle:
+        return None if labels else "A"
+    last = labels[-1]
+    if last not in cycle:
+        return None
+    if len(cycle) == 1:
+        # Only one label so far: assume the usual A/B/C/D split is just starting.
+        return {"A": "B", "B": "C", "C": "D"}.get(last, last)
+    return cycle[(cycle.index(last) + 1) % len(cycle)]
 
 
 def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> dict:
@@ -273,7 +295,7 @@ def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> di
         "person": dict(person) if person else None,
         "people_count": conn.execute("SELECT count(*) FROM people").fetchone()[0],
         "last_session": last_out,
-        "next_day": NEXT_DAY.get(last["day_label"]) if last else "A",
+        "next_day": next_day(conn, pid),
         "this_week": {"week_start": vol["week_start"], "working_sets": vol["total"],
                       "sessions": conn.execute("SELECT count(*) FROM sessions WHERE person_id = ? AND date >= ?", (pid, vol["week_start"])).fetchone()[0]},
         "recent_prs": prs(conn, pid, 5),
@@ -366,13 +388,14 @@ def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, targ
     # Shortcomings, most important first.
     short: list[dict] = []
     trained = sorted(g for g in last_hit if g not in NO_TARGET)
+    idle_days = {g: (today - Date.fromisoformat(last_hit[g])).days for g in trained}
     for g in trained:
         n = len(last7.get(g, ()))
-        if n < target:
+        if n < target and idle_days[g] < 8:  # 8+ days idle is reported once, as idle
             short.append({"kind": "low_volume", "group": g, "sets": n, "target": target,
                           "text": f"{g}: {n} of {target} sets in the last 7 days"})
     for g in trained:
-        idle = (today - Date.fromisoformat(last_hit[g])).days
+        idle = idle_days[g]
         if idle >= 8:
             short.append({"kind": "idle", "group": g, "days": idle, "text": f"{g}: not trained for {idle} days"})
     for x in lifts:
@@ -390,13 +413,14 @@ def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, targ
     short.sort(key=lambda s: (order[s["kind"]], s.get("sets", 0)))
 
     # Dunk: touch height trend toward the rim + 6 in.
-    touch = [(m["date"], _inches(m["value"], m["unit"])) for m in conn.execute(
+    touches = [(m["type"], m["date"], _inches(m["value"], m["unit"])) for m in conn.execute(
         "SELECT * FROM measurements WHERE person_id = ? AND type IN ('standing_touch_height', 'approach_touch_height') ORDER BY date",
         (pid,))]
     dunk_out = None
-    if touch:
-        best_touch = max(v for _, v in touch)
-        slope = _slope_per_week(touch)
+    if touches:
+        best_type, _, best_touch = max(touches, key=lambda t: t[2])
+        # Trend within one kind of jump only: standing vs approach differ by inches.
+        slope = _slope_per_week([(d, v) for t, d, v in touches if t == best_type])
         goal = RIM_IN + 6
         weeks_to_goal = round((goal - best_touch) / slope) if slope and slope > 0 and best_touch < goal else None
         dunk_out = {"best_in": round(best_touch, 1), "goal_in": goal, "to_go_in": round(max(0, goal - best_touch), 1),

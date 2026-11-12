@@ -868,6 +868,8 @@ export function createServer({
           ' and <code>journalctl -u pidisplay-lifting</code>. Redeploying installs it.</p>',
       );
     });
+    // The dashboard closed the frame mid-request: don't leave the upstream call hanging.
+    res.on('close', () => upstream.destroy());
     req.pipe(upstream);
   }
 

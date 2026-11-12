@@ -196,6 +196,8 @@ def run_import(conn: sqlite3.Connection, payload: Any, person_id: int | None = N
     named = _text(payload.get("person")) if isinstance(payload.get("person"), str) else None
     if named and len(named) > 40:
         raise ImportError_(["person: name is too long (40 characters at most)"])
+    if named and named.isdigit():
+        raise ImportError_(["person: use a name, not a number"])
     stats = {k: 0 for k in (
         "sessions_created", "sessions_updated", "sets_added", "sets_updated", "sets_unchanged",
         "exercises_created", "measurements_added", "measurements_updated", "measurements_unchanged",
