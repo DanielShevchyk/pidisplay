@@ -1,6 +1,9 @@
 // Shared bits for the lifting pages: theme, navigation, API calls, formatting.
 // URLs are relative so the pages work at PiDisplay's /lifting/ and on port 8090.
 
+import { initDragScroll } from './dragscroll.js';
+
+initDragScroll();
 const params = new URLSearchParams(location.search);
 function store(key, value) {
   try {

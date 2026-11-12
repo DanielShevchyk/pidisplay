@@ -46,7 +46,11 @@ body {
   font-size: 20px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+  /* A finger drag scrolls (static/dragscroll.js) instead of selecting text. */
+  user-select: none;
+  -webkit-user-select: none;
 }
+input, textarea, select, pre { user-select: text; -webkit-user-select: text; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
