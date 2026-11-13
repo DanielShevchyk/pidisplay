@@ -6,13 +6,14 @@ relative URLs and work both at /lifting/ and on port 8090 directly.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -89,8 +90,28 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
     conn = connect(db_file)
     app.state.conn = conn
 
+    # Pages name their scripts under static/v-<hash of the static files>/, so a deploy
+    # that changes any script changes every URL and the kiosk browser can't run a copy
+    # it saved earlier. Relative imports inside the modules inherit the same prefix.
+    static_dir = WEB / "static"
+    digest = hashlib.sha1()
+    for f in sorted(static_dir.rglob("*")):
+        if f.is_file():
+            digest.update(f.name.encode() + f.read_bytes())
+    version = f"v-{digest.hexdigest()[:10]}"
+    app.state.static_version = version
+
     def page(name: str):
-        return FileResponse(WEB / name, headers={"Cache-Control": "no-cache"})
+        html = (WEB / name).read_text("utf-8").replace('"static/', f'"static/{version}/')
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+    @app.get("/static/{ver}/{path:path}", include_in_schema=False)
+    async def versioned_static(ver: str, path: str):
+        f = (static_dir / path).resolve()
+        if not ver.startswith("v-") or not f.is_file() or static_dir.resolve() not in f.parents:
+            raise HTTPException(404, "Not found")
+        # Any version is served the current file; a stale tab still gets working code.
+        return FileResponse(f, headers={"Cache-Control": "public, max-age=31536000, immutable" if ver == version else "no-cache"})
 
     @app.get("/", include_in_schema=False)
     async def index():
@@ -110,7 +131,7 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
     async def revalidate_static(request: Request, call_next):
         # Without this the kiosk's Chromium may keep an old script after a deploy.
         response = await call_next(request)
-        if request.url.path.startswith("/static/"):
+        if request.url.path.startswith("/static/") and "cache-control" not in response.headers:
             response.headers["Cache-Control"] = "no-cache"
         return response
 

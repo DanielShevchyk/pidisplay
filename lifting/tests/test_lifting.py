@@ -410,3 +410,14 @@ def test_variations_roll_up_into_one_lift(client):
 
 def test_static_files_revalidate(client):
     assert client.get("/static/dash.js").headers["cache-control"] == "no-cache"
+
+
+def test_pages_load_versioned_scripts(client):
+    ver = client.app.state.static_version
+    html = client.get("/").text
+    assert f'src="static/{ver}/dash.js"' in html and f'href="static/{ver}/app.css"' in html
+    r = client.get(f"/static/{ver}/common.js")  # what dash.js's "./common.js" import resolves to
+    assert r.status_code == 200 and "immutable" in r.headers["cache-control"]
+    assert client.get("/static/v-old/dash.js").headers["cache-control"] == "no-cache"
+    assert client.get(f"/static/{ver}/../app.py").status_code == 404
+    assert client.get("/log").text.count(f"static/{ver}/") == 2
