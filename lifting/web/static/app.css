@@ -65,7 +65,14 @@
 /* No scroll bars (as on the dashboard itself): lists and pages still scroll by dragging. */
 * { scrollbar-width: none; }
 *::-webkit-scrollbar { display: none; }
-html, body { margin: 0; min-height: 100%; background: var(--backdrop), var(--bg); background-attachment: fixed; color: var(--text); }
+/* The backdrop is drawn once on its own fixed layer. As a fixed background on
+   html and body, the Pi redrew it (slowly, gradients are costly) on every scroll. */
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+body { background: transparent; }
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -1;
+  background: var(--backdrop), var(--bg); will-change: transform; pointer-events: none;
+}
 body {
   font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
   font-weight: 500;

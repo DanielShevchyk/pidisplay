@@ -113,7 +113,8 @@
 .lift.size-large .lift-kpi-v { font-size: 26px; }
 
 /* The full tracker over the dashboard (openTracker). */
-.lift-overlay { position: fixed; inset: 0; z-index: 60; background: var(--backdrop), var(--bg); }
+/* The tracker page draws its own backdrop, so the overlay only needs a solid fill. */
+.lift-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); }
 body.osk-open .lift-overlay { bottom: var(--osk-h, 0px); }
 .lift-frame { width: 100%; height: 100%; border: 0; display: block; }
 .lift-close {

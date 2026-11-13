@@ -40,8 +40,6 @@ const FLICK_PX_PER_MS = 0.3;
 const FLICK_MIN_PX = 40;
 const SWIPE_START_PX = 12;
 const EDGE_RESISTANCE = 0.3;
-// A little longer than the .track slide in styles.css.
-const WAKE_AFTER_SLIDE_MS = 450;
 const DRAG_START_PX = 10;
 const REORDER_COOLDOWN_MS = 220;
 // Three diagonal lines in the bottom-right corner, the usual "drag here to resize" mark.
@@ -73,7 +71,6 @@ export class App {
   /** The wall display unmounts every widget while its screen sleeps, so nothing refreshes or animates. */
   private paused = false;
   private saveTimer = 0;
-  private wakeTimer = 0;
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
   private barRight = h('div', { class: 'bar-slot bar-right' });
@@ -330,15 +327,6 @@ export class App {
     // Sliding across several pages (wrapping around, or a far dot) would drag
     // every page in between across the screen; a quick fade is cheaper and calmer.
     const jump = animate && Math.abs(this.page - from) > 1;
-    // Drawing the page beyond the new one is real work on the Pi, so during a
-    // slide only the arriving page is woken and the rest waits until it settles.
-    clearTimeout(this.wakeTimer);
-    if (animate && !jump) {
-      this.track.children[this.page]?.classList.remove('asleep');
-      this.wakeTimer = window.setTimeout(() => this.wakePages(), WAKE_AFTER_SLIDE_MS);
-    } else {
-      this.wakePages();
-    }
     this.track.style.transition = animate && !jump ? '' : 'none';
     this.track.style.transform = `translate3d(${-100 * this.page}%, 0, 0)`;
     if (jump) this.main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
@@ -353,22 +341,6 @@ export class App {
       ),
     );
     this.dots.hidden = count < 2;
-  }
-
-  /**
-   * Only the current page and its neighbours are rendered. The rest skip style,
-   * layout and paint (content-visibility), so clocks and tickers on far pages
-   * don't cost the Pi anything, and a swipe only has to draw two pages.
-   */
-  private wakePages() {
-    clearTimeout(this.wakeTimer);
-    this.wakeTimer = 0;
-    const pages = this.track.children;
-    const count = pages.length;
-    for (let i = 0; i < count; i++) {
-      const dist = Math.min((i - this.page + count) % count, (this.page - i + count) % count);
-      pages[i].classList.toggle('asleep', !this.editing && dist > 1);
-    }
   }
 
   private tick() {
@@ -418,8 +390,6 @@ export class App {
         if (Math.abs(dx) < Math.abs(dy) * 1.2) return void (drag = null);
         drag.following = true;
         this.track.style.transition = 'none';
-        // A swipe straight after the last one needs the page beyond it drawn now.
-        if (this.wakeTimer) this.wakePages();
         // Keep getting the moves even when the finger passes over a map or other frame.
         this.main.setPointerCapture(e.pointerId);
       }
@@ -456,8 +426,6 @@ export class App {
   private setEditing(on: boolean) {
     this.editing = on;
     this.root.classList.toggle('editing', on);
-    // Edit mode measures every page to flag tiles that don't fit, so wake them all.
-    this.wakePages();
     this.saveStatus.textContent = '';
     if (!on) this.flushSave();
     this.checkOverflow();

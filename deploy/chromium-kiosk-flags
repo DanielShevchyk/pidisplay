@@ -1,8 +1,12 @@
-# Installed by update.sh as /etc/chromium.d/99-pidisplay-kiosk. /usr/bin/chromium
-# sources this after the Raspberry Pi defaults (00-rpi-vars), which force renderer
-# accessibility on. That makes Chromium build an accessibility tree on every
-# screen update, which the kiosk doesn't need. Only the kiosk (kiosk.sh sets
-# PIDISPLAY_KIOSK=1) drops it; Chromium opened from the desktop keeps it.
+# Installed by update.sh as /etc/chromium.d/zz-pidisplay-kiosk (the zz makes it
+# run after the Raspberry Pi defaults in that folder, which are read in name order).
+# Only the kiosk changes (kiosk.sh sets PIDISPLAY_KIOSK=1); Chromium opened from the
+# desktop keeps the defaults.
+# - No forced accessibility: it builds an accessibility tree on every screen update.
+# - Pages are drawn on the CPU instead of the GPU. On the Pi's GPU a slow drawing job
+#   holds up the whole screen, so a swipe froze for 200-450 ms; drawn on the CPU, the
+#   slide keeps moving while a page finishes drawing (measured with
+#   scripts/trace-swipe.mjs). The screen is still composited on the GPU.
 if [ "${PIDISPLAY_KIOSK:-}" = 1 ]; then
-  CHROMIUM_FLAGS=$(echo "$CHROMIUM_FLAGS" | sed 's/--force-renderer-accessibility//')
+  CHROMIUM_FLAGS=$(echo "$CHROMIUM_FLAGS" | sed 's/--force-renderer-accessibility//; s/--enable-gpu-rasterization/--disable-gpu-rasterization/')
 fi

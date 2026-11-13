@@ -124,6 +124,8 @@ The [`deploy/`](deploy) folder holds everything the Pi needs:
 | `update.sh` | Runs on the Pi: installs system packages, runs `npm ci` and the build, installs and restarts the `pidisplay` systemd service, sets up the Spotify receiver and voice control, then relaunches the kiosk. Safe to run again on every update. |
 | `pidisplay.service` | systemd unit for the server, with data kept in `~/pidisplay-data` so redeploys never touch it |
 | `kiosk.sh` + `labwc-autostart` | Starts full-screen Chromium on the dashboard at login and restarts it if it closes |
+| `pidisplay-cpu.service`, `chromium-kiosk-flags` | Smooth page swipes: the CPU stays at full speed, and the kiosk's Chromium draws pages on the CPU and skips the Pi's forced accessibility flag |
+| `../scripts/trace-swipe.mjs` | Run on the Pi (`node scripts/trace-swipe.mjs`) to measure one page swipe through the kiosk's local debugging port: frame gaps, main-thread time and drawing time |
 | `deploy.ps1` | Redeploys from a Windows laptop: pulls the latest commit, copies it to the Pi over SSH, and runs `update.sh` |
 | `calendars.ps1`, `photos.ps1`, `spotify.ps1`, `stocks.ps1`, `strava.ps1`, `vacuum.ps1` | Helpers that save calendar links, photo albums, API keys and logins on the Pi without putting them in git |
 

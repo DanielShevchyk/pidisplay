@@ -42,6 +42,22 @@ const gpu = () => {
   return { ts, jobs, runtime };
 };
 
+// Optional experiments: PAGE=<index> taps that page's dot first, CSS=<rules> adds a
+// style sheet (e.g. CSS='.tile{background:none!important}'), both before tracing.
+if (process.env.PAGE || process.env.CSS) {
+  await send('Runtime.evaluate', {
+    expression: `(() => {
+      const css = ${JSON.stringify(process.env.CSS || '')};
+      let s = document.getElementById('trace-css');
+      if (!s) { s = document.createElement('style'); s.id = 'trace-css'; document.head.append(s); }
+      s.textContent = css;
+      const i = ${JSON.stringify(process.env.PAGE ?? '')};
+      if (i !== '') document.querySelectorAll('.dot')[Number(i)]?.click();
+    })()`,
+  });
+  await sleep(4000);
+}
+
 const before = await send('Runtime.evaluate', {
   expression: `document.querySelector('.page-title')?.textContent`,
   returnByValue: true,
@@ -77,7 +93,7 @@ for (let i = 1; i <= 15; i++) {
   await sleep(16);
 }
 await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y, button: 'left', clickCount: 1 });
-await sleep(700);
+await sleep(1100);
 const g1 = gpu();
 const tEnd = Date.now();
 
@@ -117,6 +133,25 @@ for (const e of events) {
 }
 const top = [...busy.entries()].sort((a, b) => b[1] - a[1]).slice(0, 28);
 
+// The same frames split by phase: finger down, the release slide, and after it settles
+// (when the page beyond the new one is woken).
+const upTs = events.find((e) => e.name === 'EventDispatch' && e.args?.data?.type === 'pointerup')?.ts;
+const phases = upTs
+  ? [
+      ['drag', startTs, upTs],
+      ['slide', upTs, upTs + 400_000],
+      ['settle', upTs + 400_000, windowEnd],
+    ]
+  : [];
+const phaseLines = phases.map(([name, a, b]) => {
+  const s = swaps.filter((t) => t >= a && t <= b);
+  const g = s.slice(1).map((t, i) => (t - s[i]) / 1000);
+  const longest = events
+    .filter((e) => e.name === 'ProxyMain::BeginMainFrame' && e.ts >= a && e.ts <= b && e.dur)
+    .reduce((m, e) => Math.max(m, e.dur / 1000), 0);
+  return `  ${name.padEnd(6)} ${((b - a) / 1000).toFixed(0).padStart(4)} ms: ${s.length} frames, worst gap ${Math.max(0, ...g).toFixed(0)} ms, longest main-thread frame ${longest.toFixed(0)} ms`;
+});
+
 const gpuBusy = ((g1.runtime - g0.runtime) / (g1.ts - g0.ts)) * 100;
 console.log(`Swipe ${dir < 0 ? 'left' : 'right'}: "${before.result?.value}" -> "${after.result?.value}"`);
 console.log(`Window ${((windowEnd - startTs) / 1000).toFixed(0)} ms; ${events.length} trace events saved to ${out}`);
@@ -125,5 +160,13 @@ if (swapName) {
   const avg = gaps.reduce((a, b) => a + b, 0) / (gaps.length || 1);
   console.log(`Frames drawn (${swapName}): ${swaps.length}, mean gap ${avg.toFixed(1)} ms, worst ${Math.max(0, ...gaps).toFixed(1)} ms, gaps >25 ms: ${slow.length} [${slow.map((g) => g.toFixed(0)).join(', ')}]`);
 } else console.log('No display swap events in the trace');
+for (const line of phaseLines) console.log(line);
+const rasterMs = events
+  .filter((e) => e.name === 'RasterTask' && e.ph === 'X' && inWindow(e))
+  .reduce((s, e) => s + e.dur / 1000, 0);
+const gpuRasterMs = events
+  .filter((e) => e.name === 'RasterDecoderImpl::DoEndRasterCHROMIUM' && e.ph === 'X' && inWindow(e))
+  .reduce((s, e) => s + e.dur / 1000, 0);
+console.log(`Raster: ${rasterMs.toFixed(0)} ms in raster tasks, ${gpuRasterMs.toFixed(0)} ms of GPU raster flushes`);
 console.log('Busiest (thread | event: ms, events overlap):');
 for (const [k, ms] of top) console.log(`  ${ms.toFixed(1).padStart(7)}  ${k}`);

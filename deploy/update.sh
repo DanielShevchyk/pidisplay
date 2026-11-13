@@ -59,16 +59,18 @@ sudo install -m 440 -o root -g root /tmp/pidisplay-sudoers /etc/sudoers.d/pidisp
 rm -f /tmp/pidisplay-sudoers
 
 # Smoother page swipes: CPU at full speed (see the unit), and the kiosk's Chromium
-# without the Pi's forced accessibility flag (see the file).
+# flags (see the file).
 tr -d '\r' < deploy/pidisplay-cpu.service > /tmp/pidisplay-cpu.service
 sudo install -m 644 -o root -g root /tmp/pidisplay-cpu.service /etc/systemd/system/pidisplay-cpu.service
 rm -f /tmp/pidisplay-cpu.service
 sudo systemctl daemon-reload
 sudo systemctl enable pidisplay-cpu
 sudo systemctl restart pidisplay-cpu
-tr -d '\r' < deploy/chromium-kiosk-flags > /tmp/99-pidisplay-kiosk
-sudo install -m 644 -o root -g root /tmp/99-pidisplay-kiosk /etc/chromium.d/99-pidisplay-kiosk
-rm -f /tmp/99-pidisplay-kiosk
+tr -d '\r' < deploy/chromium-kiosk-flags > /tmp/zz-pidisplay-kiosk
+sudo install -m 644 -o root -g root /tmp/zz-pidisplay-kiosk /etc/chromium.d/zz-pidisplay-kiosk
+rm -f /tmp/zz-pidisplay-kiosk
+# The first version of this file sorted before the Pi's own flags; drop it.
+sudo rm -f /etc/chromium.d/99-pidisplay-kiosk
 
 # Alarm sounds and other audio go to the screen's HDMI speakers, not the headphone jack.
 WP="$HOME/.config/wireplumber"
