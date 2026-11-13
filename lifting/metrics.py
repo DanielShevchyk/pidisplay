@@ -421,6 +421,7 @@ def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, targ
             "projection_capped": bool(slope is not None and rate is not None and rate < slope),
             "stalled": ex["stalled"],
             "last_date": pts[-1][0],
+            "points": [v for _, v in pts[-12:]],  # for the tile's sparkline
         })
     # Most-logged first, then most recent.
     lifts.sort(key=lambda x: x["name"])

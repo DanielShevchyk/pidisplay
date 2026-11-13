@@ -58,7 +58,52 @@
 .lift-dunk { font-size: 16px; }
 .lift-note { font-size: 14px; color: var(--text-dim); margin-top: 6px; }
 
+/* Full page: a KPI strip over three columns of panels that share the height. */
+.lift-grid { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 16px; flex: 1; min-height: 0; }
+.lift-grid .lift-col { gap: 16px; }
+.lift-panel { background: var(--surface-2); border-radius: 16px; padding: 14px 18px; display: flex; flex-direction: column; min-height: 0; flex: none; }
+.lift-panel.grow { flex: 1 1 0; }
+.lift-panel.weeks { flex: 0 0 34%; }
+.lift-panel .lift-weeks { max-height: none; }
+.lift-panel .lift-groups { flex: 1; min-height: 0; justify-content: space-around; }
+/* Whole rows only: one that doesn't fit wraps into a second column, which is clipped. */
+.lift-clip { flex: 1; min-height: 0; display: flex; flex-direction: column; flex-wrap: wrap; overflow: hidden; column-gap: 40px; }
+.lift-clip > * { width: 100%; flex: 1 0 44px; max-height: 64px; }
+.lift-srow { display: grid; grid-template-columns: 1fr auto 70px; gap: 12px; align-items: center; min-height: 40px; border-bottom: 1px solid var(--border); }
+.lift-srow .lift-proj { text-align: right; }
+.lift-spark { width: 100px; height: 30px; display: block; }
+.lift-spark polyline { fill: none; stroke: var(--text-dim); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.lift-spark.up polyline { stroke: var(--success); }
+.lift-spark.down polyline { stroke: var(--danger); }
+.lift-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.lift-list li { padding-left: 24px; position: relative; }
+.lift-list li::before { content: '!'; position: absolute; left: 4px; font-weight: 700; color: var(--warning); }
+.lift-list li.stalled::before, .lift-list li.declining::before { content: '▼'; font-size: 13px; top: 4px; color: var(--danger); }
+
+.lift.size-full { gap: 16px; padding: 20px 24px; font-size: 20px; }
+.lift.size-full .lift-title { font-size: 26px; }
+.lift.size-full .lift-next { font-size: 20px; }
+.lift.size-full .lift-sec { font-size: 15px; margin-bottom: 10px; }
+.lift.size-full .lift-kpis { gap: 16px; }
+.lift.size-full .lift-kpi { padding: 12px 18px; border-radius: 16px; }
+.lift.size-full .lift-kpi-v { font-size: 44px; }
+.lift.size-full .lift-kpi-k { font-size: 17px; }
+.lift.size-full .lift-delta { font-size: 15px; }
+.lift.size-full .no-proj .lift-prow { grid-template-columns: minmax(0, 1fr) 100px 96px 104px; }
+.lift.size-full .no-proj .lift-proj { display: none; }
+.lift.size-full .lift-prow { grid-template-columns: minmax(0, 1fr) 100px 96px 104px 84px; font-size: 20px; align-items: center; gap: 14px; padding: 0; }
+.lift.size-full .lift-pval, .lift.size-full .lift-proj { text-align: right; }
+.lift.size-full .lift-proj { font-size: 17px; }
+.lift.size-full .lift-grow { grid-template-columns: 130px 1fr 44px; font-size: 20px; gap: 12px; }
+.lift.size-full .lift-gtrack { height: 18px; border-radius: 9px; background: var(--surface); }
+.lift.size-full .lift-gtrack i { border-radius: 9px; }
+.lift.size-full .lift-bar-n { font-size: 17px; }
+.lift.size-full .lift-bars { gap: 12px; }
+
 .lift.size-small { gap: 6px; padding: 12px 14px; }
+.lift.size-small .lift-weeks { min-height: 0; }
+.lift.size-small .lift-weeks .lift-sec, .lift.size-small .lift-bar-n { display: none; }
+.lift.size-small .lift-bars { min-height: 0; gap: 4px; }
 .lift.size-small .lift-next { display: none; }
 .lift.size-small .lift-kpi { background: none; padding: 0; }
 .lift.size-medium .lift-kpis { flex-direction: column; flex: 0 0 44%; }
