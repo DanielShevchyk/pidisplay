@@ -1,0 +1,8 @@
+# Installed by update.sh as /etc/chromium.d/99-pidisplay-kiosk. /usr/bin/chromium
+# sources this after the Raspberry Pi defaults (00-rpi-vars), which force renderer
+# accessibility on. That makes Chromium build an accessibility tree on every
+# screen update, which the kiosk doesn't need. Only the kiosk (kiosk.sh sets
+# PIDISPLAY_KIOSK=1) drops it; Chromium opened from the desktop keeps it.
+if [ "${PIDISPLAY_KIOSK:-}" = 1 ]; then
+  CHROMIUM_FLAGS=$(echo "$CHROMIUM_FLAGS" | sed 's/--force-renderer-accessibility//')
+fi

@@ -23,8 +23,15 @@ if [ -f "$PREFS" ]; then
   sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"[^"]*"/"exit_type":"Normal"/' "$PREFS"
 fi
 
+# Lets /etc/chromium.d/99-pidisplay-kiosk drop the Pi's forced accessibility flag.
+export PIDISPLAY_KIOSK=1
+
 # The autoplay policy lets timers and alarms ring without a tap first.
+# The debugging port only listens on 127.0.0.1 (reach it over an SSH tunnel); it is
+# how scripts/trace-swipe.mjs measures page slides.
 exec chromium \
+  --remote-debugging-port=9222 \
+  --remote-debugging-address=127.0.0.1 \
   --kiosk "$URL" \
   --ozone-platform=wayland \
   --autoplay-policy=no-user-gesture-required \
