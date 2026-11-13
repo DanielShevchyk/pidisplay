@@ -22,6 +22,8 @@ export interface Device {
   restricted: boolean;
   volume: number | null;
   supportsVolume: boolean;
+  /** Only up/down presses work (a soundbar on the TV, whose level nobody can read). */
+  volumeSteps?: boolean;
 }
 
 export interface Item {
@@ -189,7 +191,7 @@ class SpotifyStore {
       }
       if (action === 'shuffle') p.shuffle = Boolean(body.on);
       if (action === 'repeat') p.repeat = body.mode as PlayerState['repeat'];
-      if (action === 'volume') p.device.volume = Number(body.percent);
+      if (action === 'volume' && body.percent !== undefined) p.device.volume = Number(body.percent);
       if (action === 'seek') {
         p.progressMs = Number(body.positionMs);
         this.fetchedAt = Date.now();

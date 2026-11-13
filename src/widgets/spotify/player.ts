@@ -90,6 +90,10 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
       void spotify.act('volume', { percent: Number(volume.value) });
     },
   });
+  // A soundbar on the TV can't report its level, so it gets the remote's - and + instead.
+  const step = (dir: 1 | -1, label: string, text: string) =>
+    h('button', { class: 'spt-btn spt-vol-step', 'aria-label': label, onclick: (e: Event) => (e.stopPropagation(), void spotify.act('volume', { step: dir })) }, text);
+  const stepsRow = h('div', { class: 'spt-volume spt-vol-steps' }, step(-1, 'Volume down', '−'), icon('speaker', 'spt-vol-icon'), step(1, 'Volume up', '+'));
   const volumeRow = h('div', { class: 'spt-volume' }, icon('speaker', 'spt-vol-icon'), volume);
 
   const speakersBtn = h('button', { class: 'btn spt-chip', onclick: (e: Event) => (e.stopPropagation(), openSpeakersSheet()) }, icon('speaker'), device);
@@ -118,6 +122,7 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
       full ? progress : null,
       controls,
       full ? volumeRow : null,
+      full ? stepsRow : null,
       full ? h('div', { class: 'spt-actions' }, speakersBtn, libraryBtn) : null,
     ),
   );
@@ -191,6 +196,7 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     repeatBtn.classList.toggle('one', p.repeat === 'track');
     const supportsVolume = p.device.supportsVolume && p.device.volume !== null;
     volumeRow.hidden = !supportsVolume;
+    stepsRow.hidden = !p.device.volumeSteps;
     if (supportsVolume && !dragging) volume.value = String(p.device.volume);
     tick();
   };

@@ -88,6 +88,9 @@
 
 .spt-volume { display: flex; align-items: center; gap: 12px; max-width: 520px; color: var(--text-dim); }
 .spt-vol-icon { font-size: 24px; }
+.spt-volume[hidden] { display: none; }
+.spt-vol-steps { gap: 20px; }
+.spt-vol-step { background: var(--surface-2); font-size: clamp(28px, 7cqh, 40px); font-weight: 600; }
 .spt-range { flex: 1; min-width: 0; height: 40px; accent-color: var(--accent); }
 .spt-range::-webkit-slider-thumb { width: 32px; height: 32px; }
 

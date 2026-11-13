@@ -404,3 +404,19 @@ test('the volume slider turns the TV itself up when music plays on the TV', asyn
   assert.ok(!calls.some((c) => c.url.includes('/me/player/volume')));
   assert.equal((await spotify.player()).player.device.volume, 45);
 });
+
+test('music on a TV with a soundbar gets volume buttons, not a slider', async () => {
+  const steps = [];
+  const onTv = { is_playing: true, progress_ms: 5, device: { id: 'tv9', name: 'TV', type: 'TV', is_active: true, volume_percent: null, supports_volume: false }, item: null };
+  const { spotify } = await setup({
+    routes: { 'GET /me/player': [200, onTv] },
+    tvVolume: { get: async () => ({ volume: 12, output: 'external_arc' }), set: async () => assert.fail('no levels on a soundbar'), step: async (d) => void steps.push(d) },
+  });
+  await connect(spotify);
+  const { device } = (await spotify.player()).player;
+  assert.equal(device.volumeSteps, true);
+  assert.equal(device.supportsVolume, false);
+  await spotify.control('volume', { step: 1 });
+  await spotify.control('volume', { step: -1 });
+  assert.deepEqual(steps, [1, -1]);
+});

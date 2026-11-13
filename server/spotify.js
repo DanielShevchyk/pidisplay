@@ -396,11 +396,20 @@ export function createSpotify({
   const nowPlaying = () =>
     cached('player', PLAYER_CACHE_MS, async () => mapPlayer(await api('GET', '/me/player?additional_types=episode')));
 
-  let tvVol = null; // { at, value }
+  let tvVol = null; // { at, value: { volume, external } }
   const TV_VOLUME_MS = 10000;
+  /**
+   * The TV's volume as { volume, external }. external: the sound goes to a soundbar or
+   * receiver (HDMI ARC and the like), whose level the TV can't know, so only up/down
+   * presses make sense there; a slider would drift out of step.
+   */
   async function tvVolumeNow() {
     if (tvVol && now() - tvVol.at < TV_VOLUME_MS) return tvVol.value;
-    const value = await tvVolume.get().catch(() => null);
+    const r = await tvVolume.get().catch(() => null);
+    const value =
+      typeof r === 'number'
+        ? { volume: r, external: false }
+        : { volume: typeof r?.volume === 'number' ? r.volume : null, external: Boolean(r?.output) && r.output !== 'tv_speaker' };
     tvVol = { at: now(), value };
     return value;
   }
@@ -416,8 +425,9 @@ export function createSpotify({
   async function player() {
     let [p, list] = await Promise.all([nowPlaying(), devices()]);
     if (await onTv(p?.device)) {
-      const volume = await tvVolumeNow();
-      if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true } };
+      const { volume, external } = await tvVolumeNow();
+      if (external && tvVolume.step) p = { ...p, device: { ...p.device, volume: null, supportsVolume: false, volumeSteps: true } };
+      else if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true } };
     }
     return { player: p, devices: list };
   }
@@ -536,6 +546,15 @@ export function createSpotify({
         break;
       }
       case 'volume': {
+        if (body.step === 1 || body.step === -1) {
+          // One press of the TV remote's volume button, for a soundbar on the TV.
+          const playing = await nowPlaying().catch(() => null);
+          if (!tvVolume?.step || !(await onTv(playing?.device))) throw new SpotifyError(409, 'Volume steps only work while music plays on the TV.');
+          await tvVolume.step(body.step).catch((err) => {
+            throw new SpotifyError(err.status ?? 502, err.message);
+          });
+          break;
+        }
         const v = Math.round(Number(body.percent));
         if (!Number.isFinite(v) || v < 0 || v > 100) throw new SpotifyError(400, 'Volume must be 0 to 100');
         const playingOn = tvVolume ? await nowPlaying().catch(() => null) : null;
@@ -545,7 +564,7 @@ export function createSpotify({
             throw new SpotifyError(err.status ?? 502, err.message);
           });
           if (done) {
-            tvVol = { at: now(), value: done.volume ?? v };
+            tvVol = { at: now(), value: { volume: done.volume ?? v, external: false } };
             break;
           }
         }
