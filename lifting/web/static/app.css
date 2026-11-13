@@ -237,3 +237,59 @@ pre.example { background: var(--surface-2); border-radius: 12px; padding: 12px; 
 @media (max-width: 700px) { .day-lifts { grid-template-columns: 1fr; } }
 .report-pr { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }
 @media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } }
+
+/* ---- One screen, no page scrolling (the wall display) ----------------------
+   Each page is exactly the window's height; a card whose content is longer scrolls
+   inside itself (finger drag via dragscroll.js). Narrow screens (a phone pasting an
+   import) keep normal page scrolling. */
+@media (min-width: 901px) {
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+  .nav { position: static; flex: none; }
+  main { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; padding: 16px 24px; }
+  main > * { flex: none; }
+  .view.active { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+  .view > * { flex: none; }
+  .fill { flex: 1 1 0 !important; min-height: 0; }
+  .scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+  .stats { margin-bottom: 12px; }
+
+  /* Trends: the lift list and the session table scroll; the chart takes what's left. */
+  #view-trend .trend-layout { flex: 1 1 0; min-height: 0; align-items: stretch; }
+  #view-trend .ex-list { max-height: none; min-height: 0; }
+  .trend-main { display: flex; flex-direction: column; min-height: 0; }
+  .trend-main > * { flex: none; }
+  .trend-main .chart-card { flex: 3 1 0; min-height: 240px; display: flex; flex-direction: column; }
+  .trend-main .chart-card .chart { flex: 1 1 0; height: auto; min-height: 0; }
+  .trend-main .trend-table { flex: 2 1 0; min-height: 120px; overflow-y: auto; }
+
+  /* PRs */
+  .pr-feed { align-content: start; }
+
+  /* Month */
+  .report-grid { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .report-side { min-height: 0; }
+  .report-side > .card { flex: none; }
+  .report-side > .card.grow { flex: 1 1 0; min-height: 0; }
+  #view-report .bars, #view-volume .bars { gap: 6px; }
+  #view-report .bar-row, #view-volume .bar-row { min-height: 40px; }
+  #view-report .bar-track, #view-volume .bar-track { height: 26px; }
+  #view-report > p { margin: 8px 0 0; }
+
+  /* Dunk goal: touch chart on top, box jump and bodyweight side by side, then the form. */
+  .dunk-grid { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 14px; }
+  .dunk-grid .chart-card { display: flex; flex-direction: column; min-height: 0; }
+  .dunk-grid .chart, .dunk-grid .chart.short { flex: 1 1 0; height: auto; min-height: 0; }
+  .dunk-grid > .card { padding: 14px 20px; }
+
+  /* Log: the tab's table scrolls under a fixed header row. */
+  .log-body { flex: 1 1 0 !important; min-height: 0; display: flex; flex-direction: column; }
+  .log-body > * { flex: none; }
+  .log-body > .table-wrap { flex: 1 1 0; min-height: 0; overflow: auto; }
+  .log-body table.data th { position: sticky; top: 0; z-index: 1; background: var(--bg); }
+
+  /* Import: the paste box takes the space; results and the format example scroll. */
+  textarea.json { flex: 1 1 0 !important; min-height: 160px; resize: none; }
+  .result { max-height: 26vh; overflow-y: auto; }
+  pre.example { max-height: 30vh; overflow-y: auto; }
+}

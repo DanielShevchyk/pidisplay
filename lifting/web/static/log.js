@@ -25,7 +25,7 @@ render();
 
 async function render() {
   const t = tab();
-  const body = h('div', {});
+  const body = h('div', { class: 'log-body' });
   main.replaceChildren(
     h('div', { class: 'chips' }, ...TABS.map(([id, label]) => h('a', { href: `#${id}`, class: `chip${id === t ? ' active' : ''}`, style: 'display:inline-flex;align-items:center;text-decoration:none;color:inherit' }, label))),
     body,

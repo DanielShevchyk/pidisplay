@@ -129,14 +129,14 @@ async function renderTrend(el) {
   );
 
   el.replaceChildren(h('div', { class: 'trend-layout' }, side,
-    h('div', {},
+    h('div', { class: 'trend-main' },
       h('h2', { style: 'margin:0 0 6px' }, t.label || state.name),
       stats,
       h('div', { class: 'chart-card' },
         series.length > 1 ? legend(series) : h('h3', {}, series[0]?.name || ''),
         chartEl,
         ses.some((x) => x.e1rm_rough) ? h('div', { class: 'dim', style: 'font-size:15px;margin:4px 0 6px' }, '≈ rough estimate: it comes from a set of more than 10 reps (counting reps left in the tank).') : null),
-      h('div', { class: 'table-wrap', style: 'margin-top:16px' }, table))));
+      h('div', { class: 'table-wrap trend-table', style: 'margin-top:16px' }, table))));
   if (series.length) charts.push(lineChart(chartEl, series, { format: fmt, minSpan: 20, floor: 0, label: `${state.name} trend`, empty: 'No weighted sets yet' }));
   else chartEl.append(h('div', { class: 'empty' }, 'Nothing to chart for this exercise (no weights, heights or times logged).'));
 }
@@ -175,7 +175,7 @@ async function renderVolume(el) {
       onclick: () => { volumeWeek = w.week_start; show(); },
     }, `${shortDate(w.week_start)} · ${w.total}`))),
     h('div', { class: 'stats' }, stat('Working sets', String(week.total)), prev ? stat('Week before', String(prev.total)) : null),
-    h('div', { class: 'card' },
+    h('div', { class: 'card fill scroll' },
       prev ? h('div', { class: 'legend' }, h('span', {}, h('i', { style: 'background:var(--series-1)' }), `Week of ${shortDate(week.week_start)}`), h('span', {}, h('i', { style: 'background:var(--text-dim);width:3px;height:16px' }), 'Week before')) : null,
       h('div', { class: 'bars' }, ...rows.map((r) => h('div', { class: 'bar-row', title: `${r.g}: ${num(r.n)} sets${r.p !== null ? ` (week before: ${num(r.p)})` : ''}` },
         h('div', {}, r.g),
@@ -196,7 +196,7 @@ async function renderPrs(el) {
   }
   el.replaceChildren(
     h('h2', { style: 'margin:0 0 12px' }, 'Recent PRs'),
-    h('div', { class: 'pr-feed' }, ...prs.map((p) => h('button', {
+    h('div', { class: 'pr-feed fill scroll' }, ...prs.map((p) => h('button', {
       class: 'pr-card',
       onclick: () => {
         state.name = p.name;
@@ -263,7 +263,7 @@ async function renderReport(el) {
       stat('PRs', String(a.prs), '', versus(a.prs, b.prs)),
       a.avg_rpe !== null ? stat('Average effort', num(a.avg_rpe), 'RPE', hasPrev && b.avg_rpe !== null ? versus(a.avg_rpe, b.avg_rpe) : '') : null),
     h('div', { class: 'report-grid' },
-      h('div', { class: 'card' },
+      h('div', { class: 'card scroll' },
         h('h3', { style: 'margin:0 0 10px' }, 'Sets per muscle group'),
         hasPrev ? h('div', { class: 'legend' }, h('span', {}, h('i', { style: 'background:var(--series-1)' }), monthName(a.month, false)), h('span', {}, h('i', { style: 'background:var(--text-dim);width:3px;height:16px' }), monthName(b.month, false))) : null,
         groups.length
@@ -279,7 +279,7 @@ async function renderReport(el) {
           h('h3', { style: 'margin:0 0 10px' }, `Training days · ${a.days.length}`),
           h('div', { class: 'cal' }, ...cells),
           a.days.length ? h('div', { class: 'dim', style: 'font-size:15px;margin-top:10px' }, 'Tap a highlighted day to see that workout.') : null),
-        h('div', { class: 'card grow' },
+        h('div', { class: 'card grow scroll' },
           h('h3', { style: 'margin:0 0 10px' }, 'PRs this month'),
           a.pr_list.length
             ? h('div', {}, ...a.pr_list.map((p) => h('div', { class: 'report-pr' }, h('span', {}, p.label), h('span', { class: 'dim' }, `${num(p.weight_lb)} lb × ${p.reps} · ${shortDate(p.date)}`))))
