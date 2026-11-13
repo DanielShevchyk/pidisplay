@@ -164,7 +164,16 @@ export interface WidgetDefinition<C extends WidgetConfig = WidgetConfig> {
 export interface TileConfig {
   id: string;
   widget: string;
+  /**
+   * The named look the widget renders at, kept in step with w and h. Older
+   * layouts only have this; the shell then works out a position (src/core/grid.ts).
+   */
   size: LayoutSize;
+  /** Position and size in grid cells, from the top left. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
   config?: WidgetConfig;
 }
 

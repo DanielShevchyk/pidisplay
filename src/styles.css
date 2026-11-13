@@ -169,7 +169,6 @@ select { font: inherit; color: inherit; }
   background: var(--surface);
   border: 1px solid var(--border);
 }
-.editing .bar-item { outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: 999px; padding: 0 12px; }
 /* Round glass buttons: mic, bell, edit, settings. Status chips (timer ringing,
    reminder due, check-in) reuse the class and stretch into pills. */
 .bar-btn {
@@ -260,7 +259,6 @@ select { font: inherit; color: inherit; }
   grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
   grid-template-rows: repeat(var(--rows), var(--row-h));
   grid-auto-rows: var(--row-h);
-  grid-auto-flow: row dense;
 }
 
 .tile {
@@ -285,106 +283,187 @@ select { font: inherit; color: inherit; }
 
 /* ---- Edit mode -------------------------------------------------------- */
 
-.tile-edit { display: none; }
-.editing .page { overflow-y: auto; }
-.editing .tile { touch-action: none; border: 2px dashed var(--accent); animation: wiggle 0.4s ease-in-out infinite alternate; }
-.editing .tile:nth-child(2n) { animation-delay: -0.2s; }
-.editing .tile .widget-body { pointer-events: none; opacity: 0.7; }
-.editing .tile-edit { display: block; }
-.tile.overflow { border-color: var(--danger); }
-.tile.dragging {
-  z-index: 10;
-  animation: none;
-  pointer-events: none;
-  box-shadow: 0 20px 50px var(--shadow);
-  opacity: 0.9;
+/* The edit bar takes the top bar's place, so no controls float over the tiles. */
+.editbar {
+  display: none;
+  height: var(--bar-h);
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 0 22px;
 }
-@keyframes wiggle { from { rotate: -0.4deg; } to { rotate: 0.4deg; } }
-
-.tile-btn {
-  position: absolute;
-  width: 56px;
+.editing .topbar { display: none; }
+.editing .editbar { display: flex; }
+.editbar-page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   height: 56px;
-  border-radius: 50%;
-  border: 0;
-  background: var(--panel);
-  display: grid;
-  place-items: center;
-  box-shadow: 0 2px 10px var(--shadow);
-  font-size: 24px;
-  z-index: 2;
+  padding: 0 4px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
 }
-.tile-remove { top: 8px; left: 8px; color: var(--danger); }
-.tile-settings { top: 8px; right: 8px; }
+.editbar-page .bar-btn { background: none; border: 0; }
+.editbar-page .page-title { min-width: 120px; text-align: center; }
+.editbar .btn { height: 56px; border-radius: 999px; }
+.editbar .btn .ico { width: 22px; height: 22px; }
+.editbar-gap { flex: 1; }
+.save-status { color: var(--text-dim); font-size: 16px; min-width: 80px; text-align: right; }
 
-/* Corner grip: drag it to resize. The hit area is bigger than the mark for fingers. */
-.tile-resize {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 88px;
-  height: 88px;
-  padding: 0;
-  border: 0;
+.editing .page { overflow-y: auto; }
+.editing .tile { touch-action: none; outline: 2px dashed color-mix(in srgb, var(--accent) 40%, transparent); outline-offset: -2px; }
+.editing .tile .widget-body { pointer-events: none; opacity: 0.8; }
+.tile.overflow { outline: 3px solid var(--danger); }
+.tile.selected { outline: none; }
+/* While dragging, the tile waits dimmed at the spot it will land on. */
+.tile.lifted { opacity: 0.35; }
+
+/* Empty cells in edit mode: tap to add a tile right there. */
+.slot {
+  border-radius: var(--radius);
+  border: 2px dashed color-mix(in srgb, var(--text) 16%, transparent);
   background: none;
-  touch-action: none;
-  z-index: 3;
-  cursor: nwse-resize;
-}
-.resize-grip {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 52px;
-  height: 52px;
+  color: color-mix(in srgb, var(--text) 32%, transparent);
   display: grid;
   place-items: center;
-  border-radius: 16px 0 calc(var(--radius) - 4px) 0;
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: 0 2px 10px var(--shadow);
+  padding: 0;
 }
-.resize-grip svg { width: 30px; height: 30px; }
-.tile.resizing .resize-grip { transform: scale(1.12); }
-.resize-badge { display: none; }
-.tile.resizing {
-  z-index: 10;
-  animation: none;
-  border-style: solid;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent), 0 20px 50px var(--shadow);
+.slot .ico { width: 44px; height: 44px; stroke-width: 1.5; }
+.slot:active { background: var(--surface); }
+/* The tiles are see-through; hide the empty-cell marks while tiles are moving over them. */
+.arranging .slot { visibility: hidden; }
+
+/* Where the tile will land; red when the tiles in the way have nowhere to go. */
+.ghost {
+  z-index: 4;
+  pointer-events: none;
+  border-radius: var(--radius);
+  border: 3px dashed var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
 }
-.tile.resizing .resize-badge {
-  position: absolute;
-  inset: 0;
+.ghost.bad { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+.drag-proxy {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  pointer-events: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  background: color-mix(in srgb, var(--panel) 75%, transparent);
-  font-size: 28px;
-  pointer-events: none;
-  z-index: 2;
+  gap: 10px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  box-shadow: 0 30px 70px var(--shadow);
+  font-size: 24px;
+  opacity: 0.94;
+  will-change: transform;
 }
-.resize-badge small { font-size: 18px; color: var(--text-dim); }
+.drag-proxy-icon { font-size: 56px; line-height: 1; }
 
-.edit-toolbar {
-  display: none;
-  position: fixed;
+/* The selected tile's frame: handles on every corner and edge, and its actions.
+   It sits on the same grid area as the tile, so only the handles and buttons take touches. */
+.sel-frame {
+  z-index: 3;
+  position: relative;
+  pointer-events: none;
+  border-radius: var(--radius);
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 22%, transparent);
+  container-type: size;
+}
+.hd {
+  position: absolute;
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+.hd i {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 2px 10px var(--shadow);
+}
+.hd-n i, .hd-s i { width: 64px; height: 14px; border-radius: 999px; }
+.hd-e i, .hd-w i { width: 14px; height: 64px; border-radius: 999px; }
+.hd-nw { left: -10px; top: -10px; }
+.hd-ne { right: -10px; top: -10px; }
+.hd-sw { left: -10px; bottom: -10px; }
+.hd-se { right: -10px; bottom: -10px; }
+.hd-n { left: calc(50% - 36px); top: -30px; }
+.hd-s { left: calc(50% - 36px); bottom: -30px; }
+.hd-w { top: calc(50% - 36px); left: -30px; }
+.hd-e { top: calc(50% - 36px); right: -30px; }
+.hd:active i { transform: scale(1.15); }
+
+.sel-actions {
+  position: absolute;
   left: 50%;
-  bottom: 24px;
-  transform: translateX(-50%);
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
   border-radius: 999px;
   background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: 0 10px 40px var(--shadow);
-  z-index: 20;
+  pointer-events: auto;
+  white-space: nowrap;
 }
-.editing .edit-toolbar { display: flex; }
-.save-status { color: var(--text-dim); font-size: 16px; min-width: 90px; text-align: center; }
+.sel-btn {
+  height: 60px;
+  min-width: 60px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 700;
+}
+.sel-btn .ico { width: 24px; height: 24px; flex: none; }
+.sel-remove { color: var(--danger); }
+.sel-size {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 17px;
+  font-weight: 700;
+  white-space: nowrap;
+  display: none;
+}
+/* Narrow or short tiles: icon-only buttons, and no size label under them. */
+@container (max-width: 560px) {
+  .sel-btn { padding: 0; }
+  .sel-btn span { display: none; }
+}
+@container (max-width: 250px) {
+  .sel-actions { gap: 4px; padding: 4px; }
+  .sel-btn { min-width: 52px; height: 52px; }
+}
+/* While resizing, only the size shows. */
+.sel-frame.resizing .sel-actions { display: none; }
+.sel-frame.resizing .sel-size { display: block; top: 50%; bottom: auto; transform: translate(-50%, -50%); font-size: 26px; padding: 10px 22px; }
 
 /* ---- Sheets ----------------------------------------------------------- */
 

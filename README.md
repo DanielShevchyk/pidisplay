@@ -25,7 +25,7 @@ Weather, calendars, to-do lists, timers, reminders, stocks, news, photos, Spotif
 ## Highlights
 
 - **Touch-first layout.** Pages of tiles on a 6×4 grid that rotate on a timer or swipe left and right. Touching the screen pauses the rotation for a while.
-- **Edit on the screen itself.** Tap ✎ to drag tiles around, cycle through nine tile sizes, change a widget's settings, and add pages. Everything saves to the Pi straight away, and another screen (say, a phone on the same network) picks the change up instantly.
+- **Edit on the screen itself.** Tap ✎, then drag a tile to any spot on the grid (or to another page), tap it to resize from any corner or edge, tap an empty cell to add a tile there, and undo anything. Tiles in the way slide aside. Everything saves to the Pi straight away, and another screen (say, a phone on the same network) picks the change up instantly.
 - **A persistent top bar** with the clock, current weather, running timers, a 🎙️ voice button and a 🔔 notification bell.
 - **Plugin-style widgets.** Each widget is one self-contained folder; adding a feature means dropping in a new folder. See [Writing a widget](docs/WIDGETS.md).
 - **Server-side reliability.** Timers, alarms, reminders and stock alerts are tracked by the Pi rather than the browser, so they still ring after a reload or a reboot, and on every screen.
@@ -70,7 +70,7 @@ The ⚙ gear menu adds app-wide settings: the light or dark theme, **Wi-Fi** and
 | ![Timers next to a reminders list](docs/screenshots/timers-reminders.png) | ![Spotify now playing with large album art](docs/screenshots/spotify.png) |
 | **Timers and reminders** side by side on half-page tiles | **Spotify**: now playing, also shown in the top bar |
 | ![Dashboard with many tile sizes](docs/screenshots/tile-sizes.png) | ![Edit mode with tile controls and toolbar](docs/screenshots/edit-mode.png) |
-| **Mix tile sizes** from 1×1 up to a full page | **Edit mode**: drag, resize, configure, add pages |
+| **Mix tile sizes**: any rectangle from 1×1 up to a full page | **Edit mode**: drag, resize, configure, add pages |
 | ![Voice answer bubble over the home page](docs/screenshots/voice.png) | ![Light theme with to-do lists and a week calendar](docs/screenshots/light-theme.png) |
 | **Voice**: answers on screen and out loud | **Light theme** |
 

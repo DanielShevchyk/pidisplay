@@ -14,19 +14,18 @@ import { showBluetooth, showWifi } from './connections';
 import { currentTheme, setTheme, type Theme } from './theme';
 import { VoiceUI } from './voice';
 import { SleepUI, showSleep } from './sleep';
+import { cellsFor, emptyCells, ensurePlaced, placeWithPush, rectOf, renderSizeFor, spotForNew, type Rect } from './grid';
 import {
   SIZE_LABELS,
   SIZE_SPANS,
   WIDE_RENDER_AS,
-  renderSize,
-  tileSpan,
-  TRACKS_PER_CELL,
   type LayoutSize,
   type WideSize,
   type Layout,
   type PageConfig,
   type Placement,
   type SettingField,
+  type TileSize,
   type TileConfig,
   type WidgetConfig,
   type WidgetContext,
@@ -41,11 +40,19 @@ const FLICK_MIN_PX = 40;
 const SWIPE_START_PX = 12;
 const EDGE_RESISTANCE = 0.3;
 const DRAG_START_PX = 10;
-const REORDER_COOLDOWN_MS = 220;
-// Three diagonal lines in the bottom-right corner, the usual "drag here to resize" mark.
-const RESIZE_GRIP =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">' +
-  '<path d="M21 9 9 21M21 14l-7 7M21 19l-2 2"/></svg>';
+// Holding a dragged tile this close to the screen's side for this long carries it to the next page.
+const EDGE_ZONE_PX = 80;
+const EDGE_HOLD_MS = 650;
+// A little longer than the .track slide in styles.css.
+const SLIDE_MS = 450;
+const FLIP_MS = 180;
+const UNDO_LIMIT = 50;
+// Resize handles on the selected tile: four corners and four edges.
+const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const;
+type Handle = (typeof HANDLES)[number];
+
+/** A tile's grid-area for a rect in cells. */
+const area = (r: Rect) => `${r.y + 1} / ${r.x + 1} / span ${r.h} / span ${r.w}`;
 
 interface Mounted {
   el: HTMLElement;
@@ -71,6 +78,14 @@ export class App {
   /** The wall display unmounts every widget while its screen sleeps, so nothing refreshes or animates. */
   private paused = false;
   private saveTimer = 0;
+  /** The tile showing resize handles and actions in edit mode. */
+  private selected: string | null = null;
+  /** Layout snapshots (JSON) for Undo, newest last, and the state they were taken from. */
+  private undoStack: string[] = [];
+  private lastSnapshot = '';
+  private undoBtn!: HTMLButtonElement;
+  private editTitle = h('div', { class: 'page-title' });
+  private ghost = h('div', { class: 'ghost' });
 
   private barLeft = h('div', { class: 'bar-slot bar-left' });
   private barRight = h('div', { class: 'bar-slot bar-right' });
@@ -124,15 +139,26 @@ export class App {
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Settings', onclick: () => this.openMenu() },
       icon('settings'),
     );
-    const toolbar = h(
-      'div',
-      { class: 'edit-toolbar' },
+    this.undoBtn = h('button', { class: 'btn', disabled: true, onclick: () => this.undo() }, icon('undo-2'), ' Undo') as HTMLButtonElement;
+    // While editing, this bar takes the top bar's place, so nothing floats over the tiles.
+    const editBar = h(
+      'header',
+      { class: 'editbar' },
+      h(
+        'div',
+        { class: 'editbar-page' },
+        h('button', { class: 'btn btn-ghost bar-btn', 'aria-label': 'Previous page', onclick: () => this.goTo(this.page - 1) }, icon('chevron-left')),
+        this.editTitle,
+        h('button', { class: 'btn btn-ghost bar-btn', 'aria-label': 'Next page', onclick: () => this.goTo(this.page + 1) }, icon('chevron-right')),
+      ),
       h('button', { class: 'btn', onclick: () => this.openAddTile() }, icon('plus'), ' Tile'),
       h('button', { class: 'btn', onclick: () => this.addPage() }, icon('plus'), ' Page'),
       h('button', { class: 'btn', onclick: () => this.openPageSettings() }, 'Page'),
       h('button', { class: 'btn', onclick: () => this.openTopBarSettings() }, 'Top bar'),
       h('button', { class: 'btn', onclick: () => this.openDisplaySettings() }, 'Display'),
+      h('span', { class: 'editbar-gap' }),
       this.saveStatus,
+      this.undoBtn,
       h('button', { class: 'btn btn-primary', onclick: () => this.setEditing(false) }, 'Done'),
     );
     root.classList.add('app');
@@ -144,14 +170,13 @@ export class App {
         h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
         h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, checkinPrompt.chip, this.voice.button, this.notifications.button, editBtn, menuBtn),
       ),
+      editBar,
       this.main,
-      toolbar,
     );
 
     this.bindGestures();
     this.sync();
     setInterval(() => this.tick(), 1000);
-    window.addEventListener('resize', () => this.checkOverflow());
     onServerEvent('layout', async () => {
       // Another screen (e.g. a phone) changed the layout. Don't clobber local edits.
       if (this.editing) return;
@@ -165,8 +190,9 @@ export class App {
   /** Reconcile the DOM with this.layout, reusing widget instances that didn't change. */
   private sync() {
     const { settings, pages, topBar } = this.layout;
-    this.main.style.setProperty('--cols', String(settings.columns * TRACKS_PER_CELL));
-    this.main.style.setProperty('--rows', String(settings.rows * TRACKS_PER_CELL));
+    const { columns, rows } = settings;
+    this.main.style.setProperty('--cols', String(columns));
+    this.main.style.setProperty('--rows', String(rows));
 
     const seenBar = new Set<string>();
     for (const side of ['left', 'right'] as BarSide[]) {
@@ -184,14 +210,26 @@ export class App {
     const seenTiles = new Set<string>();
     this.track.replaceChildren(
       ...pages.map((page) => {
+        ensurePlaced(page.tiles, columns, rows);
         const grid = h('div', { class: 'grid', 'data-page': page.id });
+        // Edit mode: every empty cell is a "+" that adds a tile right there.
+        if (this.editing) {
+          for (const cell of emptyCells(page.tiles, columns, rows)) {
+            grid.append(
+              h('button', { class: 'slot', 'aria-label': 'Add a tile here', style: `grid-area: ${area(cell)}`, onclick: () => this.openAddTile(cell) }, icon('plus')),
+            );
+          }
+        }
         for (const tile of page.tiles) {
           seenTiles.add(tile.id);
-          const m = this.mountInto(this.tiles, tile.id, tile.widget, renderSize(tile.size), tile.config);
-          const [cols, rows] = tileSpan(tile.size, settings.columns, settings.rows);
-          m.el.style.gridColumn = `span ${cols}`;
-          m.el.style.gridRow = `span ${rows}`;
-          m.el.dataset.size = tile.size;
+          const size = this.renderSizeOf(tile);
+          tile.size = size;
+          const m = this.mountInto(this.tiles, tile.id, tile.widget, size, tile.config);
+          const r = rectOf(tile);
+          m.el.style.gridArea = area(r);
+          m.el.dataset.size = size;
+          m.el.classList.toggle('overflow', r.y + r.h > rows);
+          m.el.classList.remove('lifted');
           grid.append(m.el);
         }
         return h('section', { class: 'page' }, grid);
@@ -200,7 +238,13 @@ export class App {
     this.prune(this.tiles, seenTiles);
 
     this.goTo(Math.min(this.page, pages.length - 1), false);
-    this.checkOverflow();
+    this.renderSelection();
+  }
+
+  private renderSizeOf(tile: TileConfig): TileSize {
+    const { columns, rows } = this.layout.settings;
+    const r = rectOf(tile);
+    return renderSizeFor(r.w, r.h, columns, rows, getWidget(tile.widget)?.sizes);
   }
 
   private mountInto(
@@ -220,7 +264,7 @@ export class App {
       const el =
         placement === 'bar'
           ? h('div', { class: 'bar-item', 'data-id': id, onclick: () => this.editing && this.openBarItemSettings(id) }, body)
-          : h('div', { class: 'tile', 'data-id': id }, body, this.tileControls(id));
+          : h('div', { class: 'tile', 'data-id': id }, body);
       m = { el, body, key, cleanups: [] };
       registry.set(id, m);
     }
@@ -290,33 +334,6 @@ export class App {
     }
   }
 
-  private tileControls(id: string): HTMLElement {
-    return h(
-      'div',
-      { class: 'tile-edit' },
-      h('button', { class: 'tile-btn tile-remove', 'aria-label': 'Remove', onclick: () => this.removeTile(id) }, icon('x')),
-      h(
-        'button',
-        { class: 'tile-resize', 'aria-label': 'Drag to resize', onpointerdown: (e: PointerEvent) => this.startResize(e, id) },
-        Object.assign(h('span', { class: 'resize-grip' }), { innerHTML: RESIZE_GRIP }),
-      ),
-      h('div', { class: 'resize-badge' }),
-      h('button', { class: 'tile-btn tile-settings', 'aria-label': 'Settings', onclick: () => this.openTileSettings(id) }, icon('settings')),
-    );
-  }
-
-  /** In edit mode, outline tiles that don't fit on their page so the user can fix them. */
-  private checkOverflow() {
-    requestAnimationFrame(() => {
-      for (const grid of this.track.querySelectorAll<HTMLElement>('.grid')) {
-        const bottom = grid.getBoundingClientRect().bottom + 1;
-        for (const tile of grid.querySelectorAll<HTMLElement>('.tile')) {
-          tile.classList.toggle('overflow', tile.getBoundingClientRect().bottom > bottom);
-        }
-      }
-    });
-  }
-
   // ---- Pages and rotation ---------------------------------------------
 
   private goTo(index: number, animate = true) {
@@ -331,6 +348,7 @@ export class App {
     this.track.style.transform = `translate3d(${-100 * this.page}%, 0, 0)`;
     if (jump) this.main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
     this.pageTitle.textContent = this.layout.pages[this.page].name;
+    this.editTitle.textContent = this.layout.pages[this.page].name;
     this.dots.replaceChildren(
       ...this.layout.pages.map((p, i) =>
         h('button', {
@@ -372,8 +390,11 @@ export class App {
 
     this.main.addEventListener('pointerdown', (e) => {
       if (this.editing) {
-        const tile = (e.target as HTMLElement).closest<HTMLElement>('.tile');
-        if (tile && !(e.target as HTMLElement).closest('button')) this.startDrag(e, tile);
+        const target = e.target as HTMLElement;
+        if (target.closest('.sel-frame, .slot')) return;
+        const tile = target.closest<HTMLElement>('.tile');
+        if (tile) this.startDrag(e, tile);
+        else this.select(null);
         return;
       }
       if (!e.isPrimary || ownsSideways(e.target as HTMLElement)) return;
@@ -427,60 +448,316 @@ export class App {
     this.editing = on;
     this.root.classList.toggle('editing', on);
     this.saveStatus.textContent = '';
+    this.selected = null;
+    this.undoStack = [];
+    this.lastSnapshot = on ? JSON.stringify(this.layout) : '';
+    this.undoBtn.disabled = true;
     if (!on) this.flushSave();
-    this.checkOverflow();
+    // Adds or removes the "+" slots in empty cells.
+    this.sync();
   }
 
+  // ---- Edit mode: selecting --------------------------------------------
+
+  private select(id: string | null) {
+    if (this.selected === id) return;
+    this.selected = id;
+    this.renderSelection();
+  }
+
+  /**
+   * The selected tile gets a frame with resize handles and its actions. The frame
+   * is a sibling of the tile in the page grid, on the same grid area, so the
+   * tile's own clipping doesn't cut the handles off and nothing sits outside the page.
+   */
+  private renderSelection() {
+    this.track.querySelector('.sel-frame')?.remove();
+    for (const el of this.track.querySelectorAll('.tile.selected')) el.classList.remove('selected');
+    if (!this.editing || !this.selected) return;
+    const found = this.findTile(this.selected);
+    const m = this.tiles.get(this.selected);
+    if (!found || !m?.el.parentElement) return void (this.selected = null);
+    const id = this.selected;
+    const def = getWidget(found.tile.widget);
+    m.el.classList.add('selected');
+    const frame = h(
+      'div',
+      { class: 'sel-frame', style: `grid-area: ${area(rectOf(found.tile))}` },
+      ...HANDLES.map((edge) =>
+        h('div', { class: `hd hd-${edge}`, 'data-edge': edge, onpointerdown: (e: PointerEvent) => this.startResize(e, id, edge) }, h('i')),
+      ),
+      h(
+        'div',
+        { class: 'sel-actions' },
+        h('button', { class: 'sel-btn', 'aria-label': 'Settings', onclick: () => this.openTileSettings(id) }, icon('settings'), h('span', {}, 'Settings')),
+        this.layout.pages.length > 1
+          ? h('button', { class: 'sel-btn', 'aria-label': 'Move to page', onclick: () => this.openMoveToPage(id) }, icon('move-right'), h('span', {}, 'Move to page'))
+          : null,
+        h('button', { class: 'sel-btn sel-remove', 'aria-label': 'Remove', onclick: () => this.removeTile(id) }, icon('x'), h('span', {}, 'Remove')),
+      ),
+      h('div', { class: 'sel-size' }, `${def?.name ?? found.tile.widget} · ${found.tile.w} × ${found.tile.h}`),
+    );
+    m.el.after(frame);
+  }
+
+  // ---- Edit mode: moving and resizing ------------------------------------
+
+  /** Cell metrics of a page grid on screen, for turning finger positions into cells. */
+  private gridMetrics(grid: HTMLElement) {
+    const { columns, rows } = this.layout.settings;
+    const g = grid.getBoundingClientRect();
+    const style = getComputedStyle(grid);
+    const colGap = parseFloat(style.columnGap) || 0;
+    const rowGap = parseFloat(style.rowGap) || 0;
+    const cellW = (g.width - (columns - 1) * colGap) / columns;
+    const cellH = (g.height - (rows - 1) * rowGap) / rows;
+    return { left: g.left, top: g.top, pitchX: cellW + colGap, pitchY: cellH + rowGap };
+  }
+
+  private gridOf(pageIndex: number): HTMLElement {
+    return this.track.children[pageIndex].querySelector<HTMLElement>('.grid')!;
+  }
+
+  /**
+   * Show a candidate arrangement: tiles slide (FLIP) to their new spots without
+   * remounting. `rects` holds new spots by tile id; tiles not in it go back to
+   * their saved spot.
+   */
+  private showArrangement(pages: number[], rects: Map<string, Rect>) {
+    const els: { el: HTMLElement; to: string }[] = [];
+    for (const i of new Set(pages)) {
+      for (const t of this.layout.pages[i].tiles) {
+        const el = this.tiles.get(t.id)?.el;
+        if (!el) continue;
+        const to = area(rects.get(t.id) ?? rectOf(t));
+        if (el.style.gridArea !== to) els.push({ el, to });
+      }
+    }
+    const before = els.map(({ el }) => el.getBoundingClientRect());
+    for (const { el, to } of els) el.style.gridArea = to;
+    els.forEach(({ el }, i) => {
+      if (el.classList.contains('lifted')) return;
+      const a = before[i];
+      const b = el.getBoundingClientRect();
+      if (!b.width || !b.height) return;
+      el.animate(
+        [
+          { transform: `translate(${a.left - b.left}px, ${a.top - b.top}px) scale(${a.width / b.width}, ${a.height / b.height})`, transformOrigin: '0 0' },
+          { transform: 'none', transformOrigin: '0 0' },
+        ],
+        { duration: FLIP_MS, easing: 'ease-out' },
+      );
+    });
+  }
+
+  private showGhost(grid: HTMLElement, r: Rect, ok: boolean) {
+    if (this.ghost.parentElement !== grid) grid.append(this.ghost);
+    this.ghost.style.gridArea = area(r);
+    this.ghost.classList.toggle('bad', !ok);
+  }
+
+  /**
+   * Dragging a tile. A light card follows the finger and the tile itself waits,
+   * dimmed, at the spot it will land on; tiles in the way slide aside. If they
+   * have nowhere to go the outline turns red and the tile stays at its last good
+   * spot. Holding the card at the side of the screen goes to the next page.
+   */
   private startDrag(e: PointerEvent, tileEl: HTMLElement) {
     const id = tileEl.dataset.id!;
+    const found = this.findTile(id);
+    if (!found) return;
+    const { tile } = found;
+    const { columns, rows } = this.layout.settings;
     const startX = e.clientX;
     const startY = e.clientY;
-    let base = tileEl.getBoundingClientRect();
-    const grabX = startX - base.left;
-    const grabY = startY - base.top;
+    const r0 = tileEl.getBoundingClientRect();
+    const grabX = startX - r0.left;
+    const grabY = startY - r0.top;
+    const src = this.layout.pages.indexOf(found.page);
+    const orig = rectOf(tile);
+    let pageIndex = src;
+    let valid = { page: src, rect: orig, moves: new Map<string, Rect>() };
+    let lastKey = '';
     let dragging = false;
-    let lastReorder = 0;
+    let proxy: HTMLElement | null = null;
+    let edgeTimer = 0;
+    let edgeDir = 0;
+    let fingerX = startX;
+    let fingerY = startY;
 
-    const place = (x: number, y: number) => {
-      tileEl.style.transform = `translate(${x - grabX - base.left}px, ${y - grabY - base.top}px)`;
+    const preview = () => {
+      const grid = this.gridOf(pageIndex);
+      const g = this.gridMetrics(grid);
+      const x = Math.max(0, Math.min(columns - orig.w, Math.round((fingerX - grabX - g.left) / g.pitchX)));
+      const y = Math.max(0, Math.min(rows - orig.h, Math.round((fingerY - grabY - g.top) / g.pitchY)));
+      const key = `${pageIndex}:${x}:${y}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      const rect = { x, y, w: orig.w, h: orig.h };
+      const others = this.layout.pages[pageIndex].tiles.filter((t) => t.id !== id);
+      const moves = placeWithPush(others, rect, columns, rows);
+      this.showGhost(grid, rect, Boolean(moves));
+      if (!moves) return;
+      const prevPage = valid.page;
+      valid = { page: pageIndex, rect, moves };
+      if (tileEl.parentElement !== grid) grid.append(tileEl);
+      moves.set(id, rect);
+      this.showArrangement([prevPage, pageIndex, src], moves);
     };
+
+    const toEdge = () => {
+      edgeTimer = 0;
+      const next = pageIndex + edgeDir;
+      if (next < 0 || next >= this.layout.pages.length) return;
+      pageIndex = next;
+      this.goTo(next);
+      lastKey = '';
+      // Measure the new page once it has slid into place.
+      setTimeout(() => dragging && preview(), SLIDE_MS);
+      edgeTimer = window.setTimeout(toEdge, EDGE_HOLD_MS + SLIDE_MS);
+    };
+
     const move = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
+      fingerX = ev.clientX;
+      fingerY = ev.clientY;
       if (!dragging) {
-        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_START_PX) return;
+        if (Math.hypot(fingerX - startX, fingerY - startY) < DRAG_START_PX) return;
         dragging = true;
-        tileEl.classList.add('dragging');
+        const def = getWidget(tile.widget);
+        proxy = h(
+          'div',
+          { class: 'drag-proxy', style: `width: ${r0.width}px; height: ${r0.height}px` },
+          h('span', { class: 'drag-proxy-icon' }, def?.icon ?? ''),
+          h('strong', {}, def?.name ?? tile.widget),
+        );
+        document.body.append(proxy);
+        tileEl.classList.add('lifted');
+        this.root.classList.add('arranging');
+        this.select(null);
       }
-      place(ev.clientX, ev.clientY);
-
-      if (Date.now() - lastReorder < REORDER_COOLDOWN_MS) return;
-      const under = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('.tile');
-      if (!under || under === tileEl || under.parentElement !== tileEl.parentElement) return;
-      const from = this.findTile(id);
-      const to = this.findTile(under.dataset.id!);
-      if (!from || !to) return;
-      const [moved] = from.page.tiles.splice(from.index, 1);
-      from.page.tiles.splice(to.index, 0, moved);
-      if (from.index < to.index) under.after(tileEl);
-      else under.before(tileEl);
-      lastReorder = Date.now();
-      // The tile's resting grid slot moved; re-measure so it stays under the finger.
-      tileEl.style.transform = '';
-      base = tileEl.getBoundingClientRect();
-      place(ev.clientX, ev.clientY);
+      proxy!.style.transform = `translate3d(${fingerX - grabX}px, ${fingerY - grabY}px, 0) rotate(-1.2deg)`;
+      const dir = fingerX < EDGE_ZONE_PX ? -1 : fingerX > window.innerWidth - EDGE_ZONE_PX ? 1 : 0;
+      if (dir !== edgeDir) {
+        clearTimeout(edgeTimer);
+        edgeTimer = 0;
+        edgeDir = dir;
+        if (dir) edgeTimer = window.setTimeout(toEdge, EDGE_HOLD_MS);
+      }
+      preview();
     };
+
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
-      tileEl.classList.remove('dragging');
-      tileEl.style.transform = '';
-      if (dragging) this.changed();
+      clearTimeout(edgeTimer);
+      this.root.classList.remove('arranging');
+      proxy?.remove();
+      this.ghost.remove();
+      tileEl.classList.remove('lifted');
+      if (!dragging) return void (ev.type === 'pointerup' && this.select(id));
+      if (ev.type === 'pointercancel') return void this.sync();
+      const same = valid.page === src && valid.rect.x === orig.x && valid.rect.y === orig.y;
+      if (same) return void this.sync();
+      const target = this.layout.pages[valid.page];
+      if (valid.page !== src) {
+        const at = found.page.tiles.indexOf(tile);
+        found.page.tiles.splice(at, 1);
+        target.tiles.push(tile);
+      }
+      for (const t of target.tiles) {
+        const r = valid.moves.get(t.id);
+        if (r) Object.assign(t, r);
+      }
+      Object.assign(tile, valid.rect);
+      this.selected = id;
+      this.changed();
+      if (valid.page !== this.page) this.goTo(valid.page);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
+  }
+
+  /**
+   * Resizing from any corner or edge of the selected tile, in whole cells. The
+   * opposite side stays put, the tile stretches live, and tiles in the way slide
+   * aside. The widget redraws for its new size when the finger lifts.
+   */
+  private startResize(e: PointerEvent, id: string, edge: Handle) {
+    const found = this.findTile(id);
+    const tileEl = this.tiles.get(id)?.el;
+    const grid = tileEl?.parentElement;
+    const frame = this.track.querySelector<HTMLElement>('.sel-frame');
+    if (!found || !tileEl || !grid || !frame) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    handle.setPointerCapture(e.pointerId);
+
+    const { tile, page } = found;
+    const { columns, rows } = this.layout.settings;
+    const orig = rectOf(tile);
+    const g = this.gridMetrics(grid);
+    const others = page.tiles.filter((t) => t.id !== id);
+    const label = frame.querySelector<HTMLElement>('.sel-size')!;
+    const name = getWidget(tile.widget)?.name ?? tile.widget;
+    let valid = { rect: orig, moves: new Map<string, Rect>() };
+    let lastKey = '';
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      const dx = Math.round((ev.clientX - e.clientX) / g.pitchX);
+      const dy = Math.round((ev.clientY - e.clientY) / g.pitchY);
+      let { x, y, w, h: ht } = orig;
+      if (edge.includes('e')) w = clamp(orig.w + dx, 1, columns - orig.x);
+      if (edge.includes('w')) {
+        x = clamp(orig.x + dx, 0, orig.x + orig.w - 1);
+        w = orig.x + orig.w - x;
+      }
+      if (edge.includes('s')) ht = clamp(orig.h + dy, 1, Math.max(1, rows - orig.y));
+      if (edge.includes('n')) {
+        y = clamp(orig.y + dy, 0, orig.y + orig.h - 1);
+        ht = orig.y + orig.h - y;
+      }
+      const rect = { x, y, w, h: ht };
+      const key = `${x}:${y}:${w}:${ht}`;
+      if (key === lastKey) return;
+      lastKey = key;
+      const moves = placeWithPush(others, rect, columns, rows);
+      this.showGhost(grid, rect, Boolean(moves));
+      label.textContent = `${name} · ${w} × ${ht}`;
+      if (!moves) return;
+      valid = { rect, moves };
+      frame.style.gridArea = area(rect);
+      moves.set(id, rect);
+      this.showArrangement([this.layout.pages.indexOf(page)], moves);
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      frame.classList.remove('resizing');
+      this.root.classList.remove('arranging');
+      this.ghost.remove();
+      const r = valid.rect;
+      if (ev.type === 'pointercancel' || (r.x === orig.x && r.y === orig.y && r.w === orig.w && r.h === orig.h)) return void this.sync();
+      for (const t of others) {
+        const m = valid.moves.get(t.id);
+        if (m) Object.assign(t, m);
+      }
+      Object.assign(tile, r);
+      this.changed();
+    };
+    frame.classList.add('resizing');
+    this.root.classList.add('arranging');
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
   }
 
   private findTile(id: string): { page: PageConfig; index: number; tile: TileConfig } | null {
@@ -502,9 +779,33 @@ export class App {
 
   private changed() {
     this.sync();
+    if (this.editing) {
+      const now = JSON.stringify(this.layout);
+      if (now !== this.lastSnapshot) {
+        this.undoStack.push(this.lastSnapshot);
+        if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+        this.lastSnapshot = now;
+      }
+      this.undoBtn.disabled = !this.undoStack.length;
+    }
+    this.scheduleSave();
+  }
+
+  private scheduleSave() {
     this.saveStatus.textContent = 'Saving…';
     clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => this.flushSave(), 500);
+  }
+
+  private undo() {
+    const prev = this.undoStack.pop();
+    this.undoBtn.disabled = !this.undoStack.length;
+    if (!prev) return;
+    this.layout = JSON.parse(prev);
+    this.lastSnapshot = prev;
+    if (this.selected && !this.findTile(this.selected)) this.selected = null;
+    this.sync();
+    this.scheduleSave();
   }
 
   private async flushSave() {
@@ -530,95 +831,63 @@ export class App {
     return [...own.slice(0, at), ...wide, ...own.slice(at)];
   }
 
-  /** The [columns, rows] in layout cells a size covers on this grid (halves may be .5). */
-  private sizeCells(size: LayoutSize): [number, number] {
-    const { columns, rows } = this.layout.settings;
-    const [c, r] = tileSpan(size, columns, rows);
-    return [c / TRACKS_PER_CELL, r / TRACKS_PER_CELL];
-  }
-
-  /**
-   * Resizing by dragging the tile's corner grip. The tile's top-left corner stays
-   * put; the size snaps to whichever size the widget supports is closest to the
-   * finger, and the page reflows live so you see the result before letting go.
-   */
-  private startResize(e: PointerEvent, id: string) {
+  /** Resize a tile to w x h from the settings sheet: in place if possible, pushing neighbours, else somewhere it fits. */
+  private resizeTo(id: string, w: number, h: number) {
     const found = this.findTile(id);
-    const tileEl = this.tiles.get(id)?.el;
-    const grid = tileEl?.parentElement;
-    if (!found || !tileEl || !grid) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const handle = e.currentTarget as HTMLElement;
-    handle.setPointerCapture(e.pointerId);
-
-    const { tile } = found;
+    if (!found) return;
     const { columns, rows } = this.layout.settings;
-    const sizes = this.allowedSizes(tile.widget);
-    const start = tile.size;
-    const anchor = tileEl.getBoundingClientRect();
-    const g = grid.getBoundingClientRect();
-    const style = getComputedStyle(grid);
-    const colGap = parseFloat(style.columnGap) || 0;
-    const rowGap = parseFloat(style.rowGap) || 0;
-    const tracksX = columns * TRACKS_PER_CELL;
-    const tracksY = rows * TRACKS_PER_CELL;
-    const trackW = (g.width - (tracksX - 1) * colGap) / tracksX;
-    const trackH = (g.height - (tracksY - 1) * rowGap) / tracksY;
-    const cellW = TRACKS_PER_CELL * trackW + (TRACKS_PER_CELL - 1) * colGap;
-    const cellH = TRACKS_PER_CELL * trackH + (TRACKS_PER_CELL - 1) * rowGap;
-    const badge = tileEl.querySelector<HTMLElement>('.resize-badge')!;
-    let current = start;
-
-    const show = (size: LayoutSize) => {
-      const [c, r] = tileSpan(size, columns, rows);
-      tileEl.style.gridColumn = `span ${c}`;
-      tileEl.style.gridRow = `span ${r}`;
-      tileEl.dataset.size = size;
-      const [cw, ch] = this.sizeCells(size);
-      badge.replaceChildren(h('strong', {}, SIZE_LABELS[size]), h('small', {}, `${cw} × ${ch}`));
-      this.checkOverflow();
-    };
-    const move = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      // How many cells the finger asks for, measured from where the tile started.
-      const wantC = Math.max(0.5, (ev.clientX - anchor.left + colGap) / (cellW + colGap));
-      const wantR = Math.max(0.5, (ev.clientY - anchor.top + rowGap) / (cellH + rowGap));
-      let best = current;
-      let bestD = Infinity;
-      for (const size of sizes) {
-        const [c, r] = this.sizeCells(size);
-        const d = (c - wantC) ** 2 + (r - wantR) ** 2;
-        if (d < bestD - 1e-6) [best, bestD] = [size, d];
-      }
-      if (best !== current) show((current = best));
-    };
-    const up = (ev: PointerEvent) => {
-      if (ev.pointerId !== e.pointerId) return;
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', up);
-      handle.removeEventListener('pointercancel', up);
-      tileEl.classList.remove('resizing');
-      if (ev.type === 'pointercancel') current = start;
-      if (current === start) return void show(start);
-      tile.size = current;
-      this.changed();
-    };
-    tileEl.classList.add('resizing');
-    show(start);
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', up);
-    handle.addEventListener('pointercancel', up);
+    const { tile, page } = found;
+    const others = page.tiles.filter((t) => t.id !== id);
+    const cur = rectOf(tile);
+    const rect = { x: Math.max(0, Math.min(cur.x, columns - w)), y: Math.max(0, Math.min(cur.y, rows - h)), w, h };
+    const moves = placeWithPush(others, rect, columns, rows);
+    if (moves) {
+      for (const t of others) Object.assign(t, moves.get(t.id) ?? {});
+      Object.assign(tile, rect);
+    } else {
+      Object.assign(tile, spotForNew(others, w, h, columns, rows, cur));
+    }
+    this.changed();
   }
 
   private removeTile(id: string) {
     const found = this.findTile(id);
     if (!found) return;
     found.page.tiles.splice(found.index, 1);
+    if (this.selected === id) this.selected = null;
     this.changed();
   }
 
-  private openAddTile() {
+  private moveTileToPage(id: string, pageIndex: number) {
+    const current = this.findTile(id);
+    const target = this.layout.pages[pageIndex];
+    if (!current || !target || target === current.page) return;
+    const { columns, rows } = this.layout.settings;
+    const { tile } = current;
+    current.page.tiles.splice(current.index, 1);
+    Object.assign(tile, spotForNew(target.tiles, tile.w ?? 1, tile.h ?? 1, columns, rows, rectOf(tile)));
+    target.tiles.push(tile);
+    this.changed();
+    this.goTo(pageIndex);
+  }
+
+  private openMoveToPage(id: string) {
+    const sheet = openSheet('Move to page', [
+      h(
+        'div',
+        { class: 'chips' },
+        ...this.layout.pages.map((p, i) =>
+          h(
+            'button',
+            { class: `chip${i === this.page ? ' active' : ''}`, onclick: () => (sheet.close(), this.moveTileToPage(id, i)) },
+            p.name,
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  private openAddTile(at?: Rect) {
     const sheet = openSheet(
       'Add a tile',
       [
@@ -631,13 +900,13 @@ export class App {
               {
                 class: 'picker-item',
                 onclick: () => {
-                  this.layout.pages[this.page].tiles.push({
-                    id: uid(def.type),
-                    widget: def.type,
-                    size: def.defaultSize,
-                    config: {},
-                  });
+                  const { columns, rows } = this.layout.settings;
+                  const page = this.layout.pages[this.page];
+                  const [w, ht] = cellsFor(def.defaultSize, columns, rows);
+                  const id = uid(def.type);
+                  page.tiles.push({ id, widget: def.type, size: def.defaultSize, config: {}, ...spotForNew(page.tiles, w, ht, columns, rows, at) });
                   sheet.close();
+                  this.selected = id;
                   this.changed();
                 },
               },
@@ -658,25 +927,27 @@ export class App {
     const def = found && getWidget(found.tile.widget);
     if (!found || !def) return;
     const { tile } = found;
+    const { columns, rows } = this.layout.settings;
 
+    // Quick sizes; the handles on the tile do any other shape.
     const sizeRow = () =>
       h(
         'div',
         { class: 'chips' },
-        ...this.allowedSizes(tile.widget).map((size) =>
-          h(
+        ...this.allowedSizes(tile.widget).map((size) => {
+          const [w, ht] = cellsFor(size, columns, rows);
+          return h(
             'button',
             {
-              class: `chip${tile.size === size ? ' active' : ''}`,
+              class: `chip${tile.w === w && tile.h === ht ? ' active' : ''}`,
               onclick: () => {
-                tile.size = size;
+                this.resizeTo(id, w, ht);
                 sizes.replaceWith((sizes = sizeRow()));
-                this.changed();
               },
             },
-            SIZE_LABELS[size],
-          ),
-        ),
+            `${SIZE_LABELS[size]} · ${w}×${ht}`,
+          );
+        }),
       );
     let sizes = sizeRow();
 
@@ -684,12 +955,8 @@ export class App {
       'select',
       {
         onchange: (e: Event) => {
-          const target = this.layout.pages.find((p) => p.id === (e.target as HTMLSelectElement).value);
-          const current = this.findTile(id);
-          if (!target || !current || target === current.page) return;
-          current.page.tiles.splice(current.index, 1);
-          target.tiles.push(tile);
-          this.changed();
+          const i = this.layout.pages.findIndex((p) => p.id === (e.target as HTMLSelectElement).value);
+          this.moveTileToPage(id, i);
         },
       },
       ...this.layout.pages.map((p) => h('option', { value: p.id, selected: p.tiles.includes(tile) }, p.name)),

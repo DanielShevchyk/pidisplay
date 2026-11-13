@@ -38,7 +38,7 @@ export default defineWidget<HelloConfig>({
 
 | Field | Use |
 | --- | --- |
-| `placement` | `'small' \| 'medium' \| 'tall' \| 'large' \| 'xlarge' \| 'full'`, or `'bar'` in the top bar. Use it to show more or less. The shell also offers every widget three page-spanning sizes: a Full-width row renders as `'medium'`, a Top/bottom half as `'xlarge'` and a Left/right half as `'large'`, stretched to fit (the tile element carries the real size in `data-size`). Widgets only need to list sizes they handle themselves. |
+| `placement` | `'small' \| 'medium' \| 'tall' \| 'large' \| 'xlarge' \| 'full'`, or `'bar'` in the top bar. Use it to show more or less. Tiles can be any rectangle of grid cells; the shell picks the closest of these looks for the shape (1×1 small, wide rows medium, tall columns tall, 2×2 and tall halves large, 3×2 and wider xlarge, the whole grid full) and stretches it to fit. The tile element carries that look in `data-size`. If a widget doesn't list the picked look, it gets the nearest one it does list. |
 | `config` | `defaultConfig` merged with what the user set in ⚙. |
 | `settings` (on the definition) | Fields of type `boolean`, `text`, `number`, `select`; the shell builds the form. |
 | `storage` | Persistent JSON for this tile only: `await storage.load(fallback)`, `await storage.save(value)`, `storage.onChange(fn)`. |

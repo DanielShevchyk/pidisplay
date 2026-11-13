@@ -42,4 +42,3 @@
 
 /* Lift bottom sheets above the keyboard while it is open. */
 body.osk-open .sheet-backdrop { padding-bottom: var(--osk-h, 0px); }
-body.osk-open .edit-toolbar { display: none; }
