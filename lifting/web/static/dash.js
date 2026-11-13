@@ -1,5 +1,5 @@
 // Dashboard: per-lift trend, weekly volume, PR feed, monthly report, dunk goal. Tap the nav to switch.
-import { api, feetInches, h, lb, longDate, nav, num, shortDate, today, toast } from './common.js';
+import { api, BASIS, feetInches, h, lb, longDate, nav, num, shortDate, today, toast } from './common.js';
 import { legend, lineChart } from './charts.js';
 
 const VIEWS = ['trend', 'volume', 'prs', 'report', 'dunk'];
@@ -242,7 +242,12 @@ async function renderReport(el) {
   const trained = new Set(a.days.map((d) => Number(d.slice(8))));
   const cells = [...'MTWTFSS'].map((d) => h('div', { class: 'cal-head' }, d));
   for (let i = 0; i < lead; i++) cells.push(h('div', {}));
-  for (let d = 1; d <= daysIn; d++) cells.push(h('div', { class: `cal-day${trained.has(d) ? ' on' : ''}` }, String(d)));
+  for (let d = 1; d <= daysIn; d++) {
+    const iso = `${a.month}-${String(d).padStart(2, '0')}`;
+    cells.push(trained.has(d)
+      ? h('button', { class: 'cal-day on', 'aria-label': `Show ${longDate(iso)}`, onclick: () => openDay(iso, a.pr_list) }, String(d))
+      : h('div', { class: 'cal-day' }, String(d)));
+  }
 
   el.replaceChildren(
     h('div', { class: 'row', style: 'align-items:center;margin:0 0 10px' },
@@ -251,7 +256,7 @@ async function renderReport(el) {
       h('button', { class: 'btn', disabled: !r.next_month, onclick: () => go(r.next_month) }, '›'),
       r.in_progress ? h('span', { class: 'dim' }, 'month so far') : null),
     a.sessions || hasPrev ? '' : h('div', { class: 'empty' }, 'Nothing logged this month yet.'),
-    h('div', { class: 'stats' },
+    h('div', { class: 'stats stats-fill' },
       stat('Sessions', String(a.sessions), '', versus(a.sessions, b.sessions)),
       stat('Working sets', String(a.working_sets), '', versus(a.working_sets, b.working_sets)),
       stat('Weight moved', big(a.volume_lb), 'lb', hasPrev ? `${big(b.volume_lb)} in ${monthName(b.month, false)}` : 'weight × reps'),
@@ -269,14 +274,99 @@ async function renderReport(el) {
               x.p ? h('div', { class: 'bar-prev', style: `left:calc(${(x.p / max) * 100}% - 1.5px)` }) : null),
             h('div', { class: 'bar-val' }, num(x.n)))))
           : h('div', { class: 'empty' }, 'No working sets.')),
-      h('div', {},
-        h('div', { class: 'card' }, h('h3', { style: 'margin:0 0 10px' }, `Training days · ${a.days.length}`), h('div', { class: 'cal' }, ...cells)),
-        h('div', { class: 'card', style: 'margin-top:14px' },
+      h('div', { class: 'report-side' },
+        h('div', { class: 'card' },
+          h('h3', { style: 'margin:0 0 10px' }, `Training days · ${a.days.length}`),
+          h('div', { class: 'cal' }, ...cells),
+          a.days.length ? h('div', { class: 'dim', style: 'font-size:15px;margin-top:10px' }, 'Tap a highlighted day to see that workout.') : null),
+        h('div', { class: 'card grow' },
           h('h3', { style: 'margin:0 0 10px' }, 'PRs this month'),
           a.pr_list.length
             ? h('div', {}, ...a.pr_list.map((p) => h('div', { class: 'report-pr' }, h('span', {}, p.label), h('span', { class: 'dim' }, `${num(p.weight_lb)} lb × ${p.reps} · ${shortDate(p.date)}`))))
             : h('div', { class: 'dim' }, 'None yet.')))),
     h('p', { class: 'dim', style: 'font-size:15px' }, 'Weight moved is weight × reps over working sets; loads logged per hand, arm or side count double.'),
+  );
+}
+
+/** One day's workout in a sheet over the Month page: every lift with its sets. */
+async function openDay(iso, monthPrs) {
+  document.querySelector('.day-sheet')?.remove();
+  const body = h('div', { class: 'day-body' }, h('div', { class: 'dim' }, 'Loading…'));
+  const close = () => {
+    sheet.remove();
+    document.removeEventListener('keydown', onKey);
+  };
+  const onKey = (e) => e.key === 'Escape' && close();
+  const openLog = () => {
+    try {
+      sessionStorage.setItem('lifting-log-filters', JSON.stringify({ from: iso, to: iso, exercise: '', warmups: true }));
+    } catch {}
+    location.href = 'log#sets';
+  };
+  const sheet = h('div', { class: 'day-sheet', onclick: (e) => e.target === sheet && close() },
+    h('div', { class: 'day-card', role: 'dialog', 'aria-label': `Workout on ${longDate(iso)}` },
+      h('div', { class: 'day-head' },
+        h('h2', { style: 'margin:0' }, longDate(iso)),
+        h('span', { class: 'spacer' }),
+        h('button', { class: 'btn', onclick: openLog }, 'Edit in Log'),
+        h('button', { class: 'btn', onclick: close, 'aria-label': 'Close' }, '✕')),
+      body));
+  document.addEventListener('keydown', onKey);
+  document.body.append(sheet);
+
+  let rows;
+  try {
+    rows = await api(`api/sets?from=${iso}&to=${iso}&include_warmups=false`);
+  } catch (e) {
+    body.replaceChildren(h('p', { class: 'error' }, `Couldn't load: ${e.message}`));
+    return;
+  }
+  if (!rows.length) {
+    body.replaceChildren(h('div', { class: 'empty' }, 'No working sets logged that day.'));
+    return;
+  }
+  const prNames = new Set(monthPrs.filter((p) => p.date === iso).map((p) => p.name));
+  // Sessions in order, then lifts in the order done (variations together), then sets.
+  rows.sort((x, y) => x.session_id - y.session_id || x.id - y.id);
+  const sessions = new Map();
+  for (const r of rows) {
+    const s = sessions.get(r.session_id) || { label: r.day_label, lifts: new Map() };
+    const lift = s.lifts.get(r.name) || { name: r.name, sets: new Map(), basis: new Set() };
+    const key = `${r.exercise_id}:${r.set_number}`;
+    (lift.sets.get(key) || lift.sets.set(key, []).get(key)).push(r);
+    if (r.load_basis && r.load_basis !== 'total') lift.basis.add(BASIS[r.load_basis]);
+    s.lifts.set(r.name, lift);
+    sessions.set(r.session_id, s);
+  }
+  let load = 0;
+  for (const r of rows) if (r.weight_lb && r.reps) load += r.weight_lb * r.reps * (r.load_basis && r.load_basis !== 'total' ? 2 : 1);
+  const setCount = [...sessions.values()].reduce((n, s) => n + [...s.lifts.values()].reduce((m, l) => m + l.sets.size, 0), 0);
+
+  const setText = (segs) => segs.map((r, i) => {
+    const what = r.weight_lb !== null && r.reps ? `${num(r.weight_lb)} × ${r.reps}`
+      : r.height_in !== null ? `${num(r.height_in)} in${r.reps ? ` × ${r.reps}` : ''}`
+        : r.duration_s !== null ? `${num(r.duration_s)} s`
+          : r.reps ? `${r.reps} reps` : '–';
+    return i ? `+ ${r.reps ?? ''}` : what;
+  }).join(' ');
+  const effortOf = (r) => (r.rir !== null ? `${num(r.rir)} left` : r.rpe !== null ? `RPE ${num(r.rpe)}` : '');
+
+  body.replaceChildren(
+    h('div', { class: 'stats stats-fill', style: 'margin-top:0' },
+      stat('Lifts', String([...sessions.values()].reduce((n, s) => n + s.lifts.size, 0))),
+      stat('Working sets', String(setCount)),
+      stat('Weight moved', load >= 10000 ? `${num(Math.round(load / 100) / 10)}k` : num(Math.round(load)), 'lb'),
+      stat('PRs', String(prNames.size))),
+    ...[...sessions.values()].map((s) => h('div', {},
+      sessions.size > 1 || s.label ? h('h3', { class: 'day-session' }, s.label ? `Day ${s.label}` : 'Session') : null,
+      h('div', { class: 'day-lifts' }, ...[...s.lifts.values()].map((l) => h('div', { class: 'day-lift' },
+        h('div', { class: 'day-lift-name' }, l.name,
+          l.basis.size ? h('span', { class: 'dim', style: 'font-size:15px;font-weight:400' }, ` · ${[...l.basis].join(', ')}`) : null,
+          prNames.has(l.name) ? h('span', { class: 'badge pr', style: 'margin-left:10px' }, 'PR') : null),
+        h('div', { class: 'day-sets' }, ...[...l.sets.values()].map((segs) => h('span', { class: `day-set${segs[0].inferred ? ' assumed' : ''}` },
+          setText(segs),
+          effortOf(segs[0]) ? h('small', {}, ` ${effortOf(segs[0])}`) : null,
+          segs.length > 1 ? h('small', {}, ' drop') : null)))))))),
   );
 }
 

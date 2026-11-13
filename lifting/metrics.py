@@ -517,7 +517,7 @@ def _month_stats(conn: sqlite3.Connection, pid: int, month: str, all_prs: list[d
         "volume_lb": round(load),
         "avg_rpe": round(sum(efforts) / len(efforts), 1) if efforts else None,
         "prs": len(prs_),
-        "pr_list": prs_[:12],
+        "pr_list": prs_,
         "groups": {g: _total(v) for g, v in sorted(credits(rows).items())},
     }
 
