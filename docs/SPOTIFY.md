@@ -71,6 +71,34 @@ Spotify only lists a TV while it is reachable: on, or in a standby that keeps it
 connection (often called "quick start" or "wake on network" in the TV's settings).
 Chromecast-type devices may only appear after the Spotify app has been opened on them.
 
+### LG webOS TVs: the display turns the TV on and opens Spotify
+
+An LG TV only shows up in Spotify while its Spotify app is open, so the display can do that
+part for you:
+
+1. On the TV: **Settings > General > Devices > External Devices > TV On With Mobile >
+   Turn on via Wi-Fi** (on). Without it the display can open Spotify while the TV is on,
+   but can't switch it on.
+2. With the TV on, open **Speakers** on the display and tap **Link my LG TV**. Pick the TV
+   (or type its address), then choose **Accept** on the TV's prompt. The pairing key is
+   saved in `$PIDISPLAY_DATA/lgtv.json` on the Pi.
+3. **Open Spotify on (TV name)** now switches the TV on if needed, opens its Spotify app and
+   waits for it to appear. The first time, sign in to Spotify on the TV with the same
+   account. If no default speaker is set yet, the TV becomes the default.
+
+With the TV set under **Start new music on**, picking a song while the TV is off turns it
+on, opens Spotify and plays there (this can take up to a minute). If it can't, the music
+plays on the display and the widget says why.
+
+Give the TV a fixed address in the router (DHCP reservation) so the link keeps working.
+
+## Library
+
+**Library** has four tabs: **Playlists**, **Liked Songs** (newest 100, with Play all and
+Shuffle; tapping a song plays the list from there), **Recent** (recently played songs) and
+**Search**. Recent needs a permission added after the first version: if it says so, open
+**Speakers > Spotify account**, tap **Log out of Spotify** and sign in again once.
+
 The other route skips the TV: pair the speakers with the Pi over Bluetooth (**Speakers** >
 **Pair a Bluetooth speaker**) and the display plays through them directly.
 

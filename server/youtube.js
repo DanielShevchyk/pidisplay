@@ -178,7 +178,7 @@ function jsonArrayEnd(s, start) {
 // ---- DIAL (finding TVs on the network) ----------------------------------------
 
 /** Asks the network for DIAL devices; resolves with their description URLs. */
-export function ssdpSearch({ timeoutMs = 2500 } = {}) {
+export function ssdpSearch({ timeoutMs = 2500, st = DIAL_ST } = {}) {
   return new Promise((resolve) => {
     const found = new Set();
     let socket;
@@ -202,7 +202,7 @@ export function ssdpSearch({ timeoutMs = 2500 } = {}) {
     });
     socket.bind(0, () => {
       const query = Buffer.from(
-        `M-SEARCH * HTTP/1.1\r\nHOST: ${SSDP_ADDR}:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: ${DIAL_ST}\r\nUSER-AGENT: PiDisplay/1.0\r\n\r\n`,
+        `M-SEARCH * HTTP/1.1\r\nHOST: ${SSDP_ADDR}:1900\r\nMAN: "ssdp:discover"\r\nMX: 2\r\nST: ${st}\r\nUSER-AGENT: PiDisplay/1.0\r\n\r\n`,
       );
       try {
         socket.setMulticastTTL(2);

@@ -27,6 +27,7 @@ const SCOPES = [
   'playlist-read-private',
   'playlist-read-collaborative',
   'user-library-read',
+  'user-read-recently-played',
 ];
 const CLIENT_ID = /^[0-9a-f]{32}$/i;
 const PENDING_MS = 15 * 60 * 1000;
@@ -37,6 +38,8 @@ const PLAYER_CACHE_MS = 2000;
 const DEVICES_CACHE_MS = 8000;
 const REQUEST_TIMEOUT_MS = 10000;
 const MAX_BACKOFF_MS = 5 * 60 * 1000;
+// After the TV's Spotify app is opened, how long it gets to show up as a speaker.
+const TV_APPEAR_MS = 30000;
 
 const base64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -102,10 +105,12 @@ function mapPlaylist(p) {
   };
 }
 
+const mapTrack = (t) => ({ ...mapItem(t), albumUri: t.album?.uri ?? null });
+
 export function mapSearch(data) {
   const items = (key) => (data?.[key]?.items ?? []).filter(Boolean);
   return {
-    tracks: items('tracks').map((t) => ({ ...mapItem(t), albumUri: t.album?.uri ?? null })),
+    tracks: items('tracks').map(mapTrack),
     playlists: items('playlists').map(mapPlaylist),
     albums: items('albums').map((a) => ({
       uri: a.uri,
@@ -125,6 +130,9 @@ function apiError(status, body) {
     return new SpotifyError(409, 'No speaker is playing Spotify right now. Pick one under Speakers.');
   }
   if (reason === 'PREMIUM_REQUIRED') return new SpotifyError(403, 'Controlling playback needs Spotify Premium.');
+  if (status === 403 && /insufficient client scope/i.test(message)) {
+    return new SpotifyError(403, 'This needs a permission added after you signed in. Under Speakers > Spotify account, log out and log in again.');
+  }
   if (status === 403 && /not registered|developer dashboard/i.test(message)) {
     return new SpotifyError(403, 'This Spotify account is not on the app\'s user list. Add it under User Management in the Spotify developer dashboard.');
   }
@@ -139,6 +147,9 @@ export function createSpotify({
   redirectUri = 'http://127.0.0.1:8080/api/spotify/callback',
   fetchImpl = globalThis.fetch,
   now = Date.now,
+  // Switches the linked TV on and opens its Spotify app; resolves null when no TV is linked.
+  wakeTv = null,
+  wait = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
   let config = null; // { clientId, refreshToken, accessToken, expiresAt }
   let refreshing = null;
@@ -212,7 +223,7 @@ export function createSpotify({
       redirectUri,
       receiver: { name: RECEIVER_NAME, signedIn: await receiverSignedIn() },
       // Where new music starts when nothing is playing; null = this display.
-      preferred: c.preferred?.name ? { id: c.preferred.id ?? null, name: c.preferred.name } : null,
+      preferred: c.preferred?.name ? { id: c.preferred.id ?? null, name: c.preferred.name, type: c.preferred.type ?? '' } : null,
     };
   }
 
@@ -242,8 +253,9 @@ export function createSpotify({
   async function setPreferred(body) {
     const name = String(body?.name ?? '').trim().slice(0, 100);
     const id = typeof body?.deviceId === 'string' && body.deviceId ? body.deviceId.slice(0, 200) : null;
+    const type = typeof body?.type === 'string' ? body.type.toLowerCase().slice(0, 30) : '';
     const { preferred, ...rest } = await load();
-    await save(name && name !== RECEIVER_NAME ? { ...rest, preferred: { id, name } } : rest);
+    await save(name && name !== RECEIVER_NAME ? { ...rest, preferred: { id, name, type } } : rest);
     return status();
   }
 
@@ -388,9 +400,23 @@ export function createSpotify({
     if (current?.isPlaying && current.device.id) return { id: current.device.id };
     let note;
     if (preferred?.name) {
-      const want = list.find((d) => d.id === preferred.id) ?? list.find((d) => d.name === preferred.name);
+      const match = (devs) => devs.find((d) => d.id === preferred.id) ?? devs.find((d) => d.name === preferred.name);
+      let want = match(list);
+      if (!want && preferred.type === 'tv' && wakeTv) {
+        // The TV is off or its Spotify app is closed: open it and wait for it to register.
+        const opened = await wakeTv().catch((err) => {
+          note = `${err.message} Playing somewhere else for now.`;
+          return null;
+        });
+        for (let waited = 0; opened && !want && waited < TV_APPEAR_MS; waited += 2000) {
+          await wait(2000);
+          dropCache();
+          want = match(await devices().catch(() => []));
+        }
+        if (opened && !want) note = `Spotify opened on ${preferred.name} but it didn't show up as a speaker. Check it is signed in to your account. Playing somewhere else for now.`;
+      }
       if (want && !want.restricted) return { id: want.id };
-      note = `${preferred.name} isn't showing up in Spotify, so this is playing somewhere else. Open the Spotify app on it, then pick it under Speakers.`;
+      note ??= `${preferred.name} isn't showing up in Spotify, so this is playing somewhere else. Open the Spotify app on it, then pick it under Speakers.`;
     }
     const active = list.find((d) => d.active);
     if (active) return { id: active.id, note };
@@ -429,6 +455,7 @@ export function createSpotify({
         } else if (Array.isArray(body.uris)) {
           if (!body.uris.length || !body.uris.every((u) => typeof u === 'string' && URI.test(u))) throw new SpotifyError(400, 'Bad track list');
           payload.uris = body.uris.slice(0, 100);
+          if (typeof body.offsetUri === 'string' && payload.uris.includes(body.offsetUri)) payload.offset = { uri: body.offsetUri };
         }
         const resume = !Object.keys(payload).length;
         try {
@@ -486,6 +513,27 @@ export function createSpotify({
     return (data?.items ?? []).filter(Boolean).map(mapPlaylist);
   }
 
+  /** The newest Liked Songs (two pages of 50). */
+  async function liked() {
+    const first = await api('GET', '/me/tracks?limit=50');
+    const more = first?.next ? await api('GET', '/me/tracks?limit=50&offset=50').catch(() => null) : null;
+    const tracks = [...(first?.items ?? []), ...(more?.items ?? [])].map((i) => i?.track).filter((t) => t?.uri).map(mapTrack);
+    return { total: first?.total ?? tracks.length, tracks };
+  }
+
+  /** Recently played songs, newest first, each one once. */
+  async function recent() {
+    const data = await api('GET', '/me/player/recently-played?limit=50');
+    const seen = new Set();
+    const tracks = [];
+    for (const i of data?.items ?? []) {
+      if (!i?.track?.uri || seen.has(i.track.uri)) continue;
+      seen.add(i.track.uri);
+      tracks.push(mapTrack(i.track));
+    }
+    return { tracks };
+  }
+
   async function search(text) {
     const query = String(text ?? '').trim().slice(0, 200);
     if (!query) return mapSearch({});
@@ -503,9 +551,11 @@ export function createSpotify({
     if (section === 'player' && !action && method === 'GET') return player();
     if (section === 'player' && action && method === 'POST') return control(action, body ?? {});
     if (section === 'playlists' && method === 'GET') return playlists();
+    if (section === 'liked' && method === 'GET') return liked();
+    if (section === 'recent' && method === 'GET') return recent();
     if (section === 'search' && method === 'GET') return search(params.get('q'));
     throw new SpotifyError(404, 'Not found');
   }
 
-  return { status, setClientId, setPreferred, logout, loginUrl, callback, player, control, playlists, search, handle };
+  return { status, setClientId, setPreferred, logout, loginUrl, callback, player, control, playlists, liked, recent, search, handle };
 }

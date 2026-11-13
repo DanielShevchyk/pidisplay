@@ -227,8 +227,11 @@ docs/                Widget guide and per-feature setup notes
 | GET | `/api/spotify` | Spotify widget status: Client ID saved, signed in, and whether the PiDisplay receiver (librespot) has been linked. |
 | GET | `/api/spotify/login[?return=/path]` · `/api/spotify/callback` | Spotify sign-in (OAuth with PKCE). Redirect URI is `http://127.0.0.1:8080/api/spotify/callback`; tokens stay in `$PIDISPLAY_DATA/spotify.json`. |
 | PUT / POST | `/api/spotify/client` | `{ "clientId" }` (or `?clientId=`) saves the Spotify app's Client ID; empty clears it. POST `/api/spotify/logout` signs out. |
-| PUT / POST | `/api/spotify/preferred` | `{ "deviceId", "name" }` sets the speaker new music starts on when nothing is playing (matched by id, then name); `{}` goes back to the display. |
+| PUT / POST | `/api/spotify/preferred` | `{ "deviceId", "name", "type"? }` sets the speaker new music starts on when nothing is playing (matched by id, then name); `{}` goes back to the display. |
 | GET | `/api/spotify/player` · `playlists` · `search?q=` | Now playing plus Spotify Connect devices · your playlists · songs, artists, albums and playlists (10 each). |
+| GET | `/api/spotify/liked` · `recent` | Newest 100 Liked Songs plus the total · recently played songs (needs the `user-read-recently-played` scope; sign in again once). |
+| GET | `/api/tv` | Linked LG webOS TV: `{ linked, name, ip, canWake }`. |
+| POST | `/api/tv/find` · `link` · `unlink` · `spotify` | LG TVs on the network (SSDP) · `{ "ip", "name"? }` pairs (Accept on the TV; key kept in `$PIDISPLAY_DATA/lgtv.json`) · forgets it · wakes the TV (Wake-on-LAN) and opens its Spotify app. |
 | POST | `/api/spotify/player/play` · `pause` · `next` · `previous` · `seek` · `volume` · `shuffle` · `repeat` · `transfer` | `{ "contextUri"?, "offsetUri"?, "uris"?, "deviceId"? }` (no device: the active one, else PiDisplay) · `{}` · `{}` · `{}` · `{ "positionMs" }` · `{ "percent" }` · `{ "on" }` · `{ "mode": "off" \| "context" \| "track" }` · `{ "deviceId", "play"? }`. |
 | GET | `/api/youtube[?connect]` | YouTube widget state: linked TVs, what the TV is playing (state, position, volume), recently played. `connect` opens the session to the TV so its updates arrive. |
 | GET | `/api/youtube/search?q=` · `discover` | Videos from YouTube's web search (no key; a link or video id also works) · TVs on the network that answer DIAL. |

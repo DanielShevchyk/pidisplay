@@ -7,7 +7,7 @@ import { createSpotify, mapPlayer, mapSearch } from './spotify.js';
 
 const CLIENT = '0123456789abcdef0123456789abcdef';
 
-async function setup({ routes = {}, token = {} } = {}) {
+async function setup({ routes = {}, token = {}, wakeTv = null } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-spotify-'));
   const calls = [];
   let t = 1_000_000;
@@ -29,6 +29,8 @@ async function setup({ routes = {}, token = {} } = {}) {
     receiverCacheDir: path.join(dir, 'spotify-cache'),
     fetchImpl,
     now: () => t,
+    wakeTv,
+    wait: async () => {},
   });
   return { dir, spotify, calls, advance: (ms) => (t += ms) };
 }
@@ -262,4 +264,75 @@ test('resume with nothing queued and network trouble get plain messages', async 
   });
   offline = true;
   await assert.rejects(down.playlists(), (err) => err.status === 503 && /Can't reach Spotify/.test(err.message));
+});
+
+test('opens Spotify on a linked TV that is off, then plays there', async () => {
+  let tvOn = false;
+  let woke = 0;
+  const { spotify, calls } = await setup({
+    routes: {
+      'GET /me/player/devices': () => [200, { devices: [{ id: 'pi', name: 'PiDisplay', type: 'Speaker' }, ...(tvOn ? [{ id: 'tv2', name: 'Living Room TV', type: 'TV' }] : [])] }],
+    },
+    wakeTv: async () => {
+      woke++;
+      tvOn = true;
+      return { ok: true };
+    },
+  });
+  await connect(spotify);
+  await spotify.setPreferred({ deviceId: 'tv', name: 'Living Room TV', type: 'TV' });
+  const res = await spotify.control('play', { contextUri: 'spotify:playlist:abc' });
+  assert.equal(woke, 1);
+  assert.ok(calls.at(-1).url.endsWith('device_id=tv2'));
+  assert.equal(res.note, undefined);
+  // Already visible: no second wake.
+  await spotify.control('play', { contextUri: 'spotify:playlist:abc' });
+  assert.equal(woke, 1);
+});
+
+test('a TV that cannot be woken falls back with the reason; other speakers are never woken', async () => {
+  let woke = 0;
+  const { spotify, calls } = await setup({
+    routes: { 'GET /me/player/devices': [200, { devices: [{ id: 'pi', name: 'PiDisplay', type: 'Speaker' }] }] },
+    wakeTv: async () => {
+      woke++;
+      throw new Error("Living Room TV didn't switch on.");
+    },
+  });
+  await connect(spotify);
+  await spotify.setPreferred({ deviceId: 'tv', name: 'Living Room TV', type: 'tv' });
+  const res = await spotify.control('play', { uris: ['spotify:track:abc'] });
+  assert.ok(calls.at(-1).url.endsWith('device_id=pi'));
+  assert.match(res.note, /didn't switch on\. Playing somewhere else/);
+  await spotify.setPreferred({ deviceId: 'echo', name: 'Kitchen Echo', type: 'speaker' });
+  await spotify.control('play', { uris: ['spotify:track:abc'] });
+  assert.equal(woke, 1);
+});
+
+test('liked and recent songs, and playing a list from one song', async () => {
+  const track = (n) => ({ type: 'track', uri: `spotify:track:${n}`, name: `Song ${n}`, duration_ms: 1000, artists: [{ name: 'A' }], album: { uri: `spotify:album:${n}`, name: 'LP', images: [] } });
+  const { spotify, calls } = await setup({
+    routes: {
+      'GET /me/tracks?limit=50': [200, { total: 51, next: 'more', items: [{ track: track(1) }, { track: null }, { track: track(2) }] }],
+      'GET /me/tracks?limit=50&offset=50': [200, { items: [{ track: track(3) }] }],
+      'GET /me/player/recently-played': [200, { items: [{ track: track(2) }, { track: track(1) }, { track: track(2) }] }],
+      'GET /me/player/devices': [200, { devices: [{ id: 'pi', name: 'PiDisplay', type: 'Speaker' }] }],
+    },
+  });
+  await connect(spotify);
+  const liked = await spotify.liked();
+  assert.equal(liked.total, 51);
+  assert.deepEqual(liked.tracks.map((t) => t.uri), ['spotify:track:1', 'spotify:track:2', 'spotify:track:3']);
+  assert.equal(liked.tracks[0].albumUri, 'spotify:album:1');
+  assert.deepEqual((await spotify.recent()).tracks.map((t) => t.name), ['Song 2', 'Song 1']);
+  await spotify.control('play', { uris: liked.tracks.map((t) => t.uri), offsetUri: 'spotify:track:2' });
+  assert.deepEqual(JSON.parse(calls.at(-1).body), { uris: ['spotify:track:1', 'spotify:track:2', 'spotify:track:3'], offset: { uri: 'spotify:track:2' } });
+});
+
+test('recently played before signing in again explains the missing permission', async () => {
+  const { spotify } = await setup({
+    routes: { 'GET /me/player/recently-played': [403, { error: { status: 403, message: 'Insufficient client scope' } }] },
+  });
+  await connect(spotify);
+  await assert.rejects(spotify.recent(), /log out and log in again/);
 });

@@ -28,6 +28,7 @@ import { createFaresConfig, FaresConfigError } from './fares-config.js';
 import { createCheckin, CheckinError } from './checkin.js';
 import { createVacuum, VacuumError } from './vacuum.js';
 import { createStrava, StravaError } from './strava.js';
+import { createLgTv, TvError } from './lgtv.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY = 1024 * 1024;
@@ -142,6 +143,7 @@ export function createServer({
   network = createNetwork(),
   audio = createAudio(),
   spotify = undefined,
+  tv = undefined,
   timerTickMs = 1000,
   stocksAutoStart = true,
   photos = undefined,
@@ -183,7 +185,10 @@ export function createServer({
   // Secret iCal feed URLs, edited by hand on the Pi; see docs/CALENDAR.md.
   const calendar = createCalendar({ configFile: path.join(dataDir, 'calendars.json'), fetchImpl });
   // Spotify tokens, plus librespot's cache, which holds its login once it has been linked.
+  // The LG TV's address and pairing key, so music can be started on it; see docs/SPOTIFY.md.
+  tv ??= createLgTv({ configFile: path.join(dataDir, 'lgtv.json'), fetchImpl });
   spotify ??= createSpotify({
+    wakeTv: async () => ((await tv.status()).linked ? tv.openSpotify() : null),
     configFile: path.join(dataDir, 'spotify.json'),
     receiverCacheDir: path.join(dataDir, 'spotify-cache'),
     redirectUri: `http://127.0.0.1:${Number(process.env.PORT) || 8080}/api/spotify/callback`,
@@ -496,6 +501,16 @@ export function createServer({
         return await handleStrava(req, res, url, parts, key);
       } catch (err) {
         if (err instanceof StravaError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+    }
+
+    if (resource === 'tv') {
+      try {
+        const body = req.method === 'GET' ? null : await readBody(req);
+        return send(res, 200, await tv.handle(req.method, parts, body));
+      } catch (err) {
+        if (err instanceof TvError) throw new HttpError(err.status, err.message);
         throw err;
       }
     }

@@ -9,7 +9,7 @@ export interface SpotifyStatus {
   redirectUri: string;
   receiver: { name: string; signedIn: boolean };
   /** The speaker new music starts on when nothing is playing; null = this display. */
-  preferred: { id: string | null; name: string } | null;
+  preferred: { id: string | null; name: string; type: string } | null;
 }
 
 export interface Device {
@@ -190,9 +190,9 @@ class SpotifyStore {
     return ok;
   }
 
-  async setPreferred(device: { id: string; name: string } | null) {
+  async setPreferred(device: { id: string; name: string; type: string } | null) {
     try {
-      this.status = await call<SpotifyStatus>('PUT', '/api/spotify/preferred', device ? { deviceId: device.id, name: device.name } : {});
+      this.status = await call<SpotifyStatus>('PUT', '/api/spotify/preferred', device ? { deviceId: device.id, name: device.name, type: device.type } : {});
     } catch (err) {
       this.showError((err as Error).message);
     }

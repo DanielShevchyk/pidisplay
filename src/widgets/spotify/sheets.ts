@@ -21,6 +21,13 @@ interface AudioStatus {
   outputs: Output[];
 }
 
+interface TvStatus {
+  linked: boolean;
+  name: string | null;
+  ip: string | null;
+  canWake: boolean;
+}
+
 interface BtDevice {
   mac: string;
   name: string | null;
@@ -68,12 +75,16 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function openSpeakersSheet() {
   const sheet = openSheet('Speakers', [], { onClose: () => off() });
   let audio: AudioStatus | null = null;
+  let tv: TvStatus | null = null;
   let bt: BtDevice[] = [];
   let busy = '';
   let error = '';
   let outputDrag = false;
 
   const loadLocal = async () => {
+    void call<TvStatus>('GET', '/api/tv')
+      .then((s) => ((tv = s), render()))
+      .catch(() => {});
     [audio, bt] = await Promise.all([
       call<AudioStatus>('GET', '/api/audio').catch((err) => {
         error = (err as Error).message;
@@ -118,6 +129,23 @@ export function openSpeakersSheet() {
         await wait(1000);
       }
       throw new Error('Connected, but it is not offering sound yet. Pick it under "PiDisplay plays through" in a moment.');
+    });
+
+  /** Switches the linked TV on, opens its Spotify app and waits for it to appear above. */
+  const openOnTv = () =>
+    run(`Opening Spotify on ${tv?.name ?? 'the TV'}… This can take up to a minute if it was off.`, async () => {
+      await call('POST', '/api/tv/spotify');
+      for (let i = 0; i < 15; i++) {
+        await wait(2000);
+        await spotify.refresh();
+        const found = spotify.devices.find((d) => d.type === 'tv' && !d.restricted);
+        if (found) {
+          // First time: make it where new music starts, which is why it was linked.
+          if (!spotify.status?.preferred) await spotify.setPreferred(found);
+          return;
+        }
+      }
+      throw new Error('Spotify opened on the TV, but it has not shown up as a speaker. Check that the TV app is signed in to your Spotify account.');
     });
 
   const transfer = (d: Device) => {
@@ -178,17 +206,40 @@ export function openSpeakersSheet() {
           'div',
           { class: 'chips' },
           chip('This display', !preferred, () => spotify.setPreferred(null)),
-          ...others.map((d) => chip(d.name, preferred?.id === d.id || preferred?.name === d.name, () => spotify.setPreferred({ id: d.id, name: d.name }))),
+          ...others.map((d) => chip(d.name, preferred?.id === d.id || preferred?.name === d.name, () => spotify.setPreferred(d))),
           offline ? chip(`${preferred.name} (not available)`, true, () => {}) : null,
         ),
         h(
           'p',
           { class: 'conn-hint' },
-          preferred
+          preferred && preferred.type === 'tv' && tv?.linked
+            ? `Songs you pick here start on ${preferred.name}. If it is off, PiDisplay switches it on and opens Spotify first. If music is already playing, it stays where it is.`
+            : preferred
             ? `Songs you pick here start on ${preferred.name} when Spotify can see it, and on this display otherwise. If music is already playing, it stays where it is.`
             : 'Pick a TV or speaker to have songs chosen here start there instead of on this display.',
         ),
       );
+    }
+
+    // The LG TV: lets PiDisplay switch it on and open its Spotify app.
+    if (status?.connected && tv) {
+      parts.push(h('h3', {}, 'TV'));
+      if (tv.linked) {
+        parts.push(
+          h(
+            'div',
+            { class: 'spt-sheet-actions spt-tv-actions' },
+            h('button', { class: 'btn btn-primary', disabled: Boolean(busy), onclick: () => void openOnTv() }, `Open Spotify on ${tv.name}`),
+            h('button', { class: 'btn btn-ghost', disabled: Boolean(busy), onclick: () => void run('Forgetting the TV…', async () => void (tv = await call<TvStatus>('POST', '/api/tv/unlink'))) }, 'Forget this TV'),
+          ),
+        );
+        if (!tv.canWake) parts.push(h('p', { class: 'conn-hint' }, "PiDisplay can't switch this TV on yet. Open Spotify on it once while it is on and it will learn how."));
+      } else {
+        parts.push(
+          h('p', { class: 'conn-hint' }, 'Link an LG TV so PiDisplay can switch it on and open Spotify on it. The TV must be on; it will ask you to accept.'),
+          h('button', { class: 'btn', disabled: Boolean(busy), onclick: () => showTvLink(sheet.body, (s) => ((tv = s ?? tv), render())) }, 'Link my LG TV'),
+        );
+      }
     }
 
     // Where this display's own sound goes.
@@ -255,6 +306,64 @@ export function openSpeakersSheet() {
   void loadLocal();
 }
 
+// ---- Linking the TV --------------------------------------------------------
+
+/** Finds LG TVs on the network (or takes an address) and pairs; back(status) returns to Speakers. */
+function showTvLink(body: HTMLElement, back: (status: TvStatus | null) => void) {
+  let found: { ip: string; name: string; model: string }[] | null = null;
+  let busy = 'Looking for LG TVs…';
+  let error = '';
+
+  const link = async (ip: string, name?: string) => {
+    busy = 'Look at the TV and choose Accept (or Yes) with its remote…';
+    error = '';
+    render();
+    try {
+      back(await call<TvStatus>('POST', '/api/tv/link', { ip, name }));
+    } catch (err) {
+      busy = '';
+      error = (err as Error).message;
+      render();
+    }
+  };
+
+  const input = h('input', { type: 'text', class: 'spt-search-input', placeholder: 'TV address, e.g. 192.168.1.50', inputmode: 'decimal', autocomplete: 'off' });
+  const render = () => {
+    if (!body.isConnected) return;
+    body.replaceChildren(
+      h(
+        'div',
+        // Not .spt-sheet: the Speakers sheet redraws itself whenever it finds that class.
+        { class: 'spt-tv-link' },
+        h('div', { class: 'conn-head' }, h('button', { class: 'btn btn-ghost', onclick: () => back(null), 'aria-label': 'Back' }, '‹ Back'), h('h3', {}, 'Link my LG TV'), h('span')),
+        busy ? h('p', { class: 'conn-status' }, busy) : null,
+        error ? h('p', { class: 'conn-error' }, error) : null,
+        found?.length
+          ? h('ul', { class: 'conn-list' }, ...found.map((t) => row('📺', t.model && t.model !== t.name ? `${t.name} (${t.model})` : t.name, t.ip, busy ? null : () => void link(t.ip, t.name))))
+          : null,
+        found && !found.length && !busy ? h('p', { class: 'conn-hint' }, 'No LG TV answered. Make sure it is switched on and on the same network, then search again or type its address (TV Settings > General > Network).') : null,
+        found && !busy ? h('button', { class: 'btn', onclick: () => void search() }, 'Search again') : null,
+        found && !busy ? h('div', { class: 'spt-search' }, input, h('button', { class: 'btn btn-primary', onclick: () => void link(input.value.trim()) }, 'Link')) : null,
+      ),
+    );
+  };
+
+  const search = async () => {
+    busy = 'Looking for LG TVs…';
+    error = '';
+    render();
+    try {
+      found = (await call<{ tvs: { ip: string; name: string; model: string }[] }>('POST', '/api/tv/find')).tvs;
+    } catch (err) {
+      found = [];
+      error = (err as Error).message;
+    }
+    busy = '';
+    render();
+  };
+  void search();
+}
+
 // ---- Library ---------------------------------------------------------------
 
 interface Playlist {
@@ -265,23 +374,35 @@ interface Playlist {
   image: string | null;
 }
 
+interface Track {
+  uri: string;
+  name: string;
+  artists: string[];
+  thumb: string | null;
+  albumUri: string | null;
+}
+
 interface SearchResults {
-  tracks: { uri: string; name: string; artists: string[]; thumb: string | null; albumUri: string | null }[];
+  tracks: Track[];
   playlists: Playlist[];
   albums: { uri: string; name: string; artists: string[]; image: string | null }[];
   artists: { uri: string; name: string; image: string | null }[];
 }
 
 let playlistCache: Playlist[] | null = null;
+let likedCache: { total: number; tracks: Track[] } | null = null;
 let lastQuery = '';
 
 export function openLibrarySheet() {
   const sheet = openSheet('Library', []);
-  let tab: 'playlists' | 'search' = 'playlists';
+  let tab: 'playlists' | 'liked' | 'recent' | 'search' = 'playlists';
   let status = '';
 
   const play = async (body: Record<string, unknown>) => {
-    status = 'Starting…';
+    // A preferred TV that Spotify can't see yet gets switched on first, which is slow.
+    const want = spotify.status?.preferred;
+    const waking = want?.type === 'tv' && !spotify.player?.isPlaying && !spotify.devices.some((d) => d.id === want.id || d.name === want.name);
+    status = waking ? `Starting… Opening Spotify on ${want.name} can take up to a minute.` : 'Starting…';
     paint();
     if (await spotify.act('play', body)) sheet.close();
     else {
@@ -297,6 +418,14 @@ export function openLibrarySheet() {
       image ? h('img', { src: image, alt: '', loading: 'lazy', draggable: false }) : h('div', { class: 'spt-card-empty' }, spotifyLogo()),
       h('div', { class: 'spt-card-name' }, name),
       sub ? h('div', { class: 'spt-card-sub' }, sub) : null,
+    );
+
+  const trackRow = (t: Track, onclick: () => void) =>
+    h(
+      'button',
+      { class: 'spt-track', onclick },
+      t.thumb ? h('img', { src: t.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'spt-card-empty' }, spotifyLogo()),
+      h('span', { class: 'spt-track-text' }, h('span', { class: 'spt-track-name' }, t.name), h('span', { class: 'spt-track-artist' }, t.artists.join(', '))),
     );
 
   const content = h('div', { class: 'spt-lib-content' });
@@ -325,18 +454,8 @@ export function openLibrarySheet() {
       const parts = [
         ...section(
           'Songs',
-          r.tracks.map((t) =>
-            h(
-              'button',
-              {
-                class: 'spt-track',
-                // Play inside its album so music keeps going after the song.
-                onclick: () => void play(t.albumUri ? { contextUri: t.albumUri, offsetUri: t.uri } : { uris: [t.uri] }),
-              },
-              t.thumb ? h('img', { src: t.thumb, alt: '', loading: 'lazy' }) : h('span', { class: 'spt-card-empty' }, spotifyLogo()),
-              h('span', { class: 'spt-track-text' }, h('span', { class: 'spt-track-name' }, t.name), h('span', { class: 'spt-track-artist' }, t.artists.join(', '))),
-            ),
-          ),
+          // Play inside its album so music keeps going after the song.
+          r.tracks.map((t) => trackRow(t, () => void play(inAlbum(t)))),
           'spt-tracks',
         ),
         ...section('Artists', r.artists.map((a) => card(a.image, a.name, 'Artist', () => void play({ contextUri: a.uri })))),
@@ -346,6 +465,55 @@ export function openLibrarySheet() {
       results.replaceChildren(...(parts.length ? parts : [h('p', { class: 'empty' }, 'Nothing found.')]));
     } catch (err) {
       results.replaceChildren(h('p', { class: 'conn-error' }, (err as Error).message));
+    }
+  };
+
+  const inAlbum = (t: Track) => (t.albumUri ? { contextUri: t.albumUri, offsetUri: t.uri } : { uris: [t.uri] });
+
+  /** Liked Songs: tapping one plays the list from there; Shuffle mixes the whole list. */
+  const showLiked = async () => {
+    if (!likedCache) content.replaceChildren(h('p', { class: 'conn-status' }, 'Loading Liked Songs…'));
+    try {
+      likedCache = await call<{ total: number; tracks: Track[] }>('GET', '/api/spotify/liked');
+    } catch (err) {
+      if (!likedCache) return content.replaceChildren(h('p', { class: 'conn-error' }, (err as Error).message));
+    }
+    if (tab !== 'liked') return;
+    const { tracks, total } = likedCache!;
+    if (!tracks.length) return content.replaceChildren(h('p', { class: 'empty' }, 'No Liked Songs yet. Tap the heart on a song in the Spotify app.'));
+    const uris = tracks.map((t) => t.uri);
+    const shuffled = () => {
+      const list = [...uris];
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      return list;
+    };
+    content.replaceChildren(
+      h(
+        'div',
+        { class: 'spt-lib-actions' },
+        h('button', { class: 'btn btn-primary', onclick: () => void play({ uris }) }, 'Play all'),
+        h('button', { class: 'btn', onclick: () => void play({ uris: shuffled() }) }, 'Shuffle'),
+        h('span', { class: 'conn-hint' }, total > tracks.length ? `Newest ${tracks.length} of ${total}` : `${tracks.length} songs`),
+      ),
+      h('div', { class: 'spt-tracks' }, ...tracks.map((t) => trackRow(t, () => void play({ uris, offsetUri: t.uri })))),
+    );
+  };
+
+  const showRecent = async () => {
+    content.replaceChildren(h('p', { class: 'conn-status' }, 'Loading…'));
+    try {
+      const { tracks } = await call<{ tracks: Track[] }>('GET', '/api/spotify/recent');
+      if (tab !== 'recent') return;
+      content.replaceChildren(
+        tracks.length
+          ? h('div', { class: 'spt-tracks' }, ...tracks.map((t) => trackRow(t, () => void play(inAlbum(t)))))
+          : h('p', { class: 'empty' }, 'Nothing played recently.'),
+      );
+    } catch (err) {
+      if (tab === 'recent') content.replaceChildren(h('p', { class: 'conn-error' }, (err as Error).message));
     }
   };
 
@@ -371,6 +539,8 @@ export function openLibrarySheet() {
   const paint = () => {
     tabs.replaceChildren(
       h('button', { class: `chip${tab === 'playlists' ? ' active' : ''}`, onclick: () => ((tab = 'playlists'), paint(), void showPlaylists()) }, 'Playlists'),
+      h('button', { class: `chip${tab === 'liked' ? ' active' : ''}`, onclick: () => ((tab = 'liked'), paint(), void showLiked()) }, 'Liked Songs'),
+      h('button', { class: `chip${tab === 'recent' ? ' active' : ''}`, onclick: () => ((tab = 'recent'), paint(), void showRecent()) }, 'Recent'),
       h('button', { class: `chip${tab === 'search' ? ' active' : ''}`, onclick: () => ((tab = 'search'), paint(), content.replaceChildren(searchBox, results), searchInput.focus()) }, 'Search'),
     );
     statusLine.textContent = status;
@@ -473,6 +643,7 @@ export function openSetupSheet() {
             onclick: async () => {
               await call('POST', '/api/spotify/logout').catch((err) => (error = (err as Error).message));
               playlistCache = null;
+              likedCache = null;
               void spotify.refresh(true);
               void render();
             },
