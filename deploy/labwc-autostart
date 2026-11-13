@@ -1,6 +1,4 @@
-/usr/bin/lwrespawn /usr/bin/pcmanfm --desktop --profile LXDE-pi &
-/usr/bin/lwrespawn /usr/bin/wf-panel-pi &
-/usr/bin/kanshi &
-/usr/bin/lxsession-xdg-autostart
-# PiDisplay kiosk. No idle daemon is started here, so the screen never blanks.
+# PiDisplay kiosk. Raspberry Pi OS already runs /etc/xdg/labwc/autostart
+# (desktop, panel, kanshi), so only add the kiosk here or the panel shows twice.
+# No idle daemon is started here, so the screen never blanks.
 /usr/bin/lwrespawn /home/dan/pidisplay/deploy/kiosk.sh &
