@@ -20,6 +20,7 @@ import {
 } from '../../core/checkin';
 import { renderForm } from './form';
 import { drawChart, factorCard, factors, isNumeric, ownAxis, RANGES, SERIES, statCard, stats, type Range } from './trends';
+import { icon } from '../../core/icons';
 
 export interface View {
   range: Range;
@@ -120,7 +121,7 @@ export function renderPanel(
       h('h3', { class: 'ci-heading' }, opts.narrow ? '☀️' : '☀️ Check-in'),
       legend,
       h('button', { class: 'btn btn-ghost', 'aria-label': 'Check-in history', onclick: () => openHistorySheet(view.profile) }, opts.narrow ? '🗓' : 'History'),
-      h('button', { class: 'btn btn-ghost', 'aria-label': 'Check-in settings', onclick: () => openSettingsSheet(view.profile) }, '⚙'),
+      h('button', { class: 'btn btn-ghost', 'aria-label': 'Check-in settings', onclick: () => openSettingsSheet(view.profile) }, icon('settings')),
     ),
     people,
     today,
@@ -405,7 +406,7 @@ export function openSettingsSheet(profile: string | undefined) {
                 void run(() => checkin.deleteProfile(p.id));
               },
             },
-            deleting ? `Delete ${p.name} and their answers` : '✕',
+            deleting ? `Delete ${p.name} and their answers` : icon('x'),
           ),
         h('span', { class: 'ci-toggle-label' }, 'Popup'),
         toggle(p.prompt, (v) => void run(() => checkin.updateProfile(p.id, { prompt: v }))),
@@ -493,7 +494,7 @@ export function openSettingsSheet(profile: string | undefined) {
                 'aria-label': `Remove ${q.short}`,
                 onclick: () => void run(() => checkin.saveQuestions(b.id, b.questions.filter((x) => x.id !== q.id))),
               },
-              '✕',
+              icon('x'),
             ),
           // Required: Save stays off until it's answered.
           q.enabled &&
@@ -512,7 +513,7 @@ export function openSettingsSheet(profile: string | undefined) {
       ...s.profiles.map(personRow),
       editing === 'person'
         ? personForm(null)
-        : h('button', { class: 'btn btn-wide', onclick: () => ((editing = 'person'), render()) }, '＋ Add a person'),
+        : h('button', { class: 'btn btn-wide', onclick: () => ((editing = 'person'), render()) }, icon('plus'), ' Add a person'),
 
       h('div', { class: 'ci-sub' }, 'Morning popup'),
       h('label', { class: 'sleep-row' }, h('span', {}, 'Pop up in the morning'), toggle(st.prompt, (v) => void saveSettings({ prompt: v }))),
@@ -524,7 +525,7 @@ export function openSettingsSheet(profile: string | undefined) {
       ...questionRows,
       editing === 'question'
         ? questionForm(b)
-        : h('button', { class: 'btn btn-wide', onclick: () => ((editing = 'question'), render()) }, '＋ Add your own question'),
+        : h('button', { class: 'btn btn-wide', onclick: () => ((editing = 'question'), render()) }, icon('plus'), ' Add your own question'),
       h(
         'button',
         { class: 'btn btn-ghost btn-wide ci-reset', onclick: () => void run(() => checkin.resetQuestions(b.id)) },

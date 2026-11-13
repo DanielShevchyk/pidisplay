@@ -54,7 +54,7 @@
   width: clamp(56px, 18cqh, 96px);
   height: clamp(56px, 18cqh, 96px);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: clamp(28px, 9cqh, 46px);
 }
 .spt-toggle { color: var(--text-dim); font-size: clamp(20px, 5.5cqh, 30px); position: relative; }

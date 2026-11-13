@@ -4,6 +4,7 @@ import { price, signedPct, stocks, trend, type Quote, type Range } from '../../c
 import { sparkline } from './chart';
 import { openAlertsList, openDetailSheet, openStockSettings, openWatchlist, RANGES, renderDetail, statusText } from './panel';
 import './stocks.css';
+import { icon } from '../../core/icons';
 
 interface StocksConfig {
   /** Comma-separated tickers for this tile; blank shows the whole watchlist. */
@@ -120,9 +121,9 @@ function mountList(el: HTMLElement, config: StocksConfig, placement: Placement) 
     { class: 'stk-head' },
     status,
     h('span', { class: 'spacer' }),
-    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Watchlist', onclick: () => openWatchlist() }, '✎'),
-    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Price alerts', onclick: () => openAlertsList() }, '🔔'),
-    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Stocks settings', onclick: () => openStockSettings() }, '⚙'),
+    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Watchlist', onclick: () => openWatchlist() }, icon('pencil')),
+    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Price alerts', onclick: () => openAlertsList() }, icon('bell')),
+    h('button', { class: 'btn btn-ghost stk-head-btn', 'aria-label': 'Stocks settings', onclick: () => openStockSettings() }, icon('settings')),
   );
   el.append(
     h('div', { class: `stk size-${placement}${split ? ' stk-split' : ''}` }, h('div', { class: 'stk-side' }, head, rows), split && detail),

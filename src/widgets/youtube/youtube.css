@@ -47,7 +47,7 @@
   font-variant-numeric: tabular-nums;
 }
 .yt-badge.live { background: #cc0000; }
-.yt-badge.now { left: 6px; right: auto; top: 6px; bottom: auto; background: var(--accent); }
+.yt-badge.now { left: 6px; right: auto; top: 6px; bottom: auto; background: var(--accent); color: var(--on-accent); }
 .yt-card-title {
   font-weight: 600;
   font-size: 17px;
@@ -101,7 +101,7 @@
   color: var(--text);
 }
 .yt-btn:active { transform: scale(0.92); background: var(--surface-2); }
-.yt-btn.yt-play { width: clamp(56px, 17cqh, 88px); height: clamp(56px, 17cqh, 88px); background: var(--accent); color: #fff; font-size: clamp(28px, 8cqh, 42px); }
+.yt-btn.yt-play { width: clamp(56px, 17cqh, 88px); height: clamp(56px, 17cqh, 88px); background: var(--accent); color: var(--on-accent); font-size: clamp(28px, 8cqh, 42px); }
 .yt-vol-value { min-width: 2.6em; text-align: center; color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: 16px; }
 
 .yt-progress { display: flex; align-items: center; gap: 12px; }

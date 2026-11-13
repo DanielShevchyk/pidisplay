@@ -6,6 +6,7 @@ import { placePicker as corePlacePicker, type PlacePickerOptions } from '../../c
 import { openSheet, type SheetHandle } from '../../core/sheet';
 import { estimateUsage, openJawReturns, type UsageEstimate } from '../../../server/fares-usage.js';
 import './settings.css';
+import { icon } from '../../core/icons';
 
 // ---- What the server sends (the editable part of config.json) -----------
 
@@ -548,7 +549,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
                 disabled: codes.length === 1,
                 onclick: () => edit((x) => delete x.destinations[code]),
               },
-              '✕',
+              icon('x'),
             ),
           );
         }),
@@ -634,7 +635,7 @@ function wizard(sheet: SheetHandle, res: ConfigResponse, ctx: Ctx, startAt: Step
               'aria-label': 'Event name',
               onchange: (e: Event) => set((x) => (x.name = (e.target as HTMLInputElement).value.trim() || x.name)),
             }),
-            h('button', { class: 'btn btn-ghost fw-remove', 'aria-label': `Remove ${ev.name}`, onclick: () => edit((d) => d.events.splice(i, 1)) }, '✕'),
+            h('button', { class: 'btn btn-ghost fw-remove', 'aria-label': `Remove ${ev.name}`, onclick: () => edit((d) => d.events.splice(i, 1)) }, icon('x')),
           ),
           h('small', { class: `fw-dim${use?.state === 'past' ? ' fw-warn' : ''}` }, status),
           h(

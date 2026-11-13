@@ -2,6 +2,7 @@
 import { h } from './dom';
 import { placePicker } from './place-picker';
 import type { SettingField, WidgetConfig } from './types';
+import { icon } from './icons';
 
 export interface SheetHandle {
   close(): void;
@@ -20,7 +21,7 @@ export function openSheet(title: string, content: Node[], opts: { onClose?: () =
       'div',
       { class: 'sheet-head' },
       h('h2', {}, title),
-      h('button', { class: 'btn btn-ghost', onclick: () => handle.close(), 'aria-label': 'Close' }, '✕'),
+      h('button', { class: 'btn btn-ghost', onclick: () => handle.close(), 'aria-label': 'Close' }, icon('x')),
     ),
     body,
   );

@@ -3,6 +3,7 @@
 import { h } from '../../core/dom';
 import { openSheet } from '../../core/sheet';
 import { sortedItems, todos, type TodoItem, type TodoList } from './store';
+import { icon } from '../../core/icons';
 
 export interface PanelOptions {
   listId: string | undefined;
@@ -19,9 +20,9 @@ export function renderPanel(el: HTMLElement, opts: PanelOptions): () => void {
   let listId = opts.listId;
 
   const tabs = h('div', { class: 'todo-tabs' });
-  const menuBtn = h('button', { class: 'btn btn-ghost todo-menu', 'aria-label': 'List options' }, '⋯');
+  const menuBtn = h('button', { class: 'btn btn-ghost todo-menu', 'aria-label': 'List options' }, icon('ellipsis'));
   const input = h('input', { type: 'text', class: 'todo-input', placeholder: 'Add an item', enterkeyhint: 'done' });
-  const addBtn = h('button', { class: 'btn btn-primary todo-add', 'aria-label': 'Add' }, '＋');
+  const addBtn = h('button', { class: 'btn btn-primary todo-add', 'aria-label': 'Add' }, icon('plus'));
   const items = h('div', { class: 'todo-items' });
   const footer = h('div', { class: 'todo-footer' });
   const root = h(
@@ -82,7 +83,7 @@ export function renderPanel(el: HTMLElement, opts: PanelOptions): () => void {
           open ? h('span', { class: 'todo-count' }, open) : null,
         );
       }),
-      h('button', { class: 'chip todo-new', 'aria-label': 'New list', onclick: () => newList((id) => select(id), opts.reopen) }, '＋ List'),
+      h('button', { class: 'chip todo-new', 'aria-label': 'New list', onclick: () => newList((id) => select(id), opts.reopen) }, icon('plus'), ' List'),
     );
 
     // Narrow tiles scroll the tabs sideways; keep the current list in view.
@@ -127,7 +128,7 @@ function itemRow(list: TodoList, item: TodoItem, reopen?: () => void): HTMLEleme
         'aria-label': 'Delete',
         onclick: (e: Event) => (e.stopPropagation(), todos.removeItem(list.id, item.id)),
       },
-      '✕',
+      icon('x'),
     ),
   );
 

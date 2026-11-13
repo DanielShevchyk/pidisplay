@@ -6,6 +6,7 @@ import { attachKeyboard } from '../../core/keyboard';
 import { currentTheme } from '../../core/theme';
 import { defineWidget, type Placement } from '../../core/types';
 import './lifting.css';
+import { icon } from '../../core/icons';
 
 interface LiftingConfig {
   /** Whose numbers: a person's name in the tracker; '' = the first person. */
@@ -89,7 +90,7 @@ export function openTracker(view = 'trend', person = '', onClose?: () => void) {
     'div',
     { class: 'lift-overlay', 'data-hold-rotation': '' },
     frame,
-    h('button', { class: 'btn lift-close', onclick: close, 'aria-label': 'Close' }, '✕'),
+    h('button', { class: 'btn lift-close', onclick: close, 'aria-label': 'Close' }, icon('x')),
   );
   // Same origin, so the dashboard's on-screen keyboard can type into the tracker.
   frame.addEventListener('load', () => {

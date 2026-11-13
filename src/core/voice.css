@@ -15,7 +15,7 @@
   padding: 18px 26px;
   border-radius: 28px;
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--panel);
   box-shadow: 0 14px 40px var(--shadow);
   animation: voice-in 0.2s ease-out;
 }
@@ -32,6 +32,7 @@
 }
 .voice-card.listening .voice-icon {
   background: var(--accent);
+  color: var(--on-accent);
   animation: voice-pulse 1.2s ease-in-out infinite;
 }
 .voice-card.thinking .voice-icon { animation: voice-pulse 0.6s ease-in-out infinite; }

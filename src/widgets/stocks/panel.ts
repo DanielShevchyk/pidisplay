@@ -16,6 +16,7 @@ import {
   type StockAlert,
 } from '../../core/stocks';
 import { drawChart, rangeChange } from './chart';
+import { icon } from '../../core/icons';
 
 const fail = (err: unknown) => console.error(err);
 
@@ -124,7 +125,7 @@ export function renderDetail(el: HTMLElement, symbol: string, opts: DetailOpts):
           `🔔 ${describeAlert(a, q?.currency)}${a.repeat === 'daily' ? ' · daily' : ''}${a.enabled ? '' : ' · off'}`,
         ),
       ),
-      h('button', { class: 'chip chip-accent', onclick: () => openAlertEditor(null, symbol, back) }, '＋ Alert'),
+      h('button', { class: 'chip chip-accent', onclick: () => openAlertEditor(null, symbol, back) }, icon('plus'), ' Alert'),
     );
     // New price or alert levels: refresh the chart too (history is cached briefly).
     if (historyKey !== `${range}|${q?.time ?? ''}|${JSON.stringify(list)}`) void loadChart();
@@ -196,13 +197,13 @@ export function openWatchlist(back: () => void = () => {}) {
               h('div', { class: 'stk-wl-name' }, h('strong', {}, sym), h('small', {}, q?.error ? `⚠️ ${q.error}` : q?.name ?? 'Waiting for a price…')),
               h('button', { class: 'btn btn-ghost', 'aria-label': 'Move up', disabled: i === 0, onclick: () => move(i, -1) }, '▲'),
               h('button', { class: 'btn btn-ghost', 'aria-label': 'Move down', disabled: i === s.symbols.length - 1, onclick: () => move(i, 1) }, '▼'),
-              h('button', { class: 'btn btn-ghost', 'aria-label': `Remove ${sym}`, onclick: () => save(s.symbols.filter((x) => x !== sym)) }, '✕'),
+              h('button', { class: 'btn btn-ghost', 'aria-label': `Remove ${sym}`, onclick: () => save(s.symbols.filter((x) => x !== sym)) }, icon('x')),
             );
           })
         : [h('p', { class: 'empty' }, 'No tickers yet')]),
     );
     quick.replaceChildren(
-      ...POPULAR.filter((p) => !s.symbols.includes(p)).map((p) => h('button', { class: 'chip', onclick: () => add(p) }, `＋ ${p}`)),
+      ...POPULAR.filter((p) => !s.symbols.includes(p)).map((p) => h('button', { class: 'chip', onclick: () => add(p) }, icon('plus'), ` ${p}`)),
     );
   };
 
@@ -396,7 +397,7 @@ export function openAlertsList(back: () => void = () => {}) {
               }),
             ),
           )
-        : [h('p', { class: 'empty' }, 'No alerts yet. Open a ticker and tap ＋ Alert.')]),
+        : [h('p', { class: 'empty' }, 'No alerts yet. Open a ticker and tap + Alert.')]),
     );
   };
   let off = () => {};

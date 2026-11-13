@@ -14,6 +14,7 @@ import {
   type Ringable,
 } from './timers';
 import { openTimersSheet } from '../widgets/timers/panel';
+import { icon, type IconName } from './icons';
 
 export class Alerts {
   private overlay = h('div', { class: 'ring-overlay', hidden: true, role: 'alertdialog', 'aria-label': 'Alarm' });
@@ -21,9 +22,12 @@ export class Alerts {
   private cards = h('div', { class: 'ring-cards' });
   private hint = h('p', { class: 'ring-hint', hidden: true }, '🔇 Tap anywhere to turn on the sound');
   private chipText = h('span', { class: 'ring-chip-text' });
+  private chipIcon = h('span', { class: 'ring-chip-icon' });
+  private chipIconName: IconName | '' = '';
   readonly chip = h(
     'button',
     { class: 'btn btn-ghost bar-btn ring-chip', hidden: true, onclick: () => this.chipTapped() },
+    this.chipIcon,
     this.chipText,
   );
   private ringKey = '';
@@ -119,8 +123,10 @@ export class Alerts {
     const now = timers.now();
     let text = '';
     let mode = '';
+    let glyph: IconName = 'timer';
     if (this.ringKey) {
-      text = '⏰ Ringing';
+      text = 'Ringing';
+      glyph = 'bell-ring';
       mode = 'ringing';
     } else {
       const snoozed = [...s.alarms, ...s.timers]
@@ -129,16 +135,22 @@ export class Alerts {
       const running = s.timers.filter((t) => t.state === 'running').sort((a, b) => a.endsAt! - b.endsAt!)[0];
       const paused = s.timers.find((t) => t.state === 'paused');
       if (snoozed) {
-        text = `💤 ${formatCountdown(snoozed.snoozeUntil! - now)}`;
+        text = formatCountdown(snoozed.snoozeUntil! - now);
+        glyph = 'alarm-clock';
         mode = 'snoozed';
       } else if (running) {
-        text = `⏱️ ${formatCountdown(timeLeft(running, now))}`;
+        text = formatCountdown(timeLeft(running, now));
       } else if (paused) {
-        text = `⏸️ ${formatCountdown(timeLeft(paused, now))}`;
+        text = `Paused ${formatCountdown(timeLeft(paused, now))}`;
       }
     }
     this.chip.hidden = !text;
     this.chipText.textContent = text;
+    // Swap the icon only when it changes; this runs every second.
+    if (text && glyph !== this.chipIconName) {
+      this.chipIconName = glyph;
+      this.chipIcon.replaceChildren(icon(glyph));
+    }
     this.chip.dataset.mode = mode;
   }
 

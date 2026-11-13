@@ -92,7 +92,7 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 75%, transparent);
 }
-.vac-map-label.on { background: var(--accent); color: #fff; }
+.vac-map-label.on { background: var(--accent); color: var(--on-accent); }
 
 /* ---- Sheet ---- */
 .vac-sheet { display: flex; flex-direction: column; gap: 14px; }

@@ -168,7 +168,7 @@
   font-weight: 600;
   color: var(--text-dim);
 }
-.fares .fares-origin button.active { background: var(--accent); color: #fff; }
+.fares .fares-origin button.active { background: var(--accent); color: var(--on-accent); }
 
 
 /* ---- Route map (large, extra large and full) ---- */

@@ -18,32 +18,31 @@
   line-height: 26px;
   text-align: center;
 }
-.todo-head .chip.active .todo-count { background: rgba(255, 255, 255, 0.25); }
+.todo-head .chip.active .todo-count { background: color-mix(in srgb, var(--on-accent) 14%, transparent); }
 
 .todo-form, .todo-edit { display: flex; gap: 8px; flex: none; }
 .todo-input {
   flex: 1;
   min-width: 0;
   min-height: 56px;
-  padding: 0 16px;
-  border-radius: 16px;
+  padding: 0 22px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   font-size: 20px;
 }
 .todo-form .todo-add { flex: none; padding: 0; font-size: 26px; }
 
-.todo-items { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.todo-items { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .todo-items .empty { margin: auto; }
 .todo-item {
   display: flex;
   align-items: center;
   gap: 14px;
-  min-height: 60px;
-  padding: 6px 4px 6px 14px;
-  border-radius: 16px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  min-height: 64px;
+  padding: 6px 0 6px 4px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
   user-select: none;
   -webkit-user-select: none;
   flex: none;
@@ -54,18 +53,19 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 2px solid var(--text-dim);
+  border: 2.5px solid var(--text-dim);
   display: grid;
   place-items: center;
   font-size: 20px;
-  font-weight: 700;
-  color: #fff;
+  font-weight: 800;
+  color: #0d2b1d;
 }
 .todo-text { flex: 1; min-width: 0; font-size: 21px; overflow-wrap: anywhere; }
 .todo-item .todo-del { flex: none; min-width: 52px; min-height: 48px; padding: 0; color: var(--text-dim); font-size: 20px; }
 .todo-item.done .todo-check { background: var(--success); border-color: var(--success); }
 .todo-item.done .todo-text { color: var(--text-dim); text-decoration: line-through; }
-.todo-item.done { opacity: 0.75; }
+.todo-item.done { opacity: 0.7; }
+.todo-item:last-child { border-bottom: 0; }
 
 .todo-footer { flex: none; display: flex; justify-content: center; }
 .todo-footer:empty { display: none; }
@@ -92,7 +92,7 @@
   overflow: hidden;
 }
 .todo-sum-title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex: none; }
-.todo-sum-name { font-size: clamp(18px, 14cqh, 30px); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-sum-name { font-size: clamp(18px, 14cqh, 30px); font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-sum-count { color: var(--text-dim); font-size: clamp(14px, 10cqh, 22px); white-space: nowrap; }
 .todo-sum-items { margin: 0; padding: 0; list-style: none; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
 .todo-sum-items li {

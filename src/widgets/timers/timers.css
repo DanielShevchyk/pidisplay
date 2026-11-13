@@ -122,7 +122,7 @@
   font-size: 24px;
   font-weight: 600;
 }
-.alm-day.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.alm-day.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .alm-sound-row { display: flex; gap: 8px; align-items: center; }
 .alm-sound-row select {
   min-height: 52px;
@@ -164,7 +164,7 @@
 .ring-card {
   padding: 22px 28px;
   border-radius: 28px;
-  background: var(--surface);
+  background: var(--panel);
   border: 2px solid var(--danger);
   box-shadow: 0 20px 60px var(--shadow);
 }
@@ -172,7 +172,7 @@
 .ring-sub { font-size: 24px; color: var(--text-dim); text-align: center; margin-bottom: 18px; }
 .ring-actions { display: flex; gap: 16px; }
 .ring-actions .btn { flex: 1; min-height: 120px; font-size: 36px; font-weight: 600; border-radius: 24px; }
-.ring-actions .ring-snooze { background: var(--accent); border-color: var(--accent); color: #fff; flex: 1.4 !important; }
+.ring-actions .ring-snooze { background: var(--accent); border-color: var(--accent); color: var(--on-accent); flex: 1.4 !important; }
 .ring-actions .ring-more { flex: 0.7 !important; }
 .ring-actions .ring-dismiss { background: var(--surface-2); }
 .ring-cards .ring-all { min-height: 80px; font-size: 26px; }

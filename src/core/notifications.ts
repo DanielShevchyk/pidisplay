@@ -2,6 +2,7 @@
 // sheet listing recent ones grouped by source. Anything can POST /api/notifications.
 import { api, onServerEvent } from './api';
 import { h } from './dom';
+import { icon } from './icons';
 import { openSheet, type SheetHandle } from './sheet';
 import type { AppNotification } from './types';
 
@@ -22,7 +23,7 @@ export class Notifications {
   readonly button = h(
     'button',
     { class: 'btn btn-ghost bar-btn', 'aria-label': 'Notifications', onclick: () => this.open() },
-    '🔔',
+    icon('bell'),
     this.badge,
   );
 
@@ -162,7 +163,7 @@ export class Notifications {
         n.body && h('p', {}, n.body),
         h('small', {}, `${formatTime(n.time)}${times}`),
       ),
-      h('button', { class: 'btn btn-ghost', onclick: () => this.dismiss(n.id), 'aria-label': 'Dismiss' }, '✕'),
+      h('button', { class: 'btn btn-ghost', onclick: () => this.dismiss(n.id), 'aria-label': 'Dismiss' }, icon('x')),
     );
   }
 

@@ -1,5 +1,6 @@
 import { call } from '../../core/api';
 import { h } from '../../core/dom';
+import { icon as lineIcon } from '../../core/icons';
 import { placePicker, type Places } from '../../core/place-picker';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement, type WidgetStorage } from '../../core/types';
@@ -538,7 +539,7 @@ function editResorts(shared: WidgetStorage, initial: string[], onSaved: () => vo
                     save();
                     draw();
                   },
-                }, '✕'),
+                }, lineIcon('x')),
               ),
             ),
           )

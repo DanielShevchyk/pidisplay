@@ -23,7 +23,7 @@
   font: inherit;
   font-size: 16px;
 }
-.fw-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fw-tab.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .fw-content { display: flex; flex-direction: column; gap: 6px; min-height: 260px; }
 .fw-content h3 { margin: 16px 0 4px; }
@@ -100,7 +100,7 @@
   bottom: -28px;
   margin: 8px -28px -28px;
   padding: 14px 28px 20px;
-  background: var(--surface);
+  background: var(--panel);
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;

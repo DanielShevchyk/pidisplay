@@ -2,6 +2,7 @@
 // mode for rearranging, resizing, adding and configuring widgets by touch.
 import { api, createStorage, onServerEvent } from './api';
 import { h, uid } from './dom';
+import { icon } from './icons';
 import { Alerts } from './alerts';
 import { ReminderAlerts } from './reminder-alerts';
 import { CheckinPrompt } from './checkin-prompt';
@@ -119,18 +120,18 @@ export class App {
     const editBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Edit dashboard', onclick: () => this.setEditing(!this.editing) },
-      '✎',
+      icon('pencil'),
     );
     const menuBtn = h(
       'button',
       { class: 'btn btn-ghost bar-btn', 'aria-label': 'Settings', onclick: () => this.openMenu() },
-      '⚙',
+      icon('settings'),
     );
     const toolbar = h(
       'div',
       { class: 'edit-toolbar' },
-      h('button', { class: 'btn', onclick: () => this.openAddTile() }, '＋ Tile'),
-      h('button', { class: 'btn', onclick: () => this.addPage() }, '＋ Page'),
+      h('button', { class: 'btn', onclick: () => this.openAddTile() }, icon('plus'), ' Tile'),
+      h('button', { class: 'btn', onclick: () => this.addPage() }, icon('plus'), ' Page'),
       h('button', { class: 'btn', onclick: () => this.openPageSettings() }, 'Page'),
       h('button', { class: 'btn', onclick: () => this.openTopBarSettings() }, 'Top bar'),
       h('button', { class: 'btn', onclick: () => this.openDisplaySettings() }, 'Display'),
@@ -296,14 +297,14 @@ export class App {
     return h(
       'div',
       { class: 'tile-edit' },
-      h('button', { class: 'tile-btn tile-remove', 'aria-label': 'Remove', onclick: () => this.removeTile(id) }, '✕'),
+      h('button', { class: 'tile-btn tile-remove', 'aria-label': 'Remove', onclick: () => this.removeTile(id) }, icon('x')),
       h(
         'button',
         { class: 'tile-resize', 'aria-label': 'Drag to resize', onpointerdown: (e: PointerEvent) => this.startResize(e, id) },
         Object.assign(h('span', { class: 'resize-grip' }), { innerHTML: RESIZE_GRIP }),
       ),
       h('div', { class: 'resize-badge' }),
-      h('button', { class: 'tile-btn tile-settings', 'aria-label': 'Settings', onclick: () => this.openTileSettings(id) }, '⚙'),
+      h('button', { class: 'tile-btn tile-settings', 'aria-label': 'Settings', onclick: () => this.openTileSettings(id) }, icon('settings')),
     );
   }
 
@@ -839,7 +840,7 @@ export class App {
                 'li',
                 {},
                 h('span', {}, `${getWidget(item.widget)?.icon ?? '?'} ${getWidget(item.widget)?.name ?? item.widget}`),
-                h('button', { class: 'btn btn-ghost', onclick: () => this.openBarItemSettings(item.id) }, '⚙'),
+                h('button', { class: 'btn btn-ghost', onclick: () => this.openBarItemSettings(item.id) }, icon('settings')),
                 h(
                   'button',
                   {
@@ -850,7 +851,7 @@ export class App {
                       render();
                     },
                   },
-                  '✕',
+                  icon('x'),
                 ),
               ),
             ),
@@ -869,7 +870,7 @@ export class App {
                     render();
                   },
                 },
-                `＋ ${def.icon} ${def.name}`,
+                `${def.icon} ${def.name}`,
               ),
             ),
           ),

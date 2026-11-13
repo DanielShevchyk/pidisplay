@@ -5,6 +5,8 @@ import { homeSettings } from '../../core/home';
 import { activeAlerts, alertClass, alertView, highlights, moonText, openAlerts, rainSoon, type Alert } from './insights';
 import { airMapView, aqiBand, openAirMap, openUvGraph, uvBand } from './sheets';
 import './weather.css';
+import { wxIcon } from './icons';
+import { icon } from '../../core/icons';
 
 interface WeatherConfig {
   /** City ("Austin, TX", "Paris, France") or "lat,lon". */
@@ -439,7 +441,7 @@ function render(
     return h(
       'div',
       { class: 'wx-bar' },
-      h('span', { class: 'wx-bar-icon' }, icon(cur.code, cur.isDay)),
+      h('span', { class: 'wx-bar-icon' }, wxIcon(cur.code, cur.isDay)),
       h('span', { class: 'wx-bar-temp' }, deg(cur.temp)),
       activeAlerts(d).length > 0 && h('span', { class: `wx-bar-alert ${alertClass(activeAlerts(d)[0])}`, title: activeAlerts(d)[0].event }, '⚠️'),
     );
@@ -455,7 +457,7 @@ function render(
   const now = h(
     'div',
     { class: 'wx-now' },
-    h('div', { class: 'wx-now-icon' }, icon(cur.code, cur.isDay)),
+    h('div', { class: 'wx-now-icon' }, wxIcon(cur.code, cur.isDay)),
     h('div', { class: 'wx-now-temp' }, deg(cur.temp)),
     h(
       'div',
@@ -463,7 +465,8 @@ function render(
       h(
         onPlace ? 'button' : 'div',
         { class: 'wx-place', onclick: onPlace, title: onPlace && 'Change location' },
-        onPlace && '📍 ',
+        onPlace && icon('map-pin'),
+        onPlace && ' ',
         place,
         offline && h('span', { class: 'wx-offline', title: 'Offline' }, ' ⚠'),
       ),
@@ -485,7 +488,7 @@ function render(
         ),
       pills(d, place, aq, placement !== 'small' && placement !== 'medium'),
     ),
-    placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, '🗺️'),
+    placement !== 'small' && h('div', { class: 'wx-map-hint', 'aria-hidden': 'true' }, icon('map')),
   );
 
   const sections: (HTMLElement | null)[] = [now];
@@ -524,7 +527,7 @@ function render(
             'div',
             { class: 'wx-hour' },
             h('div', { class: 'wx-small-label' }, i === 0 ? 'Now' : hourFmt.format(x.time * 1000)),
-            h('div', { class: 'wx-small-icon' }, icon(x.code, x.isDay)),
+            h('div', { class: 'wx-small-icon' }, wxIcon(x.code, x.isDay)),
             h('div', { class: 'wx-small-temp' }, deg(x.temp)),
             h('div', { class: 'wx-pop' }, chance(x.precipChance)),
           ),
@@ -537,6 +540,15 @@ function render(
     const dayFmt = new Intl.DateTimeFormat([], { weekday: 'short', timeZone: tz });
     // In the wide tile the current block already covers today.
     const days = d.daily.slice(placement === 'medium' ? 1 : 0, (placement === 'medium' ? 1 : 0) + spec.days);
+    // Each day's low-to-high bar sits on a shared scale so warm and cold days compare at a glance.
+    const lows = days.map((x) => x.low).filter((v): v is number => v != null);
+    const highs = days.map((x) => x.high).filter((v): v is number => v != null);
+    const lo = lows.length ? Math.min(...lows) : 0;
+    const span = Math.max(1, (highs.length ? Math.max(...highs) : lo) - lo);
+    const range = (low: number | null, high: number | null) =>
+      low == null || high == null
+        ? null
+        : `left:${(((low - lo) / span) * 100).toFixed(1)}%;right:${((1 - (high - lo) / span) * 100).toFixed(1)}%`;
     sections.push(
       h(
         'div',
@@ -546,12 +558,17 @@ function render(
             'div',
             { class: 'wx-day' },
             h('div', { class: 'wx-small-label' }, i === 0 && placement !== 'medium' ? 'Today' : dayFmt.format(x.date * 1000)),
-            h('div', { class: 'wx-small-icon' }, icon(x.code, true)),
+            h('div', { class: 'wx-small-icon' }, wxIcon(x.code, true)),
             h(
               'div',
-              { class: 'wx-small-temp' },
-              deg(x.high),
+              { class: 'wx-small-temp wx-temps' },
+              h('span', { class: 'wx-high' }, deg(x.high)),
               h('span', { class: 'wx-low' }, ` ${deg(x.low)}`),
+            ),
+            h(
+              'div',
+              { class: 'wx-range' },
+              h('i', { style: range(x.low, x.high) ?? 'display:none' }),
             ),
             h('div', { class: 'wx-pop' }, chance(x.precipChance)),
           ),
@@ -823,7 +840,7 @@ function openDetails(d: Forecast, config: WeatherConfig) {
     ),
     h('div', { class: 'wx-notes' }, ...notes.map((n) => h('span', { class: 'wx-note' }, n))),
   );
-  const sheet = openSheet(`${icon(d.current.code, d.current.isDay)} ${place}`, [
+  const sheet = openSheet(place, [
     h(
       'div',
       { class: 'wx-details-split' },
@@ -863,7 +880,7 @@ function tenDay(d: Forecast, onDay: (i: number) => void) {
           i === 0 ? 'Today' : dayFmt.format(x.date * 1000),
           h('span', { class: 'wx-ten-date' }, dateFmt.format(x.date * 1000)),
         ),
-        h('div', { class: 'wx-ten-icon', title: describe(x.code) }, icon(x.code, true)),
+        h('div', { class: 'wx-ten-icon', title: describe(x.code) }, wxIcon(x.code, true)),
         h('div', { class: 'wx-ten-cond' }, describe(x.code)),
         h('div', { class: 'wx-pop wx-ten-pop' }, chance(x.precipChance)),
         h('div', { class: 'wx-ten-low' }, deg(x.low)),
@@ -925,7 +942,7 @@ function dayContent(d: Forecast, index: number, hours: HourDetail[], tz: string 
     'div',
     { class: 'wx-sheet-facts wx-day-facts' },
     h('strong', {}, `${index === 0 ? 'Today, ' : ''}${dayFmt.format(day.date * 1000)}`),
-    h('span', {}, `${icon(day.code, true)} ${describe(day.code)}`),
+    h('span', {}, wxIcon(day.code, true), ` ${describe(day.code)}`),
     h('span', {}, `H ${deg(day.high)}  L ${deg(day.low)}`),
     rainTotal >= 0.01 && h('span', {}, `💧 ${rainTotal.toFixed(d.units === 'imperial' ? 2 : 1)} ${rainUnit}`),
     gustMax > 0 && h('span', {}, `🌬️ gusts to ${gustMax} ${speed}`),
@@ -969,7 +986,7 @@ function dayContent(d: Forecast, index: number, hours: HourDetail[], tz: string 
       'div',
       { class: `wx-hrow${x.time + 3600 <= nowSec ? ' past' : ''}${x.time <= nowSec && nowSec < x.time + 3600 ? ' now' : ''}` },
       h('span', { class: 'wx-hrow-time' }, x.time <= nowSec && nowSec < x.time + 3600 ? 'Now' : short(x.time)),
-      h('span', { class: 'wx-hrow-icon', title: describe(x.code) }, icon(x.code, x.isDay)),
+      h('span', { class: 'wx-hrow-icon', title: describe(x.code) }, wxIcon(x.code, x.isDay)),
       h('span', { class: 'wx-hrow-temp' }, deg(x.temp)),
       h('span', { class: 'wx-hrow-feel' }, x.feelsLike !== null && x.feelsLike !== x.temp ? `feels ${deg(x.feelsLike)}` : ''),
       h('span', { class: 'wx-pop' }, x.precipChance ? `💧${x.precipChance}%` : ''),
@@ -1035,17 +1052,3 @@ function describe(code: number): string {
   return 'Unknown';
 }
 
-function icon(code: number, isDay: boolean): string {
-  if (code === 0) return isDay ? '☀️' : '🌙';
-  if (code === 1) return isDay ? '🌤️' : '🌙';
-  if (code === 2) return isDay ? '⛅' : '☁️';
-  if (code === 3) return '☁️';
-  if (code === 45 || code === 48) return '🌫️';
-  if (code >= 51 && code <= 57) return '🌦️';
-  if (code >= 61 && code <= 67) return '🌧️';
-  if (code >= 71 && code <= 77) return '🌨️';
-  if (code >= 80 && code <= 82) return isDay ? '🌦️' : '🌧️';
-  if (code === 85 || code === 86) return '🌨️';
-  if (code >= 95) return '⛈️';
-  return '🌡️';
-}

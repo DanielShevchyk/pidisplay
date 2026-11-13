@@ -19,6 +19,7 @@ import {
 } from '../../core/reminders';
 import { holdButton } from '../timers/panel';
 import './reminders.css';
+import { icon } from '../../core/icons';
 
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -55,11 +56,11 @@ export function renderPanel(el: HTMLElement, opts: PanelOpts = {}): () => void {
       h(
         'div',
         { class: 'rem-head' },
-        h('h3', { class: 'rem-heading' }, '📌 Reminders'),
-        h('button', { class: 'btn btn-ghost rem-sounds', onclick: () => openSoundSettings(back) }, '🔔 Sound'),
+        h('h3', { class: 'rem-heading' }, 'Reminders'),
+        h('button', { class: 'btn btn-ghost rem-sounds', onclick: () => openSoundSettings(back) }, icon('bell'), ' Sound'),
       ),
       list,
-      h('button', { class: 'btn btn-primary rem-add', onclick: () => openEditor(null, back) }, '＋ New reminder'),
+      h('button', { class: 'btn btn-primary rem-add', onclick: () => openEditor(null, back) }, icon('plus'), ' New reminder'),
     ),
   );
 
@@ -269,7 +270,7 @@ function openEditor(existing: Reminder | null, back: () => void) {
         h('span', {}, 'Every'),
         h('button', { class: 'btn', 'aria-label': 'Fewer', disabled: r.interval <= 1, onclick: () => ((r.interval = Math.max(1, r.interval - 1)), show()) }, '−'),
         h('span', { class: 'rem-every-n' }, String(r.interval)),
-        h('button', { class: 'btn', 'aria-label': 'More', disabled: r.interval >= 99, onclick: () => ((r.interval = Math.min(99, r.interval + 1)), show()) }, '＋'),
+        h('button', { class: 'btn', 'aria-label': 'More', disabled: r.interval >= 99, onclick: () => ((r.interval = Math.min(99, r.interval + 1)), show()) }, icon('plus')),
         h('span', {}, repeatUnit(unit, r.interval)),
       ),
     ];

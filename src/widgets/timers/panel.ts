@@ -18,6 +18,7 @@ import {
   type ToneId,
 } from '../../core/timers';
 import './timers.css';
+import { icon, type IconName } from '../../core/icons';
 
 export type Tab = 'timers' | 'alarms';
 
@@ -40,9 +41,9 @@ export function renderPanel(el: HTMLElement, opts: PanelOpts): () => void {
   const tick: (() => void)[] = [];
   const back = () => opts.reopen?.(tab);
 
-  const tabBtn = (id: Tab, label: string) =>
-    h('button', { class: 'chip tmr-tab', 'data-tab': id, onclick: () => ((tab = id), (listKey = ''), render()) }, label);
-  const tabs = [tabBtn('timers', '⏱️ Timers'), tabBtn('alarms', '⏰ Alarms')];
+  const tabBtn = (id: Tab, glyph: IconName, label: string) =>
+    h('button', { class: 'chip tmr-tab', 'data-tab': id, onclick: () => ((tab = id), (listKey = ''), render()) }, icon(glyph), ` ${label}`);
+  const tabs = [tabBtn('timers', 'timer', 'Timers'), tabBtn('alarms', 'alarm-clock', 'Alarms')];
   const list = h('div', { class: 'tmr-list' });
   const footer = h('div', { class: 'tmr-footer' });
   el.append(
@@ -53,7 +54,7 @@ export function renderPanel(el: HTMLElement, opts: PanelOpts): () => void {
         'div',
         { class: 'tmr-head' },
         ...tabs,
-        h('button', { class: 'btn btn-ghost tmr-sounds', onclick: () => openSoundSettings(back) }, '🔔 Sounds'),
+        h('button', { class: 'btn btn-ghost tmr-sounds', onclick: () => openSoundSettings(back) }, icon('bell'), ' Sounds'),
       ),
       list,
       footer,
@@ -81,13 +82,13 @@ export function renderPanel(el: HTMLElement, opts: PanelOpts): () => void {
           ...PRESETS_MIN.map((m) =>
             h('button', { class: 'chip', onclick: () => void timers.startTimer(m * 60000).catch(fail) }, m === 60 ? '1 hr' : `${m} min`),
           ),
-          h('button', { class: 'chip chip-accent', onclick: () => openNumberPad(back) }, '⌨️ Custom'),
+          h('button', { class: 'chip chip-accent', onclick: () => openNumberPad(back) }, icon('keyboard'), ' Custom'),
         ),
       );
     } else {
       const alarms = [...s.alarms].sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
       list.replaceChildren(...(alarms.length ? alarms.map(alarmRow) : [h('p', { class: 'empty' }, 'No alarms yet')]));
-      footer.replaceChildren(h('button', { class: 'btn btn-primary tmr-add', onclick: () => openAlarmEditor(null, back) }, '＋ Add alarm'));
+      footer.replaceChildren(h('button', { class: 'btn btn-primary tmr-add', onclick: () => openAlarmEditor(null, back) }, icon('plus'), ' Add alarm'));
     }
     tick.forEach((fn) => fn());
   }
@@ -122,10 +123,10 @@ export function renderPanel(el: HTMLElement, opts: PanelOpts): () => void {
           h(
             'button',
             { class: 'btn', 'aria-label': paused ? 'Resume' : 'Pause', onclick: () => void timers.timerAction(t.id, paused ? 'resume' : 'pause').catch(fail) },
-            paused ? '▶️' : '⏸️',
+            icon(paused ? 'play' : 'pause'),
           ),
         h('button', { class: 'btn', onclick: () => void timers.addTime(t.id, 60000).catch(fail) }, '+1 min'),
-        h('button', { class: 'btn btn-ghost', 'aria-label': 'Cancel timer', onclick: () => void timers.cancelTimer(t.id).catch(fail) }, '✕'),
+        h('button', { class: 'btn btn-ghost', 'aria-label': 'Cancel timer', onclick: () => void timers.cancelTimer(t.id).catch(fail) }, icon('x')),
       ),
     );
   }

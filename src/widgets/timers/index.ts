@@ -3,6 +3,7 @@ import { defineWidget } from '../../core/types';
 import { formatAlarmTime, formatCountdown, formatIn, timeLeft, timers } from '../../core/timers';
 import { openTimersSheet, renderPanel, type Tab } from './panel';
 import './timers.css';
+import { icon } from '../../core/icons';
 
 interface TimersConfig {
   tab: Tab;
@@ -58,18 +59,18 @@ export default defineWidget<TimersConfig>({
         : '';
 
       if (timers.ringing().length) {
-        main.textContent = '⏰ Ringing';
+        main.textContent = 'Ringing';
         sub.textContent = 'Tap to see';
       } else if (running.length) {
         const t = running[0];
-        main.textContent = `${t.state === 'paused' ? '⏸️ ' : ''}${formatCountdown(timeLeft(t, now))}`;
+        main.textContent = `${t.state === 'paused' ? 'Paused ' : ''}${formatCountdown(timeLeft(t, now))}`;
         const more = running.length > 1 ? ` · +${running.length - 1} more` : '';
         sub.textContent = `${t.label || 'Timer'}${more}${placement !== 'small' && alarmLine ? ` · ${alarmLine}` : ''}`;
       } else if (next) {
         main.textContent = formatAlarmTime(next.hour, next.minute);
         sub.textContent = `${next.label || 'Alarm'} · ${formatIn(next.nextAt! - now)}`;
       } else {
-        main.textContent = '⏱️';
+        main.replaceChildren(icon('timer'));
         sub.textContent = 'Timers & alarms';
       }
     };

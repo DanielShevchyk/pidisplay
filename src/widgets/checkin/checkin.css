@@ -22,8 +22,8 @@
   font-variant-numeric: tabular-nums;
 }
 .ci-opt:active { transform: scale(0.96); }
-.ci-opt.on { --ci-c: var(--accent); background: var(--ci-c); border-color: var(--ci-c); color: #fff; }
-.ci-yn.on { background: var(--accent); border-color: var(--accent); }
+.ci-opt.on { --ci-c: var(--accent); background: var(--ci-c); border-color: var(--ci-c); color: #17142e; }
+.ci-yn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .ci-ends { display: flex; justify-content: space-between; padding: 0 4px; font-size: 16px; color: var(--text-dim); }
 
 .ci-hours { display: grid; grid-template-columns: 96px 1fr 96px; gap: 10px; }
@@ -71,7 +71,7 @@
   overflow-y: auto;
   padding: 20px 32px 28px;
   border-radius: 28px;
-  background: var(--surface);
+  background: var(--panel);
   border: 2px solid var(--warning);
   box-shadow: 0 20px 60px var(--shadow);
 }

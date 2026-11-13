@@ -3,6 +3,7 @@ import { homeSettings } from '../../core/home';
 import { openSheet } from '../../core/sheet';
 import { defineWidget, type Placement } from '../../core/types';
 import './news.css';
+import { icon, type IconName } from '../../core/icons';
 
 type SectionId = 'world' | 'us' | 'state' | 'local';
 
@@ -44,7 +45,7 @@ const REFRESH_MS = 10 * 60 * 1000;
 const RETRY_MS = 60 * 1000;
 /** After a tap, hold the chosen section this long before rotating again. */
 const HOLD_MS = 2 * 60 * 1000;
-const ICONS: Record<SectionId, string> = { world: '🌍', us: '🇺🇸', state: '🗺️', local: '📍' };
+const ICONS: Record<SectionId, IconName> = { world: 'globe', us: 'flag', state: 'landmark', local: 'map-pin' };
 
 export default defineWidget<NewsConfig>({
   type: 'news',
@@ -120,11 +121,12 @@ export default defineWidget<NewsConfig>({
           ? h(
               'button',
               { class: 'news-label news-label-btn', onclick: () => pick((active + 1) % sections.length) },
-              `${ICONS[current.id]} ${current.label}`,
+              icon(ICONS[current.id]),
+              ` ${current.label}`,
               sections.length > 1 && h('span', { class: 'news-dots' }, sections.map((_, i) => (i === active ? '●' : '○')).join(' ')),
             )
           : sections.length === 1
-            ? h('div', { class: 'news-label' }, `${ICONS[current.id]} ${current.label}`)
+            ? h('div', { class: 'news-label' }, icon(ICONS[current.id]), ` ${current.label}`)
             : h(
           'div',
           { class: 'news-tabs' },
@@ -135,7 +137,8 @@ export default defineWidget<NewsConfig>({
                 class: `news-tab${i === active ? ' active' : ''}`,
                 onclick: () => pick(i),
               },
-              `${ICONS[s.id]} ${s.label}`,
+              icon(ICONS[s.id]),
+              ` ${s.label}`,
             ),
           ),
         );
@@ -227,7 +230,7 @@ function renderBar(section: Section, story: Story) {
   return h(
     'button',
     { class: 'news-bar', onclick: () => openStory(section, story) },
-    h('span', { class: 'news-bar-icon' }, ICONS[section.id]),
+    h('span', { class: 'news-bar-icon' }, icon(ICONS[section.id])),
     h('span', { class: 'news-bar-title' }, story.title),
   );
 }
@@ -236,7 +239,7 @@ function renderSmall(section: Section, story: Story) {
   return h(
     'button',
     { class: 'news-small', onclick: () => openStory(section, story) },
-    h('div', { class: 'news-label' }, `${ICONS[section.id]} ${section.label}`),
+    h('div', { class: 'news-label' }, icon(ICONS[section.id]), ` ${section.label}`),
     h('div', { class: 'news-small-title' }, story.title),
     h('div', { class: 'news-meta' }, meta(story)),
   );
@@ -265,7 +268,7 @@ function renderColumn(section: Section, placement: Placement) {
   return h(
     'div',
     { class: 'news-col' },
-    h('div', { class: 'news-label' }, `${ICONS[section.id]} ${section.label}`),
+    h('div', { class: 'news-label' }, icon(ICONS[section.id]), ` ${section.label}`),
     renderList(section, placement),
   );
 }
@@ -286,7 +289,7 @@ function ago(time: number | null): string {
 
 /** The kiosk can't browse, so a tap shows the story and who else is covering it. */
 function openStory(section: Section, story: Story) {
-  openSheet(`${ICONS[section.id]} ${section.label}`, [
+  openSheet(section.label, [
     h('div', { class: 'news-detail' },
       h('div', { class: 'news-detail-title' }, story.title),
       h('div', { class: 'news-meta' }, meta(story)),

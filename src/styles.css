@@ -1,44 +1,71 @@
+@font-face {
+  font-family: 'Manrope';
+  src: url('./assets/fonts/manrope.woff2') format('woff2');
+  font-weight: 200 800;
+  font-display: block;
+}
+
+/* "Glass" look: a still dusk backdrop behind see-through tiles. Nothing is blurred
+   live (the backdrop is a smooth gradient, so blur would look the same and cost the
+   Pi a lot). Surfaces are translucent whites, so anything that floats above the
+   page (sheets, menus, toasts) uses the solid --panel instead. --accent is white
+   here: text on top of it must use --on-accent, never a fixed #fff. */
 :root {
-  --bg: #0b0e13;
-  --surface: #151a22;
-  --surface-2: #1c232d;
-  --border: #2a3340;
-  --text: #eef2f7;
-  --text-dim: #8a96a8;
-  --accent: #4da3ff;
-  --danger: #ff5d5d;
-  --warning: #ffb443;
-  --success: #3ccf8e;
-  --radius: 22px;
-  --gap: 16px;
-  --bar-h: 76px;
-  --shadow: rgba(0, 0, 0, 0.55);
-  --scrim: rgba(0, 0, 0, 0.55);
+  --bg: #120f2b;
+  --backdrop:
+    linear-gradient(rgba(9, 8, 24, 0.34), rgba(9, 8, 24, 0.34)),
+    radial-gradient(1000px 760px at 8% 0%, #4a35b8 0%, transparent 62%),
+    radial-gradient(1000px 700px at 92% -5%, #b23a74 0%, transparent 60%),
+    radial-gradient(1200px 800px at 78% 108%, #d9783a 0%, transparent 58%),
+    radial-gradient(1000px 800px at 0% 105%, #14458f 0%, transparent 60%);
+  --tile: linear-gradient(160deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.06));
+  --tile-border: rgba(255, 255, 255, 0.16);
+  --surface: rgba(255, 255, 255, 0.09);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --panel: #231f47;
+  --border: rgba(255, 255, 255, 0.16);
+  --text: #ffffff;
+  --text-dim: rgba(255, 255, 255, 0.64);
+  --accent: #ffffff;
+  --on-accent: #17142e;
+  --danger: #ff7d8c;
+  --warning: #ffc46b;
+  --success: #5ee6a8;
+  --radius: 32px;
+  --gap: 18px;
+  --bar-h: 88px;
+  --shadow: rgba(5, 4, 20, 0.5);
+  --scrim: rgba(8, 6, 24, 0.6);
   color-scheme: dark;
 }
 
 /* Light mode, picked in the gear menu (src/core/theme.ts). Widgets only use the
    variables above, so they follow along; status colors are darker for contrast. */
 :root[data-theme='light'] {
-  --bg: #a7b1be;
-  --surface: #dfe3e9;
-  --surface-2: #bac3ce;
-  --border: #6f7c8e;
-  --text: #0f141b;
-  --text-dim: #364150;
-  --accent: #1560c4;
+  --bg: #e4e8f6;
+  --backdrop:
+    radial-gradient(1000px 760px at 8% 0%, #cfc8ff 0%, transparent 62%),
+    radial-gradient(1000px 700px at 92% -5%, #ffd0e0 0%, transparent 60%),
+    radial-gradient(1200px 800px at 78% 108%, #ffe0bf 0%, transparent 58%),
+    radial-gradient(1000px 800px at 0% 105%, #c4dcff 0%, transparent 60%);
+  --tile: linear-gradient(160deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58));
+  --tile-border: rgba(255, 255, 255, 0.9);
+  --surface: rgba(255, 255, 255, 0.6);
+  --surface-2: rgba(30, 28, 70, 0.07);
+  --panel: #f3f4fb;
+  --border: rgba(30, 28, 70, 0.16);
+  --text: #17152e;
+  --text-dim: rgba(23, 21, 46, 0.66);
+  --accent: #1f1c42;
+  --on-accent: #ffffff;
   --danger: #c62828;
   --warning: #9a5800;
   --success: #0b6b40;
-  --shadow: rgba(20, 30, 45, 0.18);
-  /* Light enough that the dashboard keeps its colors behind an open sheet. */
-  --scrim: rgba(20, 30, 45, 0.2);
+  --shadow: rgba(40, 35, 90, 0.2);
+  --scrim: rgba(30, 28, 70, 0.28);
   color-scheme: light;
 }
-/* Pale tiles on a pale page wash out on the panel; a soft shadow keeps their edges. */
-:root[data-theme='light'] .tile { box-shadow: 0 2px 6px rgba(20, 30, 45, 0.22); }
-:root[data-theme='light'] .topbar { box-shadow: 0 1px 4px rgba(20, 30, 45, 0.12); }
-:root[data-theme='light'] .sheet { box-shadow: 0 -8px 30px rgba(20, 30, 45, 0.25); }
+:root[data-theme='light'] .tile { box-shadow: 0 6px 18px rgba(40, 35, 90, 0.1); }
 
 * { box-sizing: border-box; }
 
@@ -52,9 +79,11 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: var(--bg);
+  background: var(--backdrop), var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   font-size: 20px;
   user-select: none;
   -webkit-user-select: none;
@@ -70,21 +99,36 @@ select { font: inherit; color: inherit; }
 
 #app { height: 100%; display: flex; flex-direction: column; }
 
+/* Line icons (src/core/icons.ts) and weather icons follow the text size and color. */
+.ico {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  display: inline-block;
+  vertical-align: -0.15em;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.wx-ico { width: 1.2em; height: 1.2em; flex: none; display: inline-block; vertical-align: -0.28em; }
+
 /* ---- Buttons ---------------------------------------------------------- */
 
 .btn {
   min-height: 56px;
   min-width: 56px;
   padding: 0 22px;
-  border-radius: 16px;
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  font-weight: 500;
+  font-weight: 700;
 }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.45; }
 .btn-ghost { background: transparent; border-color: transparent; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 .btn-wide { width: 100%; margin-top: 16px; }
 
@@ -96,39 +140,72 @@ select { font: inherit; color: inherit; }
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 0 24px;
+  padding: 0 28px;
   gap: 24px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
 }
-.bar-slot { display: flex; align-items: center; gap: 24px; min-width: 0; }
+.bar-slot { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .bar-actions { justify-content: flex-end; }
-.bar-right { display: flex; gap: 24px; align-items: center; }
-.bar-item { position: relative; height: var(--bar-h); display: flex; align-items: center; }
+.bar-right { display: flex; gap: 12px; align-items: center; }
+.bar-item { position: relative; height: 56px; display: flex; align-items: center; font-weight: 700; }
 .bar-item > .widget-body { height: 100%; display: flex; align-items: center; }
-.editing .bar-item { outline: 2px dashed var(--accent); outline-offset: -6px; border-radius: 12px; padding: 0 12px; }
-.bar-btn { position: relative; font-size: 28px; padding: 0 12px; }
+/* Widgets on the right sit in glass pills; the left slot (usually the clock) stays bare. */
+.bar-right .bar-item {
+  padding: 0 20px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.editing .bar-item { outline: 2px dashed var(--accent); outline-offset: 3px; border-radius: 999px; padding: 0 12px; }
+/* Round glass buttons: mic, bell, edit, settings. Status chips (timer ringing,
+   reminder due, check-in) reuse the class and stretch into pills. */
+.bar-btn {
+  position: relative;
+  min-width: 56px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 22px;
+}
+.bar-btn[hidden] { display: none; }
+.bar-btn svg { width: 26px; height: 26px; flex: none; }
 .badge {
   position: absolute;
-  top: 4px;
-  right: 0;
+  top: -5px;
+  right: -5px;
   min-width: 24px;
   height: 24px;
   padding: 0 6px;
   border-radius: 12px;
-  background: var(--danger);
+  background: #ff5d7a;
   color: #fff;
   font-size: 14px;
   line-height: 24px;
-  font-weight: 700;
+  font-weight: 800;
 }
 
-.bar-center { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.page-title { font-size: 20px; font-weight: 600; color: var(--text-dim); }
-.dots { display: flex; gap: 4px; }
+.bar-center {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 14px 0 26px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.page-title { font-size: 22px; font-weight: 700; white-space: nowrap; }
+.dots { display: flex; }
+.dots[hidden] { display: none; }
 .dot {
-  width: 28px;
-  height: 20px;
+  width: 22px;
+  height: 40px;
   border: 0;
   padding: 0;
   background: none;
@@ -137,13 +214,14 @@ select { font: inherit; color: inherit; }
 }
 .dot::before {
   content: '';
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--border);
-  transition: background 0.2s, transform 0.2s;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 30%, transparent);
+  transition: background 0.2s, width 0.2s;
 }
-.dot.active::before { background: var(--accent); transform: scale(1.3); }
+.dot.active { width: 38px; }
+.dot.active::before { width: 26px; background: var(--accent); }
 
 /* ---- Pages and grid --------------------------------------------------- */
 
@@ -157,7 +235,7 @@ select { font: inherit; color: inherit; }
   will-change: transform;
 }
 /* Strict containment keeps a ticking clock on one page from re-laying out the others. */
-.page { flex: 0 0 100%; height: 100%; padding: var(--gap); overflow: hidden; contain: strict; }
+.page { flex: 0 0 100%; height: 100%; padding: 4px 22px 22px; overflow: hidden; contain: strict; }
 /* Pages more than one away from the current one aren't drawn at all (see App.wakePages). */
 .page.asleep { content-visibility: hidden; }
 
@@ -178,11 +256,11 @@ select { font: inherit; color: inherit; }
   min-width: 0;
   min-height: 0;
   border-radius: var(--radius);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--tile);
+  border: 1px solid var(--tile-border);
   overflow: hidden;
 }
-.widget-body { container-type: size; width: 100%; height: 100%; padding: 16px; }
+.widget-body { container-type: size; width: 100%; height: 100%; padding: 20px 22px; }
 .bar-item .widget-body { container-type: normal; width: auto; padding: 0; }
 .widget-error {
   height: 100%;
@@ -216,7 +294,9 @@ select { font: inherit; color: inherit; }
   height: 56px;
   border-radius: 50%;
   border: 0;
-  background: var(--surface-2);
+  background: var(--panel);
+  display: grid;
+  place-items: center;
   box-shadow: 0 2px 10px var(--shadow);
   font-size: 24px;
   z-index: 2;
@@ -248,7 +328,7 @@ select { font: inherit; color: inherit; }
   place-items: center;
   border-radius: 16px 0 calc(var(--radius) - 4px) 0;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: 0 2px 10px var(--shadow);
 }
 .resize-grip svg { width: 30px; height: 30px; }
@@ -268,7 +348,7 @@ select { font: inherit; color: inherit; }
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
   font-size: 28px;
   pointer-events: none;
   z-index: 2;
@@ -284,8 +364,8 @@ select { font: inherit; color: inherit; }
   gap: 12px;
   align-items: center;
   padding: 12px;
-  border-radius: 24px;
-  background: var(--surface);
+  border-radius: 999px;
+  background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: 0 10px 40px var(--shadow);
   z-index: 20;
@@ -311,10 +391,10 @@ select { font: inherit; color: inherit; }
   max-height: 85%;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-bottom: 0;
-  border-radius: 28px 28px 0 0;
+  border-radius: 36px 36px 0 0;
   transform: translateY(100%);
   transition: transform 0.25s ease-out;
 }
@@ -325,9 +405,9 @@ select { font: inherit; color: inherit; }
   justify-content: space-between;
   padding: 12px 16px 0 28px;
 }
-.sheet-head h2 { margin: 0; font-size: 26px; }
+.sheet-head h2 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.01em; }
 .sheet-body { padding: 8px 28px 28px; overflow-y: auto; }
-.sheet-body h3 { margin: 20px 0 10px; font-size: 16px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+.sheet-body h3 { margin: 20px 0 10px; font-size: 15px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-dim); }
 .empty { color: var(--text-dim); text-align: center; padding: 24px 0; }
 
 /* Place field with a suggestions dropdown (src/core/place-picker.ts). */
@@ -343,9 +423,9 @@ select { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: 20px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--panel);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 .picker-list[hidden] { display: none; }
@@ -363,7 +443,7 @@ select { font: inherit; color: inherit; }
   text-align: left;
 }
 .picker-option:first-child { background: var(--surface-2); }
-.picker-option:active { background: var(--accent); color: #fff; }
+.picker-option:active { background: var(--accent); color: var(--on-accent); }
 .picker-option, .picker-input { font-size: 18px; }
 .picker-option strong { min-width: 48px; }
 .picker-empty { padding: 12px 14px; color: var(--text-dim); font-size: 16px; }
@@ -384,8 +464,8 @@ select { font: inherit; color: inherit; }
 .field select {
   min-height: 52px;
   min-width: 260px;
-  padding: 0 14px;
-  border-radius: 12px;
+  padding: 0 16px;
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -409,18 +489,19 @@ select { font: inherit; color: inherit; }
   background: #fff;
   transition: transform 0.2s;
 }
-.toggle:checked { background: var(--accent); }
+.toggle:checked { background: var(--success); }
 .toggle:checked::after { transform: translateX(28px); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
 .chip {
   min-height: 52px;
-  padding: 0 20px;
+  padding: 0 22px;
   border-radius: 26px;
+  font-weight: 700;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
-.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 .picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 /* The place field shares the .picker name with the widget picker grid above; keep it a plain block. */
@@ -432,7 +513,7 @@ select { font: inherit; color: inherit; }
   gap: 6px;
   padding: 18px;
   text-align: left;
-  border-radius: 18px;
+  border-radius: 24px;
   border: 1px solid var(--border);
   background: var(--surface-2);
 }
@@ -558,13 +639,13 @@ select { font: inherit; color: inherit; }
   align-items: center;
   gap: 14px;
   padding: 14px 18px;
-  border-radius: 18px;
+  border-radius: 22px;
   border: 1px solid var(--border);
-  border-left: 6px solid var(--accent);
+  border-left: 6px solid #8fb4ff;
   background: var(--surface-2);
   text-align: left;
 }
-.toast { box-shadow: 0 10px 30px var(--shadow); animation: toast-in 0.25s ease-out; }
+.toast { background: var(--panel); box-shadow: 0 10px 30px var(--shadow); animation: toast-in 0.25s ease-out; }
 .toast-icon { font-size: 26px; }
 .toast-text,
 .notif-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }

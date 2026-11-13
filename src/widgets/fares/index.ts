@@ -4,6 +4,7 @@ import { defineWidget, type Placement } from '../../core/types';
 import { legList, routeMap, type Airport, type Itinerary, type OpenJawRoute, type Route } from './map';
 import { FARES_CHANGED, type SettingsSummary, openFaresSettings, openTargetEditor } from './settings';
 import './fares.css';
+import { icon } from '../../core/icons';
 
 interface FaresConfig {
   /** Destination code to feature on small tiles; blank = best current deal. */
@@ -471,7 +472,7 @@ function render(
             void openFaresSettings({ summary: d });
           },
         },
-        '⚙',
+        icon('settings'),
       ),
   );
 

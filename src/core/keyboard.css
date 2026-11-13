@@ -7,7 +7,7 @@
   bottom: 0;
   z-index: 200;
   padding: 14px 16px 18px;
-  background: var(--surface-2);
+  background: var(--panel);
   border-top: 1px solid var(--border);
   box-shadow: 0 -10px 40px var(--shadow);
   transform: translateY(105%);
@@ -32,12 +32,12 @@
   font-size: 30px;
   padding: 0;
 }
-.osk-key.down { background: var(--accent); color: #fff; }
+.osk-key.down { background: var(--accent); color: var(--on-accent); }
 .osk-mod,
 .osk-back { background: var(--border); font-size: 24px; }
-.osk-mod.on { background: var(--accent); color: #fff; }
+.osk-mod.on { background: var(--accent); color: var(--on-accent); }
 .osk-space { flex-grow: 6; font-size: 22px; color: var(--text-dim); }
-.osk-enter { flex-grow: 1.6; background: var(--accent); color: #fff; font-size: 24px; }
+.osk-enter { flex-grow: 1.6; background: var(--accent); color: var(--on-accent); font-size: 24px; }
 .osk-numbers .osk-key { height: 74px; }
 
 /* Lift bottom sheets above the keyboard while it is open. */

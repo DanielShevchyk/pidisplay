@@ -4,6 +4,7 @@
 // voice/pidisplay_voice.py; the server (server/voice.js) relays its events here.
 import { call, onServerEvent } from './api';
 import { h } from './dom';
+import { icon } from './icons';
 import { closeSheet, openSheet, settingsForm, type SheetHandle } from './sheet';
 import type { SettingField } from './types';
 import './voice.css';
@@ -80,7 +81,7 @@ export class VoiceUI {
   readonly button = h(
     'button',
     { class: 'btn btn-ghost bar-btn voice-btn', 'aria-label': 'Voice control', onclick: () => this.tapToTalk() },
-    '🎙️',
+    icon('mic'),
   );
 
   constructor(
