@@ -1,17 +1,17 @@
 .lift {
   width: 100%; height: 100%; display: flex; flex-direction: column; gap: 12px;
-  padding: 16px 18px; text-align: left; color: var(--text);
+  padding: 0; text-align: left; color: var(--text);
   overflow: hidden; min-height: 0; cursor: pointer;
 }
 .lift-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex: none; }
-.lift-title { font-weight: 600; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lift-next { font-size: 16px; color: var(--accent); white-space: nowrap; }
+.lift-title { font-weight: 800; font-size: 22px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lift-next { font-size: 15px; font-weight: 700; white-space: nowrap; padding: 4px 12px; border-radius: 999px; background: var(--surface-2); }
 .lift-dim { color: var(--text-dim); }
-.lift-sec { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin-bottom: 6px; }
+.lift-sec { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-dim); margin-bottom: 6px; }
 
 .lift-kpis { display: flex; gap: 10px; flex: none; }
-.lift-kpi { flex: 1; min-width: 0; background: var(--surface-2); border-radius: 14px; padding: 8px 12px; }
-.lift-kpi-v { font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.lift-kpi { flex: 1; min-width: 0; background: var(--surface-2); border-radius: 20px; padding: 10px 14px; }
+.lift-kpi-v { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .lift-kpi.up .lift-kpi-v { color: var(--success); }
 .lift-kpi.down .lift-kpi-v { color: var(--danger); }
 .lift-kpi-k { font-size: 14px; color: var(--text-dim); }
@@ -28,15 +28,15 @@
 .lift-weeks { display: flex; flex-direction: column; min-height: 90px; max-height: 280px; flex: 1 1 auto; }
 .lift-bars { flex: 1; display: flex; align-items: flex-end; gap: 6px; min-height: 50px; }
 .lift-bar { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
-.lift-bar i { display: block; width: 100%; min-height: 2px; background: var(--border); border-radius: 4px 4px 0 0; }
-.lift-bar.now i { background: var(--accent); }
+.lift-bar i { display: block; width: 100%; min-height: 2px; background: color-mix(in srgb, var(--text) 22%, transparent); border-radius: 8px; }
+.lift-bar.now i { background: linear-gradient(180deg, #ffd76a, #ff9f6b); }
 .lift-bar-n { font-size: 13px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
 .lift-groups { display: flex; flex-direction: column; gap: 5px; }
 .lift-grow { display: grid; grid-template-columns: 96px 1fr 26px; gap: 8px; align-items: center; font-size: 15px; }
 .lift-gname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lift-gtrack { position: relative; height: 12px; background: var(--surface-2); border-radius: 6px; }
-.lift-gtrack i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--warning); border-radius: 6px; min-width: 2px; }
+.lift-gtrack { position: relative; height: 10px; background: var(--border); border-radius: 99px; }
+.lift-gtrack i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--warning); border-radius: 99px; min-width: 2px; }
 .lift-gtrack i.met { background: var(--success); }
 .lift-gtrack b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-dim); }
 .lift-gn { text-align: right; font-variant-numeric: tabular-nums; }
@@ -61,7 +61,7 @@
 /* Full page: a KPI strip over three columns of panels that share the height. */
 .lift-grid { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 16px; flex: 1; min-height: 0; }
 .lift-grid .lift-col { gap: 16px; }
-.lift-panel { background: var(--surface-2); border-radius: 16px; padding: 14px 18px; display: flex; flex-direction: column; min-height: 0; flex: none; }
+.lift-panel { background: var(--surface-2); border-radius: 24px; padding: 16px 20px; display: flex; flex-direction: column; min-height: 0; flex: none; }
 .lift-panel.grow { flex: 1 1 0; }
 .lift-panel.weeks { flex: 0 0 34%; }
 .lift-panel .lift-weeks { max-height: none; }
@@ -80,13 +80,13 @@
 .lift-list li::before { content: '!'; position: absolute; left: 4px; font-weight: 700; color: var(--warning); }
 .lift-list li.stalled::before, .lift-list li.declining::before { content: '▼'; font-size: 13px; top: 4px; color: var(--danger); }
 
-.lift.size-full { gap: 16px; padding: 20px 24px; font-size: 20px; }
-.lift.size-full .lift-title { font-size: 26px; }
+.lift.size-full { gap: 16px; padding: 0; font-size: 20px; }
+.lift.size-full .lift-title { font-size: 28px; }
 .lift.size-full .lift-next { font-size: 20px; }
 .lift.size-full .lift-sec { font-size: 15px; margin-bottom: 10px; }
 .lift.size-full .lift-kpis { gap: 16px; }
-.lift.size-full .lift-kpi { padding: 12px 18px; border-radius: 16px; }
-.lift.size-full .lift-kpi-v { font-size: 44px; }
+.lift.size-full .lift-kpi { padding: 12px 20px; border-radius: 24px; }
+.lift.size-full .lift-kpi-v { font-size: 46px; }
 .lift.size-full .lift-kpi-k { font-size: 17px; }
 .lift.size-full .lift-delta { font-size: 15px; }
 .lift.size-full .no-proj .lift-prow { grid-template-columns: minmax(0, 1fr) 100px 96px 104px; }
@@ -95,12 +95,12 @@
 .lift.size-full .lift-pval, .lift.size-full .lift-proj { text-align: right; }
 .lift.size-full .lift-proj { font-size: 17px; }
 .lift.size-full .lift-grow { grid-template-columns: 130px 1fr 44px; font-size: 20px; gap: 12px; }
-.lift.size-full .lift-gtrack { height: 18px; border-radius: 9px; background: var(--surface); }
-.lift.size-full .lift-gtrack i { border-radius: 9px; }
+.lift.size-full .lift-gtrack { height: 14px; border-radius: 99px; background: var(--border); }
+.lift.size-full .lift-gtrack i { border-radius: 99px; }
 .lift.size-full .lift-bar-n { font-size: 17px; }
 .lift.size-full .lift-bars { gap: 12px; }
 
-.lift.size-small { gap: 6px; padding: 12px 14px; }
+.lift.size-small { gap: 6px; padding: 0; }
 .lift.size-small .lift-weeks { min-height: 0; }
 .lift.size-small .lift-weeks .lift-sec, .lift.size-small .lift-bar-n { display: none; }
 .lift.size-small .lift-bars { min-height: 0; gap: 4px; }
@@ -113,7 +113,7 @@
 .lift.size-large .lift-kpi-v { font-size: 26px; }
 
 /* The full tracker over the dashboard (openTracker). */
-.lift-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg); }
+.lift-overlay { position: fixed; inset: 0; z-index: 60; background: var(--backdrop), var(--bg); }
 body.osk-open .lift-overlay { bottom: var(--osk-h, 0px); }
 .lift-frame { width: 100%; height: 100%; border: 0; display: block; }
 .lift-close {

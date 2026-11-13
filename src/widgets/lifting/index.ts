@@ -330,7 +330,7 @@ function dunkLine(i: Insights) {
 
 function render(root: HTMLElement, placement: Placement, { s, i }: Data, showName: boolean) {
   const name = (showName || s.people_count > 1) && s.person ? s.person.name : 'Lifting';
-  const head = h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, `🏋️ ${name}`), s.next_day ? h('span', { class: 'lift-next' }, `Day ${s.next_day} next`) : null);
+  const head = h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, name), s.next_day ? h('span', { class: 'lift-next' }, `Day ${s.next_day} next`) : null);
   const sets = kpi('sets this week', String(i.this_week), lastWeek(i.this_week, i.last_week), 'volume');
   const strength = kpi('strength since start', i.overall_change_pct === null ? '–' : pct(i.overall_change_pct), h('span', { class: 'lift-delta' }, 'avg e1RM change'), 'trend', i.overall_change_pct === null ? '' : i.overall_change_pct >= 0 ? 'up' : 'down');
   const prs = kpi('PRs, 30 days', String(i.prs_30d), null, 'prs');
@@ -407,7 +407,7 @@ export default defineWidget<LiftingConfig>({
       } catch (err) {
         if (!alive) return;
         if (!root.childElementCount) {
-          root.replaceChildren(h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, `🏋️ ${person || 'Lifting'}`)), h('div', { class: 'lift-dim' }, (err as Error).message));
+          root.replaceChildren(h('div', { class: 'lift-head' }, h('span', { class: 'lift-title' }, person || 'Lifting')), h('div', { class: 'lift-dim' }, (err as Error).message));
         }
       }
     }
