@@ -41,7 +41,7 @@ but assume at most 2% e1RM gain per week, since early sessions jump a lot.
 
 ## Pages
 
-- **Trends**: per lift, estimated 1RM and top-set weight over time. Lifts are grouped by name; pick a variation for a like-for-like line, or "All variations".
+- **Trends**: per lift, estimated 1RM and top-set weight over time. A lift is an exercise name: its variations (stance, grip, machine) are drawn as one line, and the table under the chart says which was used each day.
 - **Volume**: working sets per muscle group for each week (Monday start), with last week as a tick.
 - **PRs**: recent PRs; tap one to open that lift's trend.
 - **Month**: a calendar month next to the one before: sessions, working sets, weight moved (weight × reps), PRs, average effort, sets per muscle group, training-day calendar.
@@ -87,7 +87,8 @@ Warmups never count.
 - **Volume**: segments of one mechanical drop set count as one set. The exercise's own muscle group gets a full set and each muscle it also works gets half a set (a row is 1 for back, 0.5 for biceps). Week totals count each set once.
 
 Weights are stored in lb as logged; `load_basis` says whether that is the total, each
-hand, each arm or each side, and comparisons are within one exercise + variation (or name).
+hand, each arm or each side. Trends, PRs, stalls and projections treat every variation of
+an exercise name as one lift; the variation stays stored on each set and shows on the Log page.
 
 ## Maintenance
 

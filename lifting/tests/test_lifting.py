@@ -384,3 +384,25 @@ def test_monthly_report(client):
     assert r["in_progress"] and r["next_month"] is None and r["previous_month"] is None
     assert client.get("/api/report?month=2026-13").status_code == 422
     assert client.get("/api/report?month=2026-10").json()["next_month"] == "2026-11"
+
+
+def test_variations_roll_up_into_one_lift(client):
+    client.post("/import", json={"sessions": [
+        {"date": "2026-10-01", "day": "A", "sets": [s("Belt squat", 1, 270, 8, variation="standard stance")]},
+        {"date": "2026-10-05", "day": "A", "sets": [s("Belt squat", 1, 300, 8, variation="narrow stance")]},
+        {"date": "2026-10-09", "day": "A", "sets": [s("Belt squat", 1, 280, 8, variation="standard stance"),
+                                                    s("Belt squat", 1, 310, 8, variation="heels raised")]},
+    ]})
+    conn = client.app.state.conn
+    assert len(client.get("/api/exercises").json()) == 3  # the variations are still stored
+    h = metrics.history(conn, 1)
+    assert list(h) == ["belt squat"] and h["belt squat"]["label"] == "Belt squat"
+    ses = h["belt squat"]["sessions"]
+    assert [x["top_weight"] for x in ses] == [270, 300, 310] and ses[2]["sets"] == 2
+    assert ses[1]["pr"] and ses[2]["pr"]  # each beats every earlier session, whatever the stance
+    assert [p["label"] for p in metrics.prs(conn, 1)] == ["Belt squat", "Belt squat"]
+    lifts = metrics.insights(conn, 1, today=date(2026, 10, 10))["lifts"]
+    assert [(x["name"], x["sessions"]) for x in lifts] == [("Belt squat", 3)]
+    last = metrics.summary(conn, 1, today=date(2026, 10, 10))["last_session"]["exercises"]
+    assert last == [{"label": "Belt squat", "name": "Belt squat", "top_weight": 310, "sets": 2}]
+    assert len(client.get(f"/api/trend/{lifts[0]['exercise_id']}").json()["sessions"]) == 2  # one variation, by id

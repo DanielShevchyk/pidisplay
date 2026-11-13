@@ -9,13 +9,13 @@ const rough = (on) => (on ? '≈' : '');
 const navEl = nav('trend');
 let charts = [];
 let reportMonth = null; // YYYY-MM shown on the Month view; null = this month
-const state = { name: null, exerciseId: null };
+const state = { name: null };
 try {
   Object.assign(state, JSON.parse(localStorage.getItem('lifting-trend') || '{}'));
 } catch {}
 const saveState = () => {
   try {
-    localStorage.setItem('lifting-trend', JSON.stringify({ name: state.name, exerciseId: state.exerciseId }));
+    localStorage.setItem('lifting-trend', JSON.stringify({ name: state.name }));
   } catch {}
 };
 
@@ -49,7 +49,6 @@ async function renderTrend(el) {
   const hit = wanted && exercises.find((e) => e.id === wanted);
   if (hit) {
     state.name = hit.name;
-    state.exerciseId = hit.id;
     saveState();
     history.replaceState(null, '', '#trend');
   }
@@ -57,7 +56,7 @@ async function renderTrend(el) {
     el.replaceChildren(h('div', { class: 'empty' }, 'No lifts yet. ', h('a', { href: 'import' }, 'Import some sessions'), '.'));
     return;
   }
-  // One entry per exercise name; its variations are chips above the chart.
+  // One entry per exercise name: its variations (stance, grip, machine) are one lift.
   const names = new Map();
   for (const e of exercises) {
     const n = names.get(e.name) || { name: e.name, variations: [], stalled: false, has: false, last: '' };
@@ -68,38 +67,21 @@ async function renderTrend(el) {
     names.set(e.name, n);
   }
   const list = [...names.values()].sort((a, b) => Number(b.has) - Number(a.has) || a.name.localeCompare(b.name));
-  if (!names.has(state.name)) {
-    state.name = list[0].name;
-    state.exerciseId = null;
-  }
-  const entry = names.get(state.name);
-  if (state.exerciseId && !entry.variations.some((v) => v.id === state.exerciseId)) state.exerciseId = null;
-  if (!state.exerciseId && entry.variations.length === 1) state.exerciseId = entry.variations[0].id;
+  if (!names.has(state.name)) state.name = list[0].name;
 
   const side = h('div', { class: 'ex-list' },
     ...list.map((n) => h('button', {
       class: `ex-item${n.name === state.name ? ' active' : ''}`,
       onclick: () => {
         state.name = n.name;
-        state.exerciseId = n.variations.length === 1 ? n.variations[0].id : null;
         saveState();
         show();
       },
-    }, h('span', {}, n.name, h('br'), h('small', {}, n.variations.length > 1 ? `${n.variations.length} variations` : n.variations[0].variation || '—')),
+    }, h('span', {}, n.name),
     n.stalled ? h('span', { class: 'badge stall' }, 'stall') : null)),
   );
 
-  const t = state.exerciseId ? await api(`api/trend/${state.exerciseId}`) : await api(`api/trend?name=${encodeURIComponent(state.name)}`);
-  const pick = (id) => {
-    state.exerciseId = id;
-    saveState();
-    show();
-  };
-  const chips = entry.variations.length > 1
-    ? h('div', { class: 'chips' },
-      h('button', { class: `chip${state.exerciseId ? '' : ' active'}`, onclick: () => pick(null) }, 'All variations'),
-      ...entry.variations.map((v) => h('button', { class: `chip${state.exerciseId === v.id ? ' active' : ''}`, onclick: () => pick(v.id) }, v.variation || 'standard')))
-    : null;
+  const t = await api(`api/trend?name=${encodeURIComponent(state.name)}`);
 
   const ses = t.sessions;
   const withE = ses.filter((x) => x.e1rm !== null);
@@ -109,7 +91,7 @@ async function renderTrend(el) {
   const isWeighted = ses.some((x) => x.top_weight !== null);
   const isHeight = !isWeighted && ses.some((x) => x.max_height_in !== null);
   const isTime = !isWeighted && !isHeight && ses.some((x) => x.max_duration_s !== null);
-  const titleOf = (x) => `Day ${x.day_label}${x.variations?.length && !state.exerciseId ? ` · ${x.variations.join(', ')}` : ''}`;
+  const titleOf = (x) => `Day ${x.day_label}`;
 
   let series;
   let fmt = (v) => num(Math.round(v * 10) / 10);
@@ -126,7 +108,6 @@ async function renderTrend(el) {
     series = [];
   }
 
-  const unitNote = t.sessions.length && isWeighted ? basisNote(state.exerciseId ? entry.variations.find((v) => v.id === state.exerciseId) : null) : '';
   const stats = isWeighted
     ? h('div', { class: 'stats' },
       stat('Latest e1RM', latest ? num(latest.e1rm) : '–', 'lb'),
@@ -138,10 +119,10 @@ async function renderTrend(el) {
 
   const chartEl = h('div', { class: 'chart' });
   const table = h('table', { class: 'data' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Day'), state.exerciseId ? null : h('th', {}, 'Variation'), h('th', { class: 'num' }, 'Top set'), h('th', { class: 'num' }, 'e1RM'), h('th', { class: 'num' }, 'Sets'), h('th', {}, ''))),
+    h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Day'), h('th', {}, 'How'), h('th', { class: 'num' }, 'Top set'), h('th', { class: 'num' }, 'e1RM'), h('th', { class: 'num' }, 'Sets'), h('th', {}, ''))),
     h('tbody', {}, ...ses.slice().reverse().map((x) => h('tr', {},
       h('td', {}, longDate(x.date)), h('td', {}, x.day_label),
-      state.exerciseId ? null : h('td', { class: 'dim' }, x.variations.join(', ')),
+      h('td', { class: 'dim' }, x.variations.filter(Boolean).join(', ')),
       h('td', { class: 'num' }, x.top_weight !== null ? `${lb(x.top_weight)}${x.top_reps ? ` × ${x.top_reps}` : ''}` : x.max_height_in !== null ? `${num(x.max_height_in)} in` : x.max_duration_s !== null ? `${num(x.max_duration_s)} s` : '–'),
       h('td', { class: 'num' }, x.e1rm !== null ? `${rough(x.e1rm_rough)}${num(x.e1rm)}` : '–'),
       h('td', { class: 'num' }, String(x.sets)),
@@ -151,19 +132,14 @@ async function renderTrend(el) {
   el.replaceChildren(h('div', { class: 'trend-layout' }, side,
     h('div', {},
       h('h2', { style: 'margin:0 0 6px' }, t.label || state.name),
-      chips, stats,
+      stats,
       h('div', { class: 'chart-card' },
         series.length > 1 ? legend(series) : h('h3', {}, series[0]?.name || ''),
         chartEl,
-        unitNote ? h('div', { class: 'dim', style: 'font-size:15px;margin:4px 0 6px' }, unitNote) : null,
         ses.some((x) => x.e1rm_rough) ? h('div', { class: 'dim', style: 'font-size:15px;margin:4px 0 6px' }, '≈ rough estimate: it comes from a set of more than 10 reps (counting reps left in the tank).') : null),
       h('div', { class: 'table-wrap', style: 'margin-top:16px' }, table))));
   if (series.length) charts.push(lineChart(chartEl, series, { format: fmt, minSpan: 20, floor: 0, label: `${state.name} trend`, empty: 'No weighted sets yet' }));
   else chartEl.append(h('div', { class: 'empty' }, 'Nothing to chart for this exercise (no weights, heights or times logged).'));
-}
-
-function basisNote(ex) {
-  return ex ? '' : 'All variations are drawn as one lift. Pick a variation for a like-for-like line.';
 }
 
 function stat(k, v, unit = '', sub = '') {
@@ -225,7 +201,6 @@ async function renderPrs(el) {
       class: 'pr-card',
       onclick: () => {
         state.name = p.name;
-        state.exerciseId = p.exercise_id;
         saveState();
         location.hash = 'trend';
       },

@@ -17,7 +17,8 @@
 - Volume: working sets per muscle group per week (Monday start); the segments of one
   mechanical drop set count as one set. An exercise's secondary muscle groups get half
   a set each (fractional set counting); week totals count each set once.
-Exercises are compared per name + variation, as stored. Every number is for one person
+Variations of an exercise (stance, grip, machine) are stored per set but every view rolls
+them up into one lift per exercise name. Every number is for one person
 (pid); the exercise list itself is shared by everyone.
 """
 from __future__ import annotations
@@ -98,11 +99,14 @@ def _label(name: str, variation: str) -> str:
     return f"{name} ({variation})" if variation else name
 
 
-def history(conn: sqlite3.Connection, pid: int, exercise_id: int | None = None, name: str | None = None) -> dict:
-    """Per exercise: its sessions in order with best e1RM, top set and PR info.
+def history(conn: sqlite3.Connection, pid: int, exercise_id: int | None = None, name: str | None = None, by_name: bool = True) -> dict:
+    """Per lift: its sessions in order with best e1RM, top set and PR info.
 
-    With name, every variation of that exercise is treated as one lift (key: the name).
+    Every variation of an exercise is one lift, keyed by the lowercased name (its
+    exercise_id is the first variation logged). Only a lookup by exercise_id with
+    by_name=False keeps a single variation apart (key: the id).
     """
+    name_mode = bool(name) or (by_name and not exercise_id)
     if name:
         rows = _rows(conn, pid, "AND lower(e.name) = lower(?)", (name,))
     elif exercise_id:
@@ -111,11 +115,11 @@ def history(conn: sqlite3.Connection, pid: int, exercise_id: int | None = None, 
         rows = _rows(conn, pid)
     by_ex: dict = {}
     for r in rows:
-        key = r["name"].lower() if name else r["exercise_id"]
+        key = r["name"].lower() if name_mode else r["exercise_id"]
         ex = by_ex.setdefault(key, {
-            "exercise_id": None if name else r["exercise_id"], "name": r["name"],
-            "variation": "" if name else r["variation"],
-            "label": r["name"] if name else _label(r["name"], r["variation"]),
+            "exercise_id": r["exercise_id"], "name": r["name"],
+            "variation": "" if name_mode else r["variation"],
+            "label": r["name"] if name_mode else _label(r["name"], r["variation"]),
             "muscle_group": r["muscle_group"], "sessions": {},
         })
         ses = ex["sessions"].setdefault(r["session_id"], {
@@ -216,7 +220,7 @@ def exercises(conn: sqlite3.Connection, pid: int) -> list[dict]:
            GROUP BY e.id ORDER BY e.name, e.variation""",
         (pid,),
     ):
-        h = hist.get(e["id"])
+        h = hist.get(e["name"].lower())  # the whole lift: every variation shares it
         latest = next((x["e1rm"] for x in reversed(h["sessions"]) if x["e1rm"] is not None), None) if h else None
         out.append({
             **dict(e), "label": _label(e["name"], e["variation"]),
@@ -231,7 +235,7 @@ def trend_by_name(conn: sqlite3.Connection, pid: int, name: str) -> dict | None:
 
 
 def trend(conn: sqlite3.Connection, pid: int, exercise_id: int) -> dict | None:
-    h = history(conn, pid, exercise_id).get(exercise_id)
+    h = history(conn, pid, exercise_id, by_name=False).get(exercise_id)
     if not h:
         row = conn.execute("SELECT * FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
         if not row:
@@ -326,13 +330,13 @@ def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> di
     last_out = None
     if last:
         lifts = conn.execute(
-            """SELECT e.name, e.variation, max(s.weight_lb) AS top, count(DISTINCT s.set_number) AS sets
+            """SELECT e.name, max(s.weight_lb) AS top, count(DISTINCT s.exercise_id || ':' || s.set_number) AS sets
                FROM sets s JOIN exercises e ON e.id = s.exercise_id
-               WHERE s.session_id = ? AND s.set_type != 'warmup' GROUP BY e.id ORDER BY min(s.id)""",
+               WHERE s.session_id = ? AND s.set_type != 'warmup' GROUP BY lower(e.name) ORDER BY min(s.id)""",
             (last["id"],),
         ).fetchall()
         last_out = {"date": last["date"], "day_label": last["day_label"], "notes": last["notes"],
-                    "exercises": [{"label": _label(l["name"], l["variation"]), "name": l["name"], "top_weight": l["top"], "sets": l["sets"]} for l in lifts]}
+                    "exercises": [{"label": l["name"], "name": l["name"], "top_weight": l["top"], "sets": l["sets"]} for l in lifts]}
     vol = volume(conn, pid, 1, today)["weeks"][0]
     counts = conn.execute(
         """SELECT (SELECT count(*) FROM sessions WHERE person_id = :p) AS sessions,
@@ -347,7 +351,7 @@ def summary(conn: sqlite3.Connection, pid: int, today: Date | None = None) -> di
         "this_week": {"week_start": vol["week_start"], "working_sets": vol["total"],
                       "sessions": conn.execute("SELECT count(*) FROM sessions WHERE person_id = ? AND date >= ?", (pid, vol["week_start"])).fetchone()[0]},
         "recent_prs": prs(conn, pid, 5),
-        "stalled": [e["label"] for e in exercises(conn, pid) if e["stalled"]],
+        "stalled": sorted({e["name"] for e in exercises(conn, pid) if e["stalled"]}),
         "totals": dict(counts),
     }
 
@@ -391,12 +395,8 @@ def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, targ
         for g in credits([r]):
             last_hit[g] = max(last_hit.get(g, ""), r["date"])
 
-    # Progress and projections per exercise as logged (name + variation): different
-    # stances or machines aren't comparable, so they aren't mixed here.
+    # Progress and projections per lift (all variations of an exercise together).
     hist = history(conn, pid)
-    variations: dict[str, int] = defaultdict(int)
-    for ex in hist.values():
-        variations[ex["name"]] += 1
     lifts = []
     for ex in hist.values():
         pts = [(x["date"], x["e1rm"]) for x in ex["sessions"] if x["e1rm"] is not None]
@@ -412,7 +412,7 @@ def insights(conn: sqlite3.Connection, pid: int, today: Date | None = None, targ
         rate = min(slope, best * MAX_GAIN) if slope is not None else None
         lifts.append({
             "exercise_id": ex["exercise_id"],
-            "name": ex["label"] if variations[ex["name"]] > 1 else ex["name"],
+            "name": ex["name"],
             "sessions": len(pts),
             "first_e1rm": first, "latest_e1rm": latest, "best_e1rm": best,
             "change_pct": round((latest / first - 1) * 100, 1) if len(pts) > 1 and first else None,
