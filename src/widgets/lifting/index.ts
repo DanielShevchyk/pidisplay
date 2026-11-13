@@ -150,7 +150,7 @@ function groupBars(i: Insights, max: number) {
         { class: 'lift-grow' },
         h('span', { class: 'lift-gname' }, g),
         h('span', { class: 'lift-gtrack' }, h('i', { class: n >= i.target ? 'met' : '', style: `width:${(n / scale) * 100}%` }), h('b', { style: `left:${(i.target / scale) * 100}%` })),
-        h('span', { class: 'lift-gn' }, String(n)),
+        h('span', { class: 'lift-gn' }, num(n)),
       ),
     ),
   );
@@ -190,7 +190,7 @@ function needsWork(i: Insights, max: number, groupsPerLine = 4) {
     lines.splice(
       other.filter((x) => x.kind === 'stalled' || x.kind === 'declining').length,
       0,
-      h('li', { class: 'low_volume' }, `Under ${i.target} sets in 7 days: `, low.slice(0, groupsPerLine).map((x) => `${x.group} ${x.sets}`).join(' · '), low.length > groupsPerLine ? ` +${low.length - groupsPerLine} more` : ''),
+      h('li', { class: 'low_volume' }, `Under ${i.target} sets in 7 days: `, low.slice(0, groupsPerLine).map((x) => `${x.group} ${num(x.sets ?? 0)}`).join(' · '), low.length > groupsPerLine ? ` +${low.length - groupsPerLine} more` : ''),
     );
   }
   return h(

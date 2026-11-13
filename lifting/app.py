@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import metrics
+from .catalog import clean_secondary
 from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx, connect, default_person, find_person
 from .importer import ImportError_, _date, run_import
 
@@ -40,6 +41,8 @@ class SetPatch(BaseModel):
     approx: Optional[bool] = None
     inferred: Optional[bool] = None
     notes: Optional[str] = None
+    rpe: Optional[float] = None
+    rir: Optional[float] = None
 
 
 class SessionPatch(BaseModel):
@@ -54,6 +57,11 @@ class ExercisePatch(BaseModel):
     variation: Optional[str] = None
     muscle_group: Optional[str] = None
     equipment: Optional[str] = None
+    secondary: Optional[str] = None
+
+
+class MergeIn(BaseModel):
+    into: int
 
 
 class MeasurementIn(BaseModel):
@@ -205,6 +213,11 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
     async def volume(weeks: int = Query(8, ge=1, le=52), pid: int = Person):
         return metrics.volume(conn, pid, weeks)
 
+    @app.get("/api/report")
+    async def report(month: Optional[str] = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), pid: int = Person):
+        """A calendar month (YYYY-MM, default this month) compared with the one before."""
+        return metrics.report(conn, pid, month)
+
     @app.get("/api/prs")
     async def prs(limit: int = Query(30, ge=1, le=500), pid: int = Person):
         return metrics.prs(conn, pid, limit)
@@ -251,6 +264,7 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
             d = dict(r)
             e = metrics.set_e1rm(r)
             d["e1rm"] = round(e, 1) if e else None
+            d["e1rm_rough"] = bool(e and metrics.is_rough(r))
             d["approx"], d["inferred"] = bool(d["approx"]), bool(d["inferred"])
             out.append(d)
         return out
@@ -291,7 +305,11 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         for k in ("exercise_id", "set_number", "segment", "set_type"):
             if k in changes and changes[k] is None:
                 raise HTTPException(400, f"{k} can't be empty")
-        for k in ("weight_lb", "reps", "duration_s", "height_in", "set_number", "segment"):
+        if changes.get("rpe") is not None and not 1 <= changes["rpe"] <= 10:
+            raise HTTPException(400, "rpe must be between 1 and 10")
+        if changes.get("rir") is not None and changes["rir"] > 10:
+            raise HTTPException(400, "rir must be 10 or less")
+        for k in ("weight_lb", "reps", "duration_s", "height_in", "set_number", "segment", "rir"):
             if changes.get(k) is not None and changes[k] < 0:
                 raise HTTPException(400, f"{k} can't be negative")
         if "notes" in changes:
@@ -334,7 +352,33 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         for k in ("muscle_group", "equipment"):
             if k in changes:
                 changes[k] = changes[k] or None
-        return patch("exercises", ex_id, changes, ("name", "variation", "muscle_group", "equipment"))
+        if "secondary" in changes:
+            changes["secondary"] = clean_secondary(changes["secondary"])
+        return patch("exercises", ex_id, changes, ("name", "variation", "muscle_group", "equipment", "secondary"))
+
+    @app.post("/api/exercises/{ex_id}/merge")
+    async def merge_exercise(ex_id: int, body: MergeIn):
+        """Moves every set (everyone's) of this exercise into another one, then removes it.
+
+        Where both were logged in the same session, the moved sets are numbered after the
+        ones already there, so nothing is overwritten.
+        """
+        if ex_id == body.into:
+            raise HTTPException(400, "Pick a different exercise to merge into")
+        for i in (ex_id, body.into):
+            if not conn.execute("SELECT 1 FROM exercises WHERE id = ?", (i,)).fetchone():
+                raise HTTPException(404, "No such exercise")
+        with Tx(conn):
+            moved = 0
+            sessions_ = [r[0] for r in conn.execute("SELECT DISTINCT session_id FROM sets WHERE exercise_id = ?", (ex_id,))]
+            for sid in sessions_:
+                offset = conn.execute("SELECT coalesce(max(set_number), 0) FROM sets WHERE session_id = ? AND exercise_id = ?", (sid, body.into)).fetchone()[0]
+                # Highest numbers first so a shifted set never lands on one not yet moved.
+                for s in conn.execute("SELECT id, set_number FROM sets WHERE session_id = ? AND exercise_id = ? ORDER BY set_number DESC", (sid, ex_id)).fetchall():
+                    conn.execute("UPDATE sets SET exercise_id = ?, set_number = ? WHERE id = ?", (body.into, s["set_number"] + offset, s["id"]))
+                    moved += 1
+            conn.execute("DELETE FROM exercises WHERE id = ?", (ex_id,))
+        return {"ok": True, "moved": moved, "into": body.into}
 
     @app.delete("/api/exercises/{ex_id}")
     async def delete_exercise(ex_id: int):

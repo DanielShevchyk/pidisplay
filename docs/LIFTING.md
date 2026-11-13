@@ -44,8 +44,9 @@ but assume at most 2% e1RM gain per week, since early sessions jump a lot.
 - **Trends**: per lift, estimated 1RM and top-set weight over time. Lifts are grouped by name; pick a variation for a like-for-like line, or "All variations".
 - **Volume**: working sets per muscle group for each week (Monday start), with last week as a tick.
 - **PRs**: recent PRs; tap one to open that lift's trend.
+- **Month**: a calendar month next to the one before: sessions, working sets, weight moved (weight × reps), PRs, average effort, sets per muscle group, training-day calendar.
 - **Dunk goal**: standing and approach touch height against the rim (120 in) and rim + 6 in, box jump height (from measurements and logged box-jump sets), bodyweight, and a form to add a measurement.
-- **Log**: every set, filterable by date range and exercise, with inline edit and delete. Tabs for sessions (date, day, notes; deleting one deletes its sets), exercises (muscle group and equipment, which drive the volume chart) and measurements.
+- **Log**: every set, filterable by date range and exercise, with inline edit and delete. Tabs for sessions (date, day, notes; deleting one deletes its sets), exercises (muscle group, the muscles it also works, equipment; Merge folds a duplicate into another exercise and keeps every set) and measurements.
 - **Import**: paste JSON (or pick a file) and import it.
 
 ## Import format
@@ -64,6 +65,11 @@ The whole import is one transaction: one bad row rejects the lot and the page li
 problem. Muscle group and equipment are guessed from the exercise name unless a set
 carries `muscle_group` / `equipment`; fix guesses on Log › Exercises.
 
+Optional on any set, for whatever writes the JSON (unknown keys are ignored, so older exports keep working):
+
+- `"rpe": 8` (1 to 10) or `"rir": 2` (reps left in reserve; `reps_in_reserve` works too). Leave both out when effort wasn't noted.
+- `"secondary_muscles": ["Biceps", "Rear delts"]` to say which other muscle groups the exercise works. Without it they are guessed from the name.
+
 From the laptop: `.\deploy\lifting.ps1 -Import C:\path\lifting_backfill.json` (add `-Person Alex` for someone else).
 
 Every API endpoint takes `?person=` (id or name); without it, it is the first person.
@@ -73,10 +79,12 @@ Every API endpoint takes `?person=` (id or name); without it, it is the first pe
 Warmups never count.
 
 - **e1RM** (Epley) = weight × (1 + reps / 30), only for 1 to 12 reps with a weight. For a mechanical drop set only segment 1 counts. The trend shows the best per session.
+- **Effort**: when a set has reps in reserve (`rir`, or 10 − `rpe`), the estimate uses reps + reps left, since 8 reps with 2 left is a 10-rep weight. Sets with no effort logged are treated as taken to failure.
+- **Rough estimates (≈)**: an e1RM from more than 10 effective reps is marked ≈; the formulas drift up there. Above 12 there is no estimate.
 - **Top-set weight**: the heaviest set of the lift in the session.
 - **PR**: the session's best e1RM beats every earlier session, or a set beats the heaviest weight earlier lifted for at least as many reps (for the most reps ever, it must at least match the heaviest weight ever). A lift's first session only sets the baseline.
 - **Stall**: no e1RM gain in the last 3 sessions (needs at least 4 sessions with an e1RM).
-- **Volume**: segments of one mechanical drop set count as one set.
+- **Volume**: segments of one mechanical drop set count as one set. The exercise's own muscle group gets a full set and each muscle it also works gets half a set (a row is 1 for back, 0.5 for biceps). Week totals count each set once.
 
 Weights are stored in lb as logged; `load_basis` says whether that is the total, each
 hand, each arm or each side, and comparisons are within one exercise + variation (or name).

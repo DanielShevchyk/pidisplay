@@ -138,7 +138,8 @@ def test_weekly_volume_counts_drop_set_once(client):
     v = metrics.volume(client.app.state.conn, 1, 2, today=date(2026, 11, 5))
     week = v["weeks"][-1]
     assert week["week_start"] == "2026-11-02"
-    assert week["groups"] == {"Biceps": 2, "Core": 1, "Plyometrics": 1, "Quads": 4}
+    assert week["groups"] == {"Biceps": 2, "Core": 1, "Glutes": 2, "Plyometrics": 1, "Quads": 4}  # squats: half a set of glutes
+    assert week["total"] == 8  # each set once
 
 
 def test_edit_and_delete(client):
@@ -274,7 +275,7 @@ def test_insights(tmp_path):
     kinds = [x["kind"] for x in i["shortcomings"]]
     assert kinds[0] == "stalled"
     assert {"group": "Quads", "sets": 1} == {k: next(x for x in i["shortcomings"] if x.get("group") == "Quads")[k] for k in ("group", "sets")}
-    assert i["groups_7d"] == {"Back": 1, "Quads": 1}
+    assert i["groups_7d"] == {"Back": 1, "Biceps": 0.5, "Glutes": 0.5, "Quads": 1}
     assert i["this_week"] == 2 and i["dunk"] is None
 
 
@@ -308,3 +309,78 @@ def test_measurement_edit_is_validated(client):
     assert client.patch(f"/api/measurements/{mid}", json={"date": "2026-02-31"}).status_code == 400
     assert client.patch(f"/api/measurements/{mid}", json={"value": 112}).json()["value"] == 112
     assert client.post("/api/people", json={"name": "42"}).status_code == 400
+
+
+def test_effort_changes_the_estimate_and_flags_rough_ones(tmp_path):
+    from lifting.db import connect
+    from lifting.importer import ImportError_, run_import
+    conn = connect(tmp_path / "e.db")
+    run_import(conn, {"sessions": [{"date": "2026-10-01", "day": "A", "sets": [
+        s("Bench press", 1, 200, 8, rir=2),      # an honest 10-rep weight
+        s("Bench press", 2, 200, 8, rpe=10),     # to failure: plain Epley
+        s("Lat pulldown", 1, 100, 9, rpe=8),     # 11 effective reps: rough
+        s("Leg extension", 1, 100, 12, rir=3),   # 15 effective reps: no estimate
+    ]}]})
+    rows = {(r["name"], r["set_number"]): r for r in metrics._rows(conn, 1)}
+    assert metrics.set_e1rm(rows[("Bench press", 1)]) == pytest.approx(200 * (1 + 10 / 30))
+    assert metrics.set_e1rm(rows[("Bench press", 2)]) == pytest.approx(200 * (1 + 8 / 30))
+    assert metrics.is_rough(rows[("Lat pulldown", 1)]) and not metrics.is_rough(rows[("Bench press", 1)])
+    assert metrics.set_e1rm(rows[("Leg extension", 1)]) is None
+    h = {x["name"]: x["sessions"][0] for x in metrics.history(conn, 1).values()}
+    assert h["Lat pulldown"]["e1rm_rough"] is True and h["Bench press"]["e1rm_rough"] is False
+    assert h["Bench press"]["e1rm_set"]["rir"] == 2
+    with pytest.raises(ImportError_):
+        run_import(conn, {"sessions": [{"date": "2026-10-02", "sets": [s("Bench press", 1, 200, 8, rpe=11)]}]})
+
+
+def test_old_database_gains_the_new_columns(tmp_path):
+    from lifting.db import connect
+    path = tmp_path / "old.db"
+    conn = connect(path)
+    conn.execute("INSERT INTO exercises (name, variation, muscle_group, secondary) VALUES ('Barbell row', '', 'Back', NULL)")
+    conn.execute("ALTER TABLE sets DROP COLUMN rpe")
+    conn.execute("ALTER TABLE sets DROP COLUMN rir")
+    conn.close()
+    conn = connect(path)
+    assert {"rpe", "rir"} <= {r[1] for r in conn.execute("PRAGMA table_info(sets)")}
+    assert conn.execute("SELECT secondary FROM exercises").fetchone()[0] == "Biceps, Rear delts"
+
+
+def test_secondary_muscles_from_import_and_edit(client):
+    payload = {"sessions": [{"date": "2026-11-03", "day": "A", "sets": [
+        s("Cable thing", 1, 50, 10, muscle_group="Back", secondary_muscles=["biceps", "Core"])]}]}
+    assert client.post("/import", json=payload).status_code == 200
+    ex = client.get("/api/exercises").json()[0]
+    assert ex["secondary"] == "Biceps, Core"
+    assert client.patch(f"/api/exercises/{ex['id']}", json={"secondary": " rear delts ,, Back"}).json()["secondary"] == "Rear delts, Back"
+    v = metrics.volume(client.app.state.conn, 1, 1, today=date(2026, 11, 5))["weeks"][0]
+    assert v["groups"] == {"Back": 1, "Rear delts": 0.5} and v["total"] == 1
+
+
+def test_merge_exercises_keeps_every_set(client):
+    client.post("/import", json={"sessions": [{"date": "2026-11-03", "day": "A", "sets": [
+        s("Belt squat", 1, 270, 8), s("Belt squat", 2, 270, 8),
+        s("Belt squatt", 1, 290, 6), s("Belt squatt", 2, 290, 5),
+    ]}, {"date": "2026-11-05", "day": "B", "sets": [s("Belt squatt", 1, 300, 5)]}]})
+    ex = {e["name"]: e["id"] for e in client.get("/api/exercises").json()}
+    r = client.post(f"/api/exercises/{ex['Belt squatt']}/merge", json={"into": ex["Belt squat"]})
+    assert r.status_code == 200 and r.json()["moved"] == 3
+    assert [e["name"] for e in client.get("/api/exercises").json()] == ["Belt squat"]
+    sets = client.get("/api/sets", params={"from": "2026-11-03", "to": "2026-11-03"}).json()
+    assert sorted((x["set_number"], x["weight_lb"]) for x in sets) == [(1, 270), (2, 270), (3, 290), (4, 290)]
+    assert client.post(f"/api/exercises/{ex['Belt squat']}/merge", json={"into": ex["Belt squat"]}).status_code == 400
+    assert client.post(f"/api/exercises/{ex['Belt squat']}/merge", json={"into": 999}).status_code == 404
+
+
+def test_monthly_report(client):
+    client.post("/import", json=SAMPLE)
+    conn = client.app.state.conn
+    r = metrics.report(conn, 1, "2026-11", today=date(2026, 11, 12))
+    a = r["this"]
+    assert a["sessions"] == 2 and a["days"] == ["2026-11-03", "2026-11-05"] and a["working_sets"] == 8
+    # 270x8 + 270x10 + 360x5 + 300x12 squats, curls per hand count double
+    assert a["volume_lb"] == 270 * 18 + 1800 + 3600 + 2 * (37.5 * 7 + 35 * 8)
+    assert a["prs"] == 1 and r["previous"]["sessions"] == 0
+    assert r["in_progress"] and r["next_month"] is None and r["previous_month"] is None
+    assert client.get("/api/report?month=2026-13").status_code == 422
+    assert client.get("/api/report?month=2026-10").json()["next_month"] == "2026-11"

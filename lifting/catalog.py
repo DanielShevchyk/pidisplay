@@ -82,8 +82,45 @@ EQUIPMENT: list[tuple[str, str]] = [
     ("jump", "Bodyweight"),
 ]
 
+# Muscles an exercise also works, each credited half a set in the weekly volume.
+# Checked in order; first hit wins. An empty list means "nothing else worth counting".
+SECONDARY: list[tuple[str, list[str]]] = [
+    ("leg curl", []),
+    ("curl", []),
+    ("fly", []),
+    ("pec deck", []),
+    ("lateral raise", []),
+    ("extension", []),
+    ("pushdown", []),
+    ("skull crusher", []),
+    ("face pull", []),
+    ("romanian", ["Glutes", "Back"]),
+    ("rdl", ["Glutes", "Back"]),
+    ("deadlift", ["Glutes", "Hamstrings"]),
+    ("overhead press", ["Triceps"]),
+    ("shoulder press", ["Triceps"]),
+    ("bench", ["Triceps", "Shoulders"]),
+    ("chest press", ["Triceps", "Shoulders"]),
+    ("push-up", ["Triceps", "Shoulders"]),
+    ("pushup", ["Triceps", "Shoulders"]),
+    ("incline", ["Triceps", "Shoulders"]),
+    ("dip", ["Chest", "Shoulders"]),
+    ("pulldown", ["Biceps"]),
+    ("pull-up", ["Biceps"]),
+    ("pullup", ["Biceps"]),
+    ("chin-up", ["Biceps"]),
+    ("chin up", ["Biceps"]),
+    ("chinup", ["Biceps"]),
+    ("row", ["Biceps", "Rear delts"]),
+    ("hip thrust", ["Hamstrings"]),
+    ("squat", ["Glutes"]),
+    ("leg press", ["Glutes"]),
+    ("lunge", ["Glutes"]),
+    ("step-up", ["Glutes"]),
+]
 
-def _match(table: list[tuple[str, str]], text: str) -> str | None:
+
+def _match(table, text: str):
     text = f" {text.lower()} "
     for needle, value in table:
         if needle in text:
@@ -97,3 +134,22 @@ def guess_muscle_group(name: str, variation: str = "") -> str | None:
 
 def guess_equipment(name: str, variation: str = "") -> str | None:
     return _match(EQUIPMENT, f"{name} {variation}")
+
+
+def guess_secondary(name: str, variation: str = "", primary: str | None = None) -> str:
+    """Comma-separated secondary muscle groups ('' when none), never repeating the primary."""
+    found = _match(SECONDARY, name)  # type: ignore[arg-type]
+    return ", ".join(g for g in (found or []) if g != primary)
+
+
+def clean_secondary(value, primary: str | None = None) -> str:
+    """Normalizes a list or comma-separated string of muscle groups to 'A, B'."""
+    if value is None:
+        return ""
+    parts = value if isinstance(value, (list, tuple)) else str(value).split(",")
+    out: list[str] = []
+    for p in parts:
+        p = " ".join(str(p).split())
+        if p and p.lower() not in [o.lower() for o in out] and p.lower() != (primary or "").lower():
+            out.append(p[:1].upper() + p[1:])
+    return ", ".join(out)

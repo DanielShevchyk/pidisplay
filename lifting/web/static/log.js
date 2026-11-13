@@ -127,12 +127,12 @@ async function renderSets(el) {
     for (const r of rows) {
       if (r.session_id !== lastSession) {
         lastSession = r.session_id;
-        tbody.append(h('tr', { class: 'session-head' }, h('td', { colspan: 12 }, `${longDate(r.date)} · Day ${r.day_label || '–'}`)));
+        tbody.append(h('tr', { class: 'session-head' }, h('td', { colspan: 13 }, `${longDate(r.date)} · Day ${r.day_label || '–'}`)));
       }
       tbody.append(viewRow(r));
     }
     tableHolder.replaceChildren(h('table', { class: 'data' },
-      h('thead', {}, h('tr', {}, ...['Exercise', 'Set', 'Seg', 'Type', 'Weight', 'Basis', 'Reps', 'Time', 'Height', 'e1RM', 'Notes', ''].map((x, i) => h('th', { class: i >= 4 && i <= 9 && i !== 5 ? 'num' : '' }, x)))),
+      h('thead', {}, h('tr', {}, ...['Exercise', 'Set', 'Seg', 'Type', 'Weight', 'Basis', 'Reps', 'Effort', 'Time', 'Height', 'e1RM', 'Notes', ''].map((x, i) => h('th', { class: i >= 4 && i <= 10 && i !== 5 && i !== 7 ? 'num' : '' }, x)))),
       tbody));
   }
 
@@ -146,9 +146,10 @@ async function renderSets(el) {
       h('td', { class: 'num' }, r.weight_lb !== null ? num(r.weight_lb) : '–'),
       h('td', { class: 'dim' }, r.load_basis ? BASIS[r.load_basis] : ''),
       h('td', { class: 'num' }, r.reps ?? '–'),
+      h('td', { class: 'dim' }, r.rir !== null ? `${num(r.rir)} left` : r.rpe !== null ? `RPE ${num(r.rpe)}` : ''),
       h('td', { class: 'num' }, r.duration_s !== null ? `${num(r.duration_s)} s` : ''),
       h('td', { class: 'num' }, r.height_in !== null ? `${num(r.height_in)} in` : ''),
-      h('td', { class: 'num dim' }, r.e1rm !== null ? num(r.e1rm) : ''),
+      h('td', { class: 'num dim' }, r.e1rm !== null ? `${r.e1rm_rough ? '≈' : ''}${num(r.e1rm)}` : ''),
       h('td', { class: 'dim', style: 'font-size:16px' }, [flags, r.notes].filter(Boolean).join(' · ')),
       h('td', { class: 'actions' },
         h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(editRow(r)) }, 'Edit'),
@@ -170,6 +171,8 @@ async function renderSets(el) {
       weight_lb: numInput(r.weight_lb),
       load_basis: select([['', '—'], ...Object.entries(BASIS)], r.load_basis ?? ''),
       reps: numInput(r.reps, { inputmode: 'numeric', size: 3 }),
+      rpe: numInput(r.rpe, { size: 3, placeholder: 'RPE', 'aria-label': 'RPE, 1 to 10' }),
+      rir: numInput(r.rir, { size: 3, placeholder: 'left', 'aria-label': 'Reps left in reserve' }),
       duration_s: numInput(r.duration_s),
       height_in: numInput(r.height_in),
       approx: h('input', { type: 'checkbox', checked: r.approx }),
@@ -187,6 +190,8 @@ async function renderSets(el) {
           weight_lb: parseNum(f.weight_lb),
           load_basis: f.load_basis.value || null,
           reps: parseNum(f.reps, true),
+          rpe: parseNum(f.rpe),
+          rir: parseNum(f.rir),
           duration_s: parseNum(f.duration_s),
           height_in: parseNum(f.height_in),
           approx: f.approx.checked,
@@ -206,6 +211,7 @@ async function renderSets(el) {
       h('td', {}, f.exercise),
       h('td', {}, f.set_number), h('td', {}, f.segment), h('td', {}, f.set_type),
       h('td', {}, f.weight_lb), h('td', {}, f.load_basis), h('td', {}, f.reps),
+      h('td', {}, h('div', { class: 'flags' }, f.rpe, f.rir)),
       h('td', {}, f.duration_s), h('td', {}, f.height_in),
       h('td', {}, h('div', { class: 'flags' }, h('label', { class: 'check' }, f.approx, 'approx'), h('label', { class: 'check' }, f.inferred, 'assumed'))),
       h('td', {}, f.notes),
@@ -276,15 +282,35 @@ async function renderExercises(el) {
   const tbody = h('tbody', {});
   const view = (x) => {
     const tr = h('tr', {},
-      h('td', {}, x.name), h('td', { class: 'dim' }, x.variation || '—'), h('td', {}, x.muscle_group || h('span', { class: 'dim' }, 'Other')), h('td', { class: 'dim' }, x.equipment || ''),
+      h('td', {}, x.name), h('td', { class: 'dim' }, x.variation || '—'), h('td', {}, x.muscle_group || h('span', { class: 'dim' }, 'Other')), h('td', { class: 'dim' }, x.secondary || ''), h('td', { class: 'dim' }, x.equipment || ''),
       h('td', { class: 'num' }, String(x.session_count)),
       h('td', {}, x.stalled ? h('span', { class: 'badge stall' }, 'stalled') : null),
       h('td', { class: 'actions' },
         h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(edit(x)) }, 'Edit'),
+        rows.length > 1 ? h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(merge(x)) }, 'Merge') : null,
         x.all_sessions ? null : deleteButton(async () => {
           await api(`api/exercises/${x.id}`, { method: 'DELETE' });
           tr.remove();
         })));
+    return tr;
+  };
+  // Fold a duplicate (a typo, a renamed lift) into the exercise it really is.
+  const merge = (x) => {
+    const into = h('select', {}, h('option', { value: '' }, 'Pick the exercise to keep…'), ...rows.filter((o) => o.id !== x.id).map((o) => h('option', { value: String(o.id) }, o.label)));
+    const tr = h('tr', { class: 'editing' },
+      h('td', { colspan: 2 }, x.label), h('td', { colspan: 5 }, h('label', { class: 'field' }, 'Move all of its sets into', into)),
+      h('td', { class: 'actions' },
+        h('button', { class: 'btn btn-sm btn-primary', onclick: async () => {
+          if (!into.value) return toast('Pick the exercise to keep', true);
+          try {
+            const res = await api(`api/exercises/${x.id}/merge`, { method: 'POST', json: { into: Number(into.value) } });
+            toast(`Moved ${res.moved} set rows; "${x.label}" is gone`);
+            render();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        } }, 'Merge'),
+        h('button', { class: 'btn btn-sm', onclick: () => tr.replaceWith(view(x)) }, 'Cancel')));
     return tr;
   };
   const edit = (x) => {
@@ -292,9 +318,10 @@ async function renderExercises(el) {
       name: h('input', { type: 'text', value: x.name }),
       variation: h('input', { type: 'text', value: x.variation }),
       muscle_group: h('input', { type: 'text', value: x.muscle_group || '', list: 'muscle-groups' }),
+      secondary: h('input', { type: 'text', value: x.secondary || '', placeholder: 'e.g. Triceps, Shoulders' }),
       equipment: h('input', { type: 'text', value: x.equipment || '' }),
     };
-    const tr = h('tr', { class: 'editing' }, h('td', {}, f.name), h('td', {}, f.variation), h('td', {}, f.muscle_group), h('td', {}, f.equipment), h('td', { class: 'num' }, String(x.session_count)), h('td', {}),
+    const tr = h('tr', { class: 'editing' }, h('td', {}, f.name), h('td', {}, f.variation), h('td', {}, f.muscle_group), h('td', {}, f.secondary), h('td', {}, f.equipment), h('td', { class: 'num' }, String(x.session_count)), h('td', {}),
       h('td', { class: 'actions' },
         h('button', { class: 'btn btn-sm btn-primary', onclick: async () => {
           try {
@@ -310,8 +337,8 @@ async function renderExercises(el) {
   };
   rows.forEach((x) => tbody.append(view(x)));
   el.append(list,
-    h('p', { class: 'dim', style: 'margin:4px 0 12px' }, `Exercises are shared by everyone; Sessions counts ${currentPerson()?.name ?? 'this person'}'s. Muscle group drives the weekly volume chart. Name + variation identify an exercise on import, so renaming one means future imports with the old name create a new exercise.`),
-    h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, ...['Exercise', 'Variation', 'Muscle group', 'Equipment', 'Sessions', '', ''].map((x, i) => h('th', { class: i === 4 ? 'num' : '' }, x)))), tbody)));
+    h('p', { class: 'dim', style: 'margin:4px 0 12px' }, `Exercises are shared by everyone; Sessions counts ${currentPerson()?.name ?? 'this person'}'s. Muscle group drives the weekly volume chart, and each muscle under Also works gets half a set. Merge folds a duplicate into another exercise. Name + variation identify an exercise on import, so renaming one means future imports with the old name create a new exercise.`),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'data' }, h('thead', {}, h('tr', {}, ...['Exercise', 'Variation', 'Muscle group', 'Also works', 'Equipment', 'Sessions', '', ''].map((x, i) => h('th', { class: i === 5 ? 'num' : '' }, x)))), tbody)));
 }
 
 // ---- Measurements -------------------------------------------------------------------

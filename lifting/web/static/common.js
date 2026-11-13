@@ -56,6 +56,7 @@ export function nav(active) {
     ['trend', 'Trends', './#trend'],
     ['volume', 'Volume', './#volume'],
     ['prs', 'PRs', './#prs'],
+    ['report', 'Month', './#report'],
     ['dunk', 'Dunk goal', './#dunk'],
     ['log', 'Log', 'log'],
     ['import', 'Import', 'import'],

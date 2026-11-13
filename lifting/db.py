@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS exercises (
   variation TEXT NOT NULL DEFAULT '',
   muscle_group TEXT,
   equipment TEXT,
+  secondary TEXT,
   UNIQUE (name, variation)
 );
 CREATE TABLE IF NOT EXISTS sessions (
@@ -47,6 +48,8 @@ CREATE TABLE IF NOT EXISTS sets (
   approx INTEGER NOT NULL DEFAULT 0,
   inferred INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
+  rpe REAL,
+  rir REAL,
   UNIQUE (session_id, exercise_id, set_number, segment)
 );
 CREATE INDEX IF NOT EXISTS sets_exercise ON sets (exercise_id);
@@ -119,6 +122,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _upgrade(conn: sqlite3.Connection) -> None:
+    """Columns added after the first release, for databases created before them."""
+    from .catalog import guess_secondary
+
+    def cols(table: str) -> list[str]:
+        return [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+
+    for col in ("rpe", "rir"):  # effort per set
+        if col not in cols("sets"):
+            conn.execute(f"ALTER TABLE sets ADD COLUMN {col} REAL")
+    if "secondary" not in cols("exercises"):
+        conn.execute("ALTER TABLE exercises ADD COLUMN secondary TEXT")
+    # NULL = never looked at: fill in the best guess once ('' then means "none").
+    for e in conn.execute("SELECT id, name, variation, muscle_group FROM exercises WHERE secondary IS NULL").fetchall():
+        conn.execute("UPDATE exercises SET secondary = ? WHERE id = ?", (guess_secondary(e["name"], e["variation"], e["muscle_group"]), e["id"]))
+
+
 def db_path() -> Path:
     if os.environ.get("LIFTING_DB"):
         return Path(os.environ["LIFTING_DB"])
@@ -136,6 +156,7 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     _migrate(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _upgrade(conn)
     return conn
 
 

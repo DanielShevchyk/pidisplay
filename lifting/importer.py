@@ -7,6 +7,9 @@ Re-importing is safe: sessions are upserted by person + date + day label, sets b
 session + exercise (name + variation) + set_number + segment, measurements by person + date + type.
 A re-imported row overwrites the stored one, so a corrected export fixes mistakes.
 The whole import is one transaction: any invalid row rejects all of it.
+
+Optional per set: "rpe" (1-10) or "rir" (reps in reserve) for effort, and
+"secondary_muscles" (list or "A, B") to say which other muscle groups get half a set.
 """
 from __future__ import annotations
 
@@ -15,7 +18,7 @@ import sqlite3
 from datetime import date as Date
 from typing import Any
 
-from .catalog import guess_equipment, guess_muscle_group
+from .catalog import clean_secondary, guess_equipment, guess_muscle_group, guess_secondary
 from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx, default_person
 
 # value_<unit> keys accepted on measurements, e.g. "value_in": 111.
@@ -133,7 +136,14 @@ def parse(payload: Any) -> tuple[list[dict], list[dict]]:
                 "approx": _flag(st.get("approx")),
                 "inferred": _flag(st.get("inferred")),
                 "notes": _text(st.get("notes")),
+                "rpe": _num(st.get("rpe", st.get("RPE")), w, "rpe", errors),
+                "rir": _num(st.get("rir", st.get("reps_in_reserve", st.get("RIR"))), w, "rir", errors),
+                "secondary": clean_secondary(sec) if (sec := st.get("secondary_muscles", st.get("secondary"))) is not None else None,
             }
+            if row["rpe"] is not None and not 1 <= row["rpe"] <= 10:
+                errors.append(f"{w}: rpe must be between 1 and 10")
+            if row["rir"] is not None and row["rir"] > 10:
+                errors.append(f"{w}: rir (reps in reserve) must be 10 or less")
             key = (name.lower(), variation.lower(), set_number, segment)
             if key in seen:
                 errors.append(f"{w}: duplicate of an earlier set ({name}, set {set_number}, segment {segment})")
@@ -168,27 +178,31 @@ def parse(payload: Any) -> tuple[list[dict], list[dict]]:
     return sessions, measurements
 
 
-def exercise_id(conn: sqlite3.Connection, name: str, variation: str, muscle_group: str | None = None, equipment: str | None = None) -> tuple[int, bool]:
+def exercise_id(conn: sqlite3.Connection, name: str, variation: str, muscle_group: str | None = None, equipment: str | None = None, secondary: str | None = None) -> tuple[int, bool]:
     """Finds (case-insensitively) or creates the exercise; returns (id, created)."""
     row = conn.execute(
-        "SELECT id, muscle_group, equipment FROM exercises WHERE lower(name) = lower(?) AND lower(variation) = lower(?)",
+        "SELECT id, muscle_group, equipment, secondary FROM exercises WHERE lower(name) = lower(?) AND lower(variation) = lower(?)",
         (name, variation),
     ).fetchone()
     if row:
+        if secondary is not None and secondary != row["secondary"]:
+            conn.execute("UPDATE exercises SET secondary = ? WHERE id = ?", (secondary, row["id"]))
         if muscle_group and muscle_group != row["muscle_group"] or equipment and equipment != row["equipment"]:
             conn.execute(
                 "UPDATE exercises SET muscle_group = coalesce(?, muscle_group), equipment = coalesce(?, equipment) WHERE id = ?",
                 (muscle_group, equipment, row["id"]),
             )
         return row["id"], False
+    group = muscle_group or guess_muscle_group(name, variation)
     cur = conn.execute(
-        "INSERT INTO exercises (name, variation, muscle_group, equipment) VALUES (?, ?, ?, ?)",
-        (name, variation, muscle_group or guess_muscle_group(name, variation), equipment or guess_equipment(name, variation)),
+        "INSERT INTO exercises (name, variation, muscle_group, equipment, secondary) VALUES (?, ?, ?, ?, ?)",
+        (name, variation, group, equipment or guess_equipment(name, variation),
+         secondary if secondary is not None else guess_secondary(name, variation, group)),
     )
     return cur.lastrowid, True
 
 
-SET_FIELDS = ("set_type", "weight_lb", "load_basis", "reps", "duration_s", "height_in", "approx", "inferred", "notes")
+SET_FIELDS = ("set_type", "weight_lb", "load_basis", "reps", "duration_s", "height_in", "approx", "inferred", "notes", "rpe", "rir")
 
 
 def run_import(conn: sqlite3.Connection, payload: Any, person_id: int | None = None) -> dict:
@@ -225,7 +239,7 @@ def run_import(conn: sqlite3.Connection, payload: Any, person_id: int | None = N
                 sid = conn.execute("INSERT INTO sessions (person_id, date, day_label, notes) VALUES (?, ?, ?, ?)", (pid, s["date"], s["day_label"], s["notes"])).lastrowid
                 stats["sessions_created"] += 1
             for st in s["sets"]:
-                eid, created = exercise_id(conn, st["exercise"], st["variation"], st["muscle_group"], st["equipment"])
+                eid, created = exercise_id(conn, st["exercise"], st["variation"], st["muscle_group"], st["equipment"], st["secondary"])
                 stats["exercises_created"] += created
                 old = conn.execute(
                     f"SELECT id, {', '.join(SET_FIELDS)} FROM sets WHERE session_id = ? AND exercise_id = ? AND set_number = ? AND segment = ?",
