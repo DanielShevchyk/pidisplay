@@ -127,7 +127,7 @@ function apiError(status, body) {
   const reason = body?.error?.reason ?? '';
   const message = body?.error?.message ?? '';
   if (status === 404 || reason === 'NO_ACTIVE_DEVICE') {
-    return new SpotifyError(409, 'No speaker is playing Spotify right now. Pick one under Speakers.');
+    return Object.assign(new SpotifyError(409, 'No speaker is playing Spotify right now. Pick one under Speakers.'), { noDevice: true });
   }
   if (reason === 'PREMIUM_REQUIRED') return new SpotifyError(403, 'Controlling playback needs Spotify Premium.');
   if (status === 403 && /insufficient client scope/i.test(message)) {
@@ -149,6 +149,11 @@ export function createSpotify({
   now = Date.now,
   // Switches the linked TV on and opens its Spotify app; resolves null when no TV is linked.
   wakeTv = null,
+  // The linked TV, as { name } or null. With no default speaker picked, it is the default.
+  linkedTv = null,
+  // The linked TV's own volume, { get() -> 0-100|null, set(percent) }; used for a TV
+  // speaker, since the TV's Spotify app doesn't take volume changes.
+  tvVolume = null,
   wait = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
   let config = null; // { clientId, refreshToken, accessToken, expiresAt }
@@ -224,7 +229,13 @@ export function createSpotify({
       receiver: { name: RECEIVER_NAME, signedIn: await receiverSignedIn() },
       // Where new music starts when nothing is playing; null = this display.
       preferred: c.preferred?.name ? { id: c.preferred.id ?? null, name: c.preferred.name, type: c.preferred.type ?? '' } : null,
+      tv: await tvDefault(),
     };
+  }
+
+  async function tvDefault() {
+    const t = linkedTv ? await linkedTv().catch(() => null) : null;
+    return t?.name ? { name: t.name } : null;
   }
 
   async function setClientId(clientId) {
@@ -255,7 +266,10 @@ export function createSpotify({
     const id = typeof body?.deviceId === 'string' && body.deviceId ? body.deviceId.slice(0, 200) : null;
     const type = typeof body?.type === 'string' ? body.type.toLowerCase().slice(0, 30) : '';
     const { preferred, ...rest } = await load();
-    await save(name && name !== RECEIVER_NAME ? { ...rest, preferred: { id, name, type } } : rest);
+    if (name && name !== RECEIVER_NAME) await save({ ...rest, preferred: { id, name, type } });
+    // With a TV linked, "this display" has to be remembered, or the TV would be the default.
+    else if (await tvDefault()) await save({ ...rest, preferred: { id: null, name: RECEIVER_NAME, type: 'display' } });
+    else await save(rest);
     return status();
   }
 
@@ -382,8 +396,21 @@ export function createSpotify({
   const nowPlaying = () =>
     cached('player', PLAYER_CACHE_MS, async () => mapPlayer(await api('GET', '/me/player?additional_types=episode')));
 
+  let tvVol = null; // { at, value }
+  const TV_VOLUME_MS = 10000;
+  async function tvVolumeNow() {
+    if (tvVol && now() - tvVol.at < TV_VOLUME_MS) return tvVol.value;
+    const value = await tvVolume.get().catch(() => null);
+    tvVol = { at: now(), value };
+    return value;
+  }
+
   async function player() {
-    const [p, list] = await Promise.all([nowPlaying(), devices()]);
+    let [p, list] = await Promise.all([nowPlaying(), devices()]);
+    if (p?.device?.type === 'tv' && tvVolume) {
+      const volume = await tvVolumeNow();
+      if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true } };
+    }
     return { player: p, devices: list };
   }
 
@@ -396,11 +423,16 @@ export function createSpotify({
     if (deviceId) return { id: deviceId };
     // Fresh lists: a TV that was just switched on must not be missed.
     dropCache();
-    const [{ preferred }, list, current] = await Promise.all([load(), devices(), nowPlaying().catch(() => null)]);
-    if (current?.isPlaying && current.device.id) return { id: current.device.id };
+    const [config0, list, current] = await Promise.all([load(), devices(), nowPlaying().catch(() => null)]);
+    if (current?.isPlaying && current.device.id) return { id: current.device.id, current };
     let note;
-    if (preferred?.name) {
-      const match = (devs) => devs.find((d) => d.id === preferred.id) ?? devs.find((d) => d.name === preferred.name);
+    // No default picked but a TV is linked: the TV is the default, as the first Spotify TV
+    // that shows up once it is opened (then remembered).
+    const tvd = config0.preferred?.name ? null : await tvDefault();
+    const preferred = config0.preferred?.name ? config0.preferred : tvd ? { name: tvd.name, type: 'tv', implicit: true } : null;
+    if (preferred) {
+      const match = (devs) =>
+        preferred.implicit ? devs.find((d) => d.type === 'tv') : devs.find((d) => d.id === preferred.id) ?? devs.find((d) => d.name === preferred.name);
       let want = match(list);
       if (!want && preferred.type === 'tv' && wakeTv) {
         // The TV is off or its Spotify app is closed: open it and wait for it to register.
@@ -415,13 +447,16 @@ export function createSpotify({
         }
         if (opened && !want) note = `Spotify opened on ${preferred.name} but it didn't show up as a speaker. Check it is signed in to your account. Playing somewhere else for now.`;
       }
-      if (want && !want.restricted) return { id: want.id };
+      if (want && !want.restricted) {
+        if (preferred.implicit) await setPreferred({ deviceId: want.id, name: want.name, type: want.type }).catch(() => {});
+        return { id: want.id, current };
+      }
       note ??= `${preferred.name} isn't showing up in Spotify, so this is playing somewhere else. Open the Spotify app on it, then pick it under Speakers.`;
     }
     const active = list.find((d) => d.active);
-    if (active) return { id: active.id, note };
+    if (active) return { id: active.id, note, current };
     const pi = list.find((d) => d.name === RECEIVER_NAME);
-    if (pi) return { id: pi.id, note };
+    if (pi) return { id: pi.id, note, current };
     throw new SpotifyError(
       409,
       (await receiverSignedIn())
@@ -459,11 +494,19 @@ export function createSpotify({
         }
         const resume = !Object.keys(payload).length;
         try {
-          await api('PUT', `/me/player/play${q({ device_id: target.id })}`, resume ? undefined : payload);
+          if (resume && target.current?.device?.id && target.current.device.id !== target.id) {
+            // Paused somewhere else (say, the display): carry the song over and play it here.
+            await api('PUT', '/me/player', { device_ids: [target.id], play: true });
+          } else await api('PUT', `/me/player/play${q({ device_id: target.id })}`, resume ? undefined : payload);
         } catch (err) {
-          // Spotify refuses a bare "play" when it has no queue to pick up again.
-          if (resume && err instanceof SpotifyError && err.restricted) {
-            throw new SpotifyError(409, 'Nothing to resume. Pick something from the Library.');
+          // Spotify refuses a bare "play" when it has no queue to pick up again (a TV app
+          // that was just opened, say): start Liked Songs instead.
+          if (resume && err instanceof SpotifyError && (err.restricted || err.noDevice)) {
+            const liked = await api('GET', '/me/tracks?limit=50').catch(() => null);
+            const uris = (liked?.items ?? []).map((i) => i?.track?.uri).filter((u) => typeof u === 'string' && URI.test(u));
+            if (!uris.length) throw new SpotifyError(409, 'Nothing to resume. Pick something from the Library.');
+            await api('PUT', `/me/player/play${q({ device_id: target.id })}`, { uris });
+            return target.note ?? 'Nothing to pick up again, so this is playing your Liked Songs.';
           }
           throw err;
         }
@@ -487,6 +530,17 @@ export function createSpotify({
       case 'volume': {
         const v = Math.round(Number(body.percent));
         if (!Number.isFinite(v) || v < 0 || v > 100) throw new SpotifyError(400, 'Volume must be 0 to 100');
+        const playingOn = tvVolume ? await nowPlaying().catch(() => null) : null;
+        if (playingOn?.device?.type === 'tv') {
+          // Music on the TV: turn the TV itself up or down.
+          const done = await tvVolume.set(v).catch((err) => {
+            throw new SpotifyError(err.status ?? 502, err.message);
+          });
+          if (done) {
+            tvVol = { at: now(), value: done.volume ?? v };
+            break;
+          }
+        }
         await api('PUT', `/me/player/volume${q({ volume_percent: v })}`);
         break;
       }

@@ -86,9 +86,15 @@ part for you:
    waits for it to appear. The first time, sign in to Spotify on the TV with the same
    account. If no default speaker is set yet, the TV becomes the default.
 
-With the TV set under **Start new music on**, picking a song while the TV is off turns it
-on, opens Spotify and plays there (this can take up to a minute). If it can't, the music
-plays on the display and the widget says why.
+Once a TV is linked it is where new music starts, unless you pick **This display** under
+**Start new music on**. Pressing Play or picking a song while the TV is off turns it on,
+opens Spotify and plays there (this can take up to a minute); music paused on the display
+moves over, and with nothing to pick up again it plays your Liked Songs. If it can't, the
+music plays on the display and the widget says why.
+
+While music plays on the TV, the volume slider changes the TV's own volume (the TV's
+Spotify app ignores Spotify volume changes). If the TV refuses a set level, as some
+soundbar outputs do, the display presses volume up or down instead, like the remote.
 
 Give the TV a fixed address in the router (DHCP reservation) so the link keeps working.
 

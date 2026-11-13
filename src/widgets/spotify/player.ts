@@ -168,6 +168,7 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     }
     errorLine.textContent = spotify.error;
     errorLine.hidden = !spotify.error;
+    errorLine.classList.toggle('spt-info', spotify.errorIsInfo);
     if (mode !== 'player' || !p) return;
 
     const item = p.item;

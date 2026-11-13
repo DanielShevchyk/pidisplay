@@ -10,6 +10,8 @@ export interface SpotifyStatus {
   receiver: { name: string; signedIn: boolean };
   /** The speaker new music starts on when nothing is playing; null = this display. */
   preferred: { id: string | null; name: string; type: string } | null;
+  /** The linked LG TV; with no preferred speaker it is where new music starts. */
+  tv?: { name: string } | null;
 }
 
 export interface Device {
@@ -56,6 +58,8 @@ class SpotifyStore {
   devices: Device[] = [];
   /** A failed action or refresh, shown briefly on the tiles. */
   error = '';
+  /** True when error is just news (the TV is being switched on), not a failure. */
+  errorIsInfo = false;
   /** Set when the player can't be loaded at all (offline, signed out). */
   loadError = '';
   private fetchedAt = 0;
@@ -147,19 +151,35 @@ class SpotifyStore {
     }
   }
 
-  showError(message: string) {
+  showError(message: string, info = false, showMs = ERROR_SHOW_MS) {
     this.error = message;
+    this.errorIsInfo = info;
     clearTimeout(this.errorTimer);
     this.errorTimer = window.setTimeout(() => {
       this.error = '';
       this.emit();
-    }, ERROR_SHOW_MS);
+    }, showMs);
     this.emit();
+  }
+
+  /**
+   * The TV that pressing Play will have to switch on and open Spotify on first, if any:
+   * the default speaker is a TV that Spotify can't see right now.
+   */
+  tvToWake(): string | null {
+    if (this.player?.isPlaying) return null;
+    const want = this.status?.preferred;
+    if (want?.type === 'display') return null;
+    if (want) return want.type === 'tv' && !this.devices.some((d) => d.id === want.id || d.name === want.name) ? want.name : null;
+    const tv = this.status?.tv;
+    return tv && !this.devices.some((d) => d.type === 'tv') ? tv.name : null;
   }
 
   /** Sends a playback command, updating the screen right away where the result is obvious. */
   async act(action: Action, body: Record<string, unknown> = {}): Promise<boolean> {
     this.generation++;
+    const waking = action === 'play' && !body.deviceId ? this.tvToWake() : null;
+    if (waking) this.showError(`Opening Spotify on ${waking}… This can take up to a minute.`, true, 90000);
     const p = this.player;
     if (p) {
       if (action === 'pause' || action === 'play') {
@@ -179,7 +199,8 @@ class SpotifyStore {
     let ok = true;
     try {
       const res = await call<{ note?: string }>('POST', `/api/spotify/player/${action}`, body);
-      if (res?.note) this.showError(res.note);
+      if (res?.note) this.showError(res.note, /Liked Songs/.test(res.note));
+      else if (waking) this.showError('', true);
     } catch (err) {
       ok = false;
       this.showError((err as Error).message);

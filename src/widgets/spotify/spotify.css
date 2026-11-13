@@ -117,6 +117,8 @@
   font-size: 16px;
 }
 
+.spt-error.spt-info { border-color: var(--border); color: var(--text); }
+
 .spt-message {
   height: 100%;
   display: flex;

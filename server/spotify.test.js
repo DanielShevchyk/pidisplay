@@ -7,7 +7,7 @@ import { createSpotify, mapPlayer, mapSearch } from './spotify.js';
 
 const CLIENT = '0123456789abcdef0123456789abcdef';
 
-async function setup({ routes = {}, token = {}, wakeTv = null } = {}) {
+async function setup({ routes = {}, token = {}, wakeTv = null, linkedTv = null, tvVolume = null } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-spotify-'));
   const calls = [];
   let t = 1_000_000;
@@ -30,6 +30,8 @@ async function setup({ routes = {}, token = {}, wakeTv = null } = {}) {
     fetchImpl,
     now: () => t,
     wakeTv,
+    linkedTv,
+    tvVolume,
     wait: async () => {},
   });
   return { dir, spotify, calls, advance: (ms) => (t += ms) };
@@ -335,4 +337,70 @@ test('recently played before signing in again explains the missing permission', 
   });
   await connect(spotify);
   await assert.rejects(spotify.recent(), /log out and log in again/);
+});
+
+test('with no default picked, a linked TV is the default: Play wakes it, carries the paused song over and remembers it', async () => {
+  let tvOn = false;
+  let woke = 0;
+  const { spotify, calls } = await setup({
+    routes: {
+      'GET /me/player/devices': () => [200, { devices: [{ id: 'pi', name: 'PiDisplay', type: 'Speaker', is_active: true }, ...(tvOn ? [{ id: 'tv9', name: '[LG] webOS TV UA7700AUA', type: 'TV' }] : [])] }],
+      'GET /me/player': [200, { is_playing: false, progress_ms: 5, device: { id: 'pi', name: 'PiDisplay', type: 'Speaker', is_active: true }, item: null }],
+    },
+    wakeTv: async () => {
+      woke++;
+      tvOn = true;
+      return { ok: true };
+    },
+    linkedTv: async () => ({ name: 'Living Room TV' }),
+  });
+  await connect(spotify);
+  assert.deepEqual((await spotify.status()).tv, { name: 'Living Room TV' });
+  const res = await spotify.control('play', {});
+  assert.equal(woke, 1);
+  assert.equal(res.note, undefined);
+  const last = calls.at(-1);
+  assert.equal(`${last.method} ${last.url}`, 'PUT https://api.spotify.com/v1/me/player');
+  assert.deepEqual(JSON.parse(last.body), { device_ids: ['tv9'], play: true });
+  assert.deepEqual((await spotify.status()).preferred, { id: 'tv9', name: '[LG] webOS TV UA7700AUA', type: 'tv' });
+});
+
+test('Play with nothing to pick up again starts Liked Songs on the TV', async () => {
+  const { spotify, calls } = await setup({
+    routes: {
+      'GET /me/player/devices': [200, { devices: [{ id: 'tv9', name: 'TV', type: 'TV' }] }],
+      'PUT /me/player/play': (opts) => (opts.body ? [200] : [404, { error: { status: 404, message: 'Player command failed: No active device found', reason: 'NO_ACTIVE_DEVICE' } }]),
+      'GET /me/tracks?limit=50': [200, { items: [{ track: { uri: 'spotify:track:1' } }, { track: { uri: 'spotify:track:2' } }] }],
+    },
+  });
+  await connect(spotify);
+  await spotify.setPreferred({ deviceId: 'tv9', name: 'TV', type: 'tv' });
+  const res = await spotify.control('play', {});
+  assert.match(res.note, /Liked Songs/);
+  assert.ok(calls.at(-1).url.endsWith('device_id=tv9'));
+  assert.deepEqual(JSON.parse(calls.at(-1).body), { uris: ['spotify:track:1', 'spotify:track:2'] });
+});
+
+test('picking this display is remembered while a TV is linked', async () => {
+  const { spotify } = await setup({ linkedTv: async () => ({ name: 'Living Room TV' }) });
+  await connect(spotify);
+  assert.equal((await spotify.status()).preferred, null);
+  assert.deepEqual((await spotify.setPreferred({})).preferred, { id: null, name: 'PiDisplay', type: 'display' });
+});
+
+test('the volume slider turns the TV itself up when music plays on the TV', async () => {
+  let tvLevel = 30;
+  const onTv = { is_playing: true, progress_ms: 5, device: { id: 'tv9', name: 'TV', type: 'TV', is_active: true, volume_percent: null, supports_volume: false }, item: null };
+  const { spotify, calls } = await setup({
+    routes: { 'GET /me/player': [200, onTv] },
+    tvVolume: { get: async () => tvLevel, set: async (v) => ({ volume: (tvLevel = v) }) },
+  });
+  await connect(spotify);
+  const { player } = await spotify.player();
+  assert.equal(player.device.volume, 30);
+  assert.equal(player.device.supportsVolume, true);
+  await spotify.control('volume', { percent: 45 });
+  assert.equal(tvLevel, 45);
+  assert.ok(!calls.some((c) => c.url.includes('/me/player/volume')));
+  assert.equal((await spotify.player()).player.device.volume, 45);
 });

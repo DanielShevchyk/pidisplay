@@ -195,9 +195,15 @@ export function openSpeakersSheet() {
       parts.push(h('p', { class: 'conn-hint' }, 'Phones, smart speakers and TVs show up here while their Spotify app is open.'));
 
       // Where a song picked on this screen starts when nothing is playing yet.
-      const preferred = status.preferred;
+      // type 'display' means this display was picked over a linked TV; no pick at all
+      // with a TV linked means the TV.
+      const preferred = status.preferred?.type === 'display' ? null : status.preferred;
+      const implicitTv = !status.preferred && status.tv ? status.tv : null;
       const others = devices.filter((d) => d.name !== receiver && !d.restricted);
+      const firstTv = implicitTv ? others.find((d) => d.type === 'tv') : undefined;
       const offline = preferred && !others.some((d) => d.id === preferred.id || d.name === preferred.name);
+      const wakes = Boolean(tv?.linked && (implicitTv || preferred?.type === 'tv'));
+      const target = preferred?.name ?? firstTv?.name ?? implicitTv?.name;
       const chip = (label: string, on: boolean, pick: () => void) =>
         h('button', { class: `chip${on ? ' active' : ''}`, disabled: Boolean(busy), onclick: () => void pick() }, label);
       parts.push(
@@ -205,15 +211,16 @@ export function openSpeakersSheet() {
         h(
           'div',
           { class: 'chips' },
-          chip('This display', !preferred, () => spotify.setPreferred(null)),
-          ...others.map((d) => chip(d.name, preferred?.id === d.id || preferred?.name === d.name, () => spotify.setPreferred(d))),
-          offline ? chip(`${preferred.name} (not available)`, true, () => {}) : null,
+          chip('This display', !preferred && !implicitTv, () => spotify.setPreferred(null)),
+          ...others.map((d) => chip(d.name, preferred?.id === d.id || preferred?.name === d.name || d === firstTv, () => spotify.setPreferred(d))),
+          offline ? chip(`${preferred.name} (${wakes ? 'off' : 'not available'})`, true, () => {}) : null,
+          implicitTv && !firstTv ? chip(`${implicitTv.name} (off)`, true, () => {}) : null,
         ),
         h(
           'p',
           { class: 'conn-hint' },
-          preferred && preferred.type === 'tv' && tv?.linked
-            ? `Songs you pick here start on ${preferred.name}. If it is off, PiDisplay switches it on and opens Spotify first. If music is already playing, it stays where it is.`
+          wakes
+            ? `Play and songs you pick here start on ${target}. If it is off, PiDisplay switches it on and opens Spotify first. If music is already playing, it stays where it is.`
             : preferred
             ? `Songs you pick here start on ${preferred.name} when Spotify can see it, and on this display otherwise. If music is already playing, it stays where it is.`
             : 'Pick a TV or speaker to have songs chosen here start there instead of on this display.',
@@ -400,9 +407,8 @@ export function openLibrarySheet() {
 
   const play = async (body: Record<string, unknown>) => {
     // A preferred TV that Spotify can't see yet gets switched on first, which is slow.
-    const want = spotify.status?.preferred;
-    const waking = want?.type === 'tv' && !spotify.player?.isPlaying && !spotify.devices.some((d) => d.id === want.id || d.name === want.name);
-    status = waking ? `Starting… Opening Spotify on ${want.name} can take up to a minute.` : 'Starting…';
+    const waking = spotify.tvToWake();
+    status = waking ? `Starting… Opening Spotify on ${waking} can take up to a minute.` : 'Starting…';
     paint();
     if (await spotify.act('play', body)) sheet.close();
     else {

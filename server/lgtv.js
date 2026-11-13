@@ -507,6 +507,51 @@ export function createLgTv({
     return busy;
   }
 
+  /** A session with the TV only if it is already on; volume changes never switch it on. */
+  async function session() {
+    const c = await load();
+    if (!c.ip || !c.key) throw new TvError(409, 'No TV is linked yet. Link it under Speakers.');
+    return connect(c.ip, { key: c.key, secure: c.secure });
+  }
+
+  const readVolume = (r) => {
+    const v = r?.volumeStatus?.volume ?? r?.volume;
+    return typeof v === 'number' && v >= 0 ? v : null;
+  };
+
+  /** The TV's own volume, 0-100, or null when it doesn't say (some sound outputs). */
+  async function getVolume() {
+    const s = await session();
+    try {
+      return { volume: readVolume(await s.request('audio/getVolume')) };
+    } finally {
+      s.close();
+    }
+  }
+
+  /**
+   * Sets the TV's volume. Some sound outputs (a soundbar on ARC, say) refuse a set
+   * value but still take volume up/down presses, as the remote sends.
+   */
+  async function setVolume(percent) {
+    const v = Math.round(Number(percent));
+    if (!Number.isFinite(v) || v < 0 || v > 100) throw new TvError(400, 'Volume must be 0 to 100');
+    const s = await session();
+    try {
+      try {
+        await s.request('audio/setVolume', { volume: v });
+        return { volume: v };
+      } catch {
+        const now = readVolume(await s.request('audio/getVolume').catch(() => null));
+        if (now === null) throw new TvError(409, "The TV didn't let PiDisplay change its volume. Use the TV remote for this speaker.");
+        for (let i = 0; i < Math.min(Math.abs(v - now), 25); i++) await s.request(v > now ? 'audio/volumeUp' : 'audio/volumeDown');
+        return { volume: readVolume(await s.request('audio/getVolume').catch(() => null)) ?? v };
+      }
+    } finally {
+      s.close();
+    }
+  }
+
   /** Routes /api/tv/... */
   async function handle(method, parts, body) {
     const [, action] = parts; // parts[0] is "tv"
@@ -516,8 +561,9 @@ export function createLgTv({
     if (action === 'link') return link(body);
     if (action === 'unlink') return unlink();
     if (action === 'spotify') return openSpotify();
+    if (action === 'volume') return setVolume(body?.percent);
     throw new TvError(404, 'Not found');
   }
 
-  return { status, find, link, unlink, openSpotify, handle };
+  return { status, find, link, unlink, openSpotify, getVolume, setVolume, handle };
 }

@@ -189,6 +189,14 @@ export function createServer({
   tv ??= createLgTv({ configFile: path.join(dataDir, 'lgtv.json'), fetchImpl });
   spotify ??= createSpotify({
     wakeTv: async () => ((await tv.status()).linked ? tv.openSpotify() : null),
+    tvVolume: {
+      get: async () => ((await tv.status()).linked ? (await tv.getVolume()).volume : null),
+      set: async (percent) => ((await tv.status()).linked ? tv.setVolume(percent) : null),
+    },
+    linkedTv: async () => {
+      const t = await tv.status();
+      return t.linked ? { name: t.name } : null;
+    },
     configFile: path.join(dataDir, 'spotify.json'),
     receiverCacheDir: path.join(dataDir, 'spotify-cache'),
     redirectUri: `http://127.0.0.1:${Number(process.env.PORT) || 8080}/api/spotify/callback`,

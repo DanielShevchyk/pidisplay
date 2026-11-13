@@ -107,7 +107,7 @@ test('magic packet is six FF bytes then the address sixteen times', () => {
 });
 
 /** createLgTv with a scripted TV: states is what each connect attempt finds. */
-async function service({ states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03' } = {}) {
+async function service({ refuseSet = false, states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03' } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-lgtv-'));
   const log = [];
   let attempt = 0;
@@ -139,6 +139,8 @@ async function service({ states = ['Active'], apps = [{ id: 'spotify-beehive', t
           if (uri.endsWith('getPowerState')) return { state };
           if (uri.endsWith('getSystemInfo')) return { modelName: '55UA7700AUA' };
           if (uri.endsWith('listLaunchPoints')) return { launchPoints: apps };
+          if (uri === 'audio/getVolume') return { volumeStatus: { volume: 10 } };
+          if (uri === 'audio/setVolume' && refuseSet) throw new TvError(500, 'volume is not adjustable');
           return {};
         },
       };
@@ -190,4 +192,20 @@ test('says how to enable waking when the TV never comes on, and when Spotify is 
   const none = await service({ apps: [{ id: 'netflix', title: 'Netflix' }] });
   await none.tv.link({ ip: '192.168.1.50' });
   await assert.rejects(none.tv.openSpotify(), /no Spotify app/);
+});
+
+test('sets the TV volume, or presses volume up when the sound output refuses a set value', async () => {
+  const plain = await service();
+  await assert.rejects(plain.tv.setVolume(20), /No TV is linked/);
+  await plain.tv.link({ ip: '192.168.1.50' });
+  assert.deepEqual(await plain.tv.getVolume(), { volume: 10 });
+  plain.log.length = 0;
+  await plain.tv.setVolume(20);
+  assert.deepEqual(plain.log.at(-1), ['request', 'audio/setVolume', { volume: 20 }]);
+
+  const arc = await service({ refuseSet: true });
+  await arc.tv.link({ ip: '192.168.1.50' });
+  arc.log.length = 0;
+  await arc.tv.setVolume(13);
+  assert.equal(arc.log.filter((l) => l[1] === 'audio/volumeUp').length, 3);
 });
