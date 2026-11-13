@@ -768,7 +768,7 @@ export function createServer({
     }
     const body = req.method === 'GET' ? null : await readBody(req);
     const result = await spotify.handle(req.method, parts, body, url.searchParams);
-    if (key === 'client' || key === 'logout') broadcast('spotify', { connected: Boolean(result.connected) });
+    if (key === 'client' || key === 'logout' || key === 'preferred') broadcast('spotify', { connected: Boolean(result.connected) });
     return send(res, 200, result);
   }
 

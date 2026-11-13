@@ -54,6 +54,26 @@ Run `.\deploy\spotify.ps1` with no arguments to check the status or sign in agai
   display switches to it once its sound output appears. **Pair a Bluetooth speaker** opens
   the same Bluetooth screen as the gear menu (put the speaker in pairing mode first).
 
+## Playing on the TV
+
+If the TV has the Spotify app (or a Chromecast, Fire TV, Roku, Apple TV or game console
+plugged into it does), it is a Spotify Connect device like any other:
+
+1. Open Spotify on the TV once and sign in with the same account as the display.
+2. On the display, open **Speakers**. The TV is listed under **Play Spotify on**; tap it to
+   move the music there. The TV shows the song and its own speakers (or the soundbar
+   plugged into it) play it. The display keeps working as the remote.
+3. To make that the default, pick the TV under **Start new music on**. Songs chosen on the
+   display then start on the TV whenever Spotify can see it, and on the display otherwise.
+   Music that is already playing stays where it is.
+
+Spotify only lists a TV while it is reachable: on, or in a standby that keeps its network
+connection (often called "quick start" or "wake on network" in the TV's settings).
+Chromecast-type devices may only appear after the Spotify app has been opened on them.
+
+The other route skips the TV: pair the speakers with the Pi over Bluetooth (**Speakers** >
+**Pair a Bluetooth speaker**) and the display plays through them directly.
+
 ## Troubleshooting (on the Pi, over SSH)
 
 ```bash

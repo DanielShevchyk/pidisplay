@@ -8,6 +8,8 @@ export interface SpotifyStatus {
   connected: boolean;
   redirectUri: string;
   receiver: { name: string; signedIn: boolean };
+  /** The speaker new music starts on when nothing is playing; null = this display. */
+  preferred: { id: string | null; name: string } | null;
 }
 
 export interface Device {
@@ -63,6 +65,9 @@ class SpotifyStore {
   private offEvent: (() => void) | null = null;
   /** Ignore poll results that started before an action, so the UI doesn't flicker back. */
   private generation = 0;
+  /** The refresh in flight, so overlapping callers share it instead of each starting a poll loop. */
+  private refreshing: Promise<void> | null = null;
+  private again: { withStatus: boolean } | null = null;
 
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
@@ -97,7 +102,22 @@ class SpotifyStore {
     return Math.min(ms, p.item?.durationMs ?? ms);
   }
 
-  async refresh(withStatus = false) {
+  /** Reloads now; a call that arrives mid-reload runs once more afterwards instead of in parallel. */
+  refresh(withStatus = false): Promise<void> {
+    if (this.refreshing) {
+      this.again = { withStatus: withStatus || Boolean(this.again?.withStatus) };
+      return this.refreshing;
+    }
+    this.refreshing = this.load(withStatus).finally(() => {
+      this.refreshing = null;
+      const again = this.again;
+      this.again = null;
+      if (again) void this.refresh(again.withStatus);
+    });
+    return this.refreshing;
+  }
+
+  private async load(withStatus: boolean) {
     clearTimeout(this.timer);
     const gen = this.generation;
     try {
@@ -120,6 +140,7 @@ class SpotifyStore {
       if (/log in again|not connected/i.test(this.loadError)) this.status = null;
     }
     this.emit();
+    clearTimeout(this.timer);
     if (this.listeners.size) {
       const delay = this.player?.isPlaying ? PLAYING_POLL_MS : IDLE_POLL_MS;
       this.timer = window.setTimeout(() => void this.refresh(!this.status), document.hidden ? delay * 3 : delay);
@@ -157,7 +178,8 @@ class SpotifyStore {
     }
     let ok = true;
     try {
-      await call('POST', `/api/spotify/player/${action}`, body);
+      const res = await call<{ note?: string }>('POST', `/api/spotify/player/${action}`, body);
+      if (res?.note) this.showError(res.note);
     } catch (err) {
       ok = false;
       this.showError((err as Error).message);
@@ -166,6 +188,15 @@ class SpotifyStore {
     this.generation++;
     window.setTimeout(() => void this.refresh(), 600);
     return ok;
+  }
+
+  async setPreferred(device: { id: string; name: string } | null) {
+    try {
+      this.status = await call<SpotifyStatus>('PUT', '/api/spotify/preferred', device ? { deviceId: device.id, name: device.name } : {});
+    } catch (err) {
+      this.showError((err as Error).message);
+    }
+    this.emit();
   }
 }
 

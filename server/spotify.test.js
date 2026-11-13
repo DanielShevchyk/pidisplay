@@ -176,3 +176,90 @@ test('mapPlayer and mapSearch shape the payloads', () => {
   assert.equal(s.playlists[0].count, 3);
   assert.deepEqual(s.albums, []);
 });
+
+const DEVICES = [200, { devices: [
+  { id: 'tv', name: 'Living Room TV', type: 'TV', is_active: false },
+  { id: 'pi', name: 'PiDisplay', type: 'Speaker', is_active: false },
+] }];
+
+test('screens polling together share one Spotify call, and actions refresh it', async () => {
+  const { spotify, calls, advance } = await setup({ routes: { 'GET /me/player/devices': DEVICES } });
+  await connect(spotify);
+  const count = () => calls.filter((c) => c.url.startsWith('https://api.spotify.com')).length;
+  await Promise.all([spotify.player(), spotify.player(), spotify.player()]);
+  assert.equal(count(), 2); // one now-playing, one device list
+  await spotify.player();
+  assert.equal(count(), 2);
+  advance(2500);
+  await spotify.player();
+  assert.equal(count(), 3); // now-playing again; devices are kept longer
+  await spotify.control('pause');
+  await spotify.player();
+  assert.equal(count(), 6);
+});
+
+test('new music starts on the preferred speaker when Spotify can see it', async () => {
+  const { spotify, calls } = await setup({ routes: { 'GET /me/player/devices': DEVICES } });
+  await connect(spotify);
+  assert.equal((await spotify.setPreferred({ deviceId: 'old-id', name: 'Living Room TV' })).preferred.name, 'Living Room TV');
+  const res = await spotify.control('play', { uris: ['spotify:track:abc'] });
+  assert.ok(calls.at(-1).url.endsWith('/me/player/play?device_id=tv')); // matched by name after its id changed
+  assert.equal(res.note, undefined);
+  assert.equal((await spotify.logout()).preferred.name, 'Living Room TV');
+  assert.equal((await spotify.setPreferred({})).preferred, null);
+});
+
+test('falls back with a note when the preferred speaker is away, and never moves playing music', async () => {
+  let playing = false;
+  const { spotify, calls } = await setup({
+    routes: {
+      'GET /me/player/devices': [200, { devices: [{ id: 'pi', name: 'PiDisplay', type: 'Speaker' }, { id: 'phone', name: 'Pixel', type: 'Smartphone' }] }],
+      'GET /me/player': () => (playing ? [200, { is_playing: true, device: { id: 'phone', name: 'Pixel' } }] : [204]),
+    },
+  });
+  await connect(spotify);
+  await spotify.setPreferred({ deviceId: 'tv', name: 'Living Room TV' });
+  const res = await spotify.control('play', { uris: ['spotify:track:abc'] });
+  assert.ok(calls.at(-1).url.endsWith('device_id=pi'));
+  assert.match(res.note, /Living Room TV isn't showing up/);
+  playing = true;
+  await spotify.control('play', { uris: ['spotify:track:abc'] });
+  assert.ok(calls.at(-1).url.endsWith('device_id=phone'));
+});
+
+test('backs off after Spotify rate limits, then recovers', async () => {
+  let limited = true;
+  const { spotify, calls, advance } = await setup({
+    routes: { 'GET /me/playlists': () => (limited ? [429, { error: { status: 429 } }] : [200, { items: [] }]) },
+  });
+  await connect(spotify);
+  await assert.rejects(spotify.playlists(), (err) => err.status === 429);
+  const n = calls.length;
+  await assert.rejects(spotify.playlists(), (err) => err.status === 429);
+  assert.equal(calls.length, n); // no request while backing off
+  limited = false;
+  advance(6000);
+  assert.deepEqual(await spotify.playlists(), []);
+});
+
+test('resume with nothing queued and network trouble get plain messages', async () => {
+  let offline = false;
+  const { dir, spotify } = await setup({
+    routes: {
+      'GET /me/player/devices': DEVICES,
+      'PUT /me/player/play': [403, { error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }],
+    },
+  });
+  await connect(spotify);
+  await assert.rejects(spotify.control('play', {}), /Nothing to resume/);
+  await assert.rejects(spotify.control('play', { uris: ['spotify:track:abc'] }), /didn't allow/);
+  const down = createSpotify({
+    configFile: path.join(dir, 'spotify.json'),
+    fetchImpl: async () => {
+      if (offline) throw new TypeError('fetch failed');
+      return new Response('{}', { status: 200 });
+    },
+  });
+  offline = true;
+  await assert.rejects(down.playlists(), (err) => err.status === 503 && /Can't reach Spotify/.test(err.message));
+});

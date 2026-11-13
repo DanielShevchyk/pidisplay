@@ -32,6 +32,11 @@ const CLIENT_ID = /^[0-9a-f]{32}$/i;
 const PENDING_MS = 15 * 60 * 1000;
 const REPEAT = new Set(['off', 'context', 'track']);
 const URI = /^spotify:[a-z]+:[A-Za-z0-9:]+$/;
+// Every screen polls /api/spotify/player; these keep that to a trickle of Spotify calls.
+const PLAYER_CACHE_MS = 2000;
+const DEVICES_CACHE_MS = 8000;
+const REQUEST_TIMEOUT_MS = 10000;
+const MAX_BACKOFF_MS = 5 * 60 * 1000;
 
 const base64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -123,7 +128,7 @@ function apiError(status, body) {
   if (status === 403 && /not registered|developer dashboard/i.test(message)) {
     return new SpotifyError(403, 'This Spotify account is not on the app\'s user list. Add it under User Management in the Spotify developer dashboard.');
   }
-  if (status === 403) return new SpotifyError(403, 'Spotify didn\'t allow that right now.');
+  if (status === 403) return Object.assign(new SpotifyError(403, 'Spotify didn\'t allow that right now.'), { restricted: true });
   if (status === 429) return new SpotifyError(429, 'Spotify is busy. Try again in a moment.');
   return new SpotifyError(502, message ? `Spotify: ${message}` : `Spotify answered ${status}`);
 }
@@ -138,6 +143,42 @@ export function createSpotify({
   let config = null; // { clientId, refreshToken, accessToken, expiresAt }
   let refreshing = null;
   const pending = new Map(); // OAuth state -> { verifier, returnTo, created }
+  // Spotify said "too many requests": no calls until this time.
+  let blockedUntil = 0;
+  const cache = { player: null, devices: null }; // { at, value } or { promise }
+
+  /** fetch with a timeout; network trouble becomes a SpotifyError instead of a stack trace per poll. */
+  async function request(url, init) {
+    try {
+      return await fetchImpl(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+    } catch {
+      throw new SpotifyError(503, "Can't reach Spotify. Check the internet connection.");
+    }
+  }
+
+  function dropCache() {
+    cache.player = null;
+    cache.devices = null;
+  }
+
+  /** One Spotify call per ttl, shared by every caller, including ones that arrive mid-request. */
+  function cached(key, ttl, load) {
+    const entry = cache[key];
+    if (entry?.promise) return entry.promise;
+    if (entry && now() - entry.at < ttl) return Promise.resolve(entry.value);
+    const promise = load().then(
+      (value) => {
+        if (cache[key]?.promise === promise) cache[key] = { at: now(), value };
+        return value;
+      },
+      (err) => {
+        if (cache[key]?.promise === promise) cache[key] = null;
+        throw err;
+      },
+    );
+    cache[key] = { promise };
+    return promise;
+  }
 
   async function load() {
     if (config) return config;
@@ -170,25 +211,39 @@ export function createSpotify({
       connected: Boolean(c.clientId && c.refreshToken),
       redirectUri,
       receiver: { name: RECEIVER_NAME, signedIn: await receiverSignedIn() },
+      // Where new music starts when nothing is playing; null = this display.
+      preferred: c.preferred?.name ? { id: c.preferred.id ?? null, name: c.preferred.name } : null,
     };
   }
 
   async function setClientId(clientId) {
     const id = String(clientId ?? '').trim();
     if (!id) {
+      dropCache();
       await save({});
       return status();
     }
     if (!CLIENT_ID.test(id)) throw new SpotifyError(400, 'That doesn\'t look like a Spotify Client ID (32 letters and numbers).');
     const c = await load();
     // A different app can't use the old app's tokens.
+    if (c.clientId !== id) dropCache();
     await save(c.clientId === id ? c : { clientId: id });
     return status();
   }
 
   async function logout() {
     const c = await load();
-    await save({ clientId: c.clientId });
+    dropCache();
+    await save({ clientId: c.clientId, ...(c.preferred ? { preferred: c.preferred } : {}) });
+    return status();
+  }
+
+  /** Sets (or with no name, clears) the speaker new music starts on. */
+  async function setPreferred(body) {
+    const name = String(body?.name ?? '').trim().slice(0, 100);
+    const id = typeof body?.deviceId === 'string' && body.deviceId ? body.deviceId.slice(0, 200) : null;
+    const { preferred, ...rest } = await load();
+    await save(name && name !== RECEIVER_NAME ? { ...rest, preferred: { id, name } } : rest);
     return status();
   }
 
@@ -213,7 +268,7 @@ export function createSpotify({
   }
 
   async function tokenRequest(params) {
-    const res = await fetchImpl(`${ACCOUNTS}/api/token`, {
+    const res = await request(`${ACCOUNTS}/api/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(params).toString(),
@@ -264,11 +319,13 @@ export function createSpotify({
         const { ok, body } = await tokenRequest({ grant_type: 'refresh_token', refresh_token: c.refreshToken, client_id: c.clientId });
         if (!ok || !body.access_token) {
           if (body.error === 'invalid_grant' || body.error === 'invalid_client') {
-            await save({ clientId: c.clientId });
+            if (config === c) await save({ clientId: c.clientId, ...(c.preferred ? { preferred: c.preferred } : {}) });
             throw new SpotifyError(401, 'Spotify signed this display out. Log in again.');
           }
           throw new SpotifyError(502, `Spotify sign-in refresh failed: ${body.error_description || body.error || 'unknown error'}`);
         }
+        // Logged out (or switched apps) while this was in flight: don't sign back in.
+        if (config !== c) throw new SpotifyError(401, 'Spotify is not connected yet.');
         await storeTokens(c, body);
         return body.access_token;
       } finally {
@@ -280,8 +337,9 @@ export function createSpotify({
 
   async function api(method, pathAndQuery, body) {
     for (let attempt = 0; ; attempt++) {
+      if (now() < blockedUntil) throw apiError(429, null);
       const token = await accessToken(attempt > 0);
-      const res = await fetchImpl(`${API}${pathAndQuery}`, {
+      const res = await request(`${API}${pathAndQuery}`, {
         method,
         headers: {
           Authorization: `Bearer ${token}`,
@@ -290,7 +348,12 @@ export function createSpotify({
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       if (res.status === 401 && attempt === 0) continue;
-      const text = await res.text();
+      if (res.status === 429) {
+        // Asking again before Retry-After only makes Spotify extend the block.
+        const wait = Number(res.headers.get('retry-after')) || 5;
+        blockedUntil = now() + Math.min(wait * 1000, MAX_BACKOFF_MS);
+      }
+      const text = await res.text().catch(() => '');
       let data = null;
       try {
         data = text ? JSON.parse(text) : null;
@@ -302,21 +365,37 @@ export function createSpotify({
     }
   }
 
-  const devices = async () => ((await api('GET', '/me/player/devices'))?.devices ?? []).map(mapDevice);
+  const devices = () =>
+    cached('devices', DEVICES_CACHE_MS, async () => ((await api('GET', '/me/player/devices'))?.devices ?? []).map(mapDevice));
+  const nowPlaying = () =>
+    cached('player', PLAYER_CACHE_MS, async () => mapPlayer(await api('GET', '/me/player?additional_types=episode')));
 
   async function player() {
-    const [p, list] = await Promise.all([api('GET', '/me/player?additional_types=episode'), devices()]);
-    return { player: mapPlayer(p), devices: list };
+    const [p, list] = await Promise.all([nowPlaying(), devices()]);
+    return { player: p, devices: list };
   }
 
-  /** The device to start music on: the one asked for, the active one, or the Pi itself. */
+  /**
+   * The device to start music on, as { id, note? }: the one asked for; wherever music
+   * is playing now; the preferred speaker (say, the TV) when Spotify can see it; the
+   * last active device; or the Pi itself. note says when the preferred one was skipped.
+   */
   async function targetDevice(deviceId) {
-    if (deviceId) return deviceId;
-    const list = await devices();
+    if (deviceId) return { id: deviceId };
+    // Fresh lists: a TV that was just switched on must not be missed.
+    dropCache();
+    const [{ preferred }, list, current] = await Promise.all([load(), devices(), nowPlaying().catch(() => null)]);
+    if (current?.isPlaying && current.device.id) return { id: current.device.id };
+    let note;
+    if (preferred?.name) {
+      const want = list.find((d) => d.id === preferred.id) ?? list.find((d) => d.name === preferred.name);
+      if (want && !want.restricted) return { id: want.id };
+      note = `${preferred.name} isn't showing up in Spotify, so this is playing somewhere else. Open the Spotify app on it, then pick it under Speakers.`;
+    }
     const active = list.find((d) => d.active);
-    if (active) return active.id;
+    if (active) return { id: active.id, note };
     const pi = list.find((d) => d.name === RECEIVER_NAME);
-    if (pi) return pi.id;
+    if (pi) return { id: pi.id, note };
     throw new SpotifyError(
       409,
       (await receiverSignedIn())
@@ -328,9 +407,20 @@ export function createSpotify({
   const q = (params) => `?${new URLSearchParams(params)}`;
 
   async function control(action, body = {}) {
+    let note;
+    try {
+      note = await send(action, body);
+    } finally {
+      // Whatever happened, what the screens last saw is out of date.
+      dropCache();
+    }
+    return note ? { ok: true, note } : { ok: true };
+  }
+
+  async function send(action, body) {
     switch (action) {
       case 'play': {
-        const deviceId = await targetDevice(body.deviceId);
+        const target = await targetDevice(body.deviceId);
         const payload = {};
         if (body.contextUri) {
           if (!URI.test(body.contextUri)) throw new SpotifyError(400, 'Bad context');
@@ -340,8 +430,17 @@ export function createSpotify({
           if (!body.uris.length || !body.uris.every((u) => typeof u === 'string' && URI.test(u))) throw new SpotifyError(400, 'Bad track list');
           payload.uris = body.uris.slice(0, 100);
         }
-        await api('PUT', `/me/player/play${q({ device_id: deviceId })}`, Object.keys(payload).length ? payload : undefined);
-        break;
+        const resume = !Object.keys(payload).length;
+        try {
+          await api('PUT', `/me/player/play${q({ device_id: target.id })}`, resume ? undefined : payload);
+        } catch (err) {
+          // Spotify refuses a bare "play" when it has no queue to pick up again.
+          if (resume && err instanceof SpotifyError && err.restricted) {
+            throw new SpotifyError(409, 'Nothing to resume. Pick something from the Library.');
+          }
+          throw err;
+        }
+        return target.note;
       }
       case 'pause':
         await api('PUT', '/me/player/pause');
@@ -379,7 +478,7 @@ export function createSpotify({
       default:
         throw new SpotifyError(404, 'Not found');
     }
-    return { ok: true };
+    return undefined;
   }
 
   async function playlists() {
@@ -400,6 +499,7 @@ export function createSpotify({
     if (!section && method === 'GET') return status();
     if (section === 'client' && (method === 'PUT' || method === 'POST')) return setClientId(body?.clientId ?? params.get('clientId'));
     if (section === 'logout' && method === 'POST') return logout();
+    if (section === 'preferred' && (method === 'PUT' || method === 'POST')) return setPreferred(body);
     if (section === 'player' && !action && method === 'GET') return player();
     if (section === 'player' && action && method === 'POST') return control(action, body ?? {});
     if (section === 'playlists' && method === 'GET') return playlists();
@@ -407,5 +507,5 @@ export function createSpotify({
     throw new SpotifyError(404, 'Not found');
   }
 
-  return { status, setClientId, logout, loginUrl, callback, player, control, playlists, search, handle };
+  return { status, setClientId, setPreferred, logout, loginUrl, callback, player, control, playlists, search, handle };
 }

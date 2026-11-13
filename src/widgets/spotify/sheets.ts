@@ -165,6 +165,30 @@ export function openSpeakersSheet() {
         );
       }
       parts.push(h('p', { class: 'conn-hint' }, 'Phones, smart speakers and TVs show up here while their Spotify app is open.'));
+
+      // Where a song picked on this screen starts when nothing is playing yet.
+      const preferred = status.preferred;
+      const others = devices.filter((d) => d.name !== receiver && !d.restricted);
+      const offline = preferred && !others.some((d) => d.id === preferred.id || d.name === preferred.name);
+      const chip = (label: string, on: boolean, pick: () => void) =>
+        h('button', { class: `chip${on ? ' active' : ''}`, disabled: Boolean(busy), onclick: () => void pick() }, label);
+      parts.push(
+        h('h3', {}, 'Start new music on'),
+        h(
+          'div',
+          { class: 'chips' },
+          chip('This display', !preferred, () => spotify.setPreferred(null)),
+          ...others.map((d) => chip(d.name, preferred?.id === d.id || preferred?.name === d.name, () => spotify.setPreferred({ id: d.id, name: d.name }))),
+          offline ? chip(`${preferred.name} (not available)`, true, () => {}) : null,
+        ),
+        h(
+          'p',
+          { class: 'conn-hint' },
+          preferred
+            ? `Songs you pick here start on ${preferred.name} when Spotify can see it, and on this display otherwise. If music is already playing, it stays where it is.`
+            : 'Pick a TV or speaker to have songs chosen here start there instead of on this display.',
+        ),
+      );
     }
 
     // Where this display's own sound goes.
