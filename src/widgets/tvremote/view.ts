@@ -93,9 +93,19 @@ export class Parts {
     return h('div', { class: 'tvr-row' }, this.key('BACK', 'back', 'Back'), this.key('HOME', 'home', 'Home'), this.key('MENU', 'menu', 'TV settings'));
   }
 
-  private volumeLabel(): HTMLElement {
-    const label = h('span', { class: 'tvr-vol-value' });
+  /**
+   * The mute button: says Mute, or Muted (in red) while the sound is off, with the
+   * volume number beside it when the TV can tell it (not through a soundbar).
+   */
+  muteButton(cls = ''): HTMLButtonElement {
     const glyph = h('span', { class: 'tvr-vol-glyph' });
+    const word = h('span', { class: 'tvr-mute-word' });
+    const level = h('span', { class: 'tvr-vol-value' });
+    const b = h(
+      'button',
+      { class: `tvr-btn tvr-mute ${cls}`, 'aria-label': 'Mute', onclick: (e: Event) => (stop(e), void remote.send({ action: 'mute', mute: !remote.state?.muted })) },
+      h('span', { class: 'tvr-vol-label' }, glyph, h('span', { class: 'tvr-mute-text' }, word, level)),
+    );
     let shown = '';
     const paint = () => {
       const s = remote.state;
@@ -106,15 +116,14 @@ export class Parts {
       if (key === shown) return;
       shown = key;
       glyph.replaceChildren(icon(muted ? 'muted' : 'speaker'));
-      label.textContent = text;
+      word.textContent = muted ? 'Muted' : 'Mute';
+      level.textContent = text;
+      b.classList.toggle('on', muted);
+      b.setAttribute('aria-label', muted ? 'Unmute' : 'Mute');
+      b.setAttribute('aria-pressed', String(muted));
     };
     this.onDestroy(remote.subscribeQuiet(paint));
     paint();
-    return h('span', { class: 'tvr-vol-label' }, glyph, label);
-  }
-
-  muteButton(cls = ''): HTMLButtonElement {
-    const b = h('button', { class: `tvr-btn tvr-mute ${cls}`, 'aria-label': 'Mute', onclick: (e: Event) => (stop(e), void remote.send({ action: 'mute', mute: !remote.state?.muted })) }, this.volumeLabel());
     return b;
   }
 
