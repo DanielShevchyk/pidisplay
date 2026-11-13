@@ -95,9 +95,9 @@ music plays on the display and the widget says why.
 
 While music plays on the TV, the volume slider changes the TV's own volume (the TV's
 Spotify app ignores Spotify volume changes). With the sound going to a soundbar or
-receiver (HDMI ARC, optical, Bluetooth) the display presses volume up or down, like the
-remote, one press per step of the slider; the TV passes those on over HDMI-CEC. The slider
-then shows where you left it, since the soundbar's own level can't be read.
+receiver (HDMI ARC, optical, Bluetooth) the TV can't read the soundbar's level, so the
+slider is replaced by **−** and **+**: each tap is one press of the remote's volume button,
+which the TV passes on over HDMI-CEC.
 
 Give the TV a fixed address in the router (DHCP reservation) so the link keeps working.
 
