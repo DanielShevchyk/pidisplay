@@ -233,6 +233,3 @@
 
 .spt-lib-actions { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; }
 .spt-tv-actions { margin-top: 8px; }
-.spt-tv-link { min-height: 240px; }
-.spt-tv-link .btn { margin-top: 12px; }
-.spt-tv-link .spt-search .btn { margin-top: 0; }

@@ -1,6 +1,7 @@
-// LG webOS TV control, just enough for the Spotify widget to get music onto the TV:
-// find the TV on the network, pair with it once (the TV asks to allow it), switch it
-// on with Wake-on-LAN and open its Spotify app.
+// LG webOS TV control: find the TV on the network, pair with it once (the TV asks to
+// allow it), switch it on with Wake-on-LAN, open its Spotify app for the Spotify
+// widget, and act as a full remote (keys, volume, channels, apps, inputs, touchpad)
+// for the TV remote widget.
 //
 // The TV speaks LG's SSAP protocol over a WebSocket (wss on 3001; older sets use
 // plain ws on 3000). Its certificate is self-signed, so it can't be verified; the
@@ -29,6 +30,13 @@ const SPOTIFY_APP_ID = 'spotify-beehive';
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i;
 const MAX_FRAME = 4 * 1024 * 1024;
+// Keys the TV takes over its pointer socket, as its own remote sends them.
+const BUTTONS = new Set([
+  'UP', 'DOWN', 'LEFT', 'RIGHT', 'ENTER', 'BACK', 'HOME', 'MENU', 'EXIT', 'INFO', 'QMENU', 'GUIDE', 'LIST', 'DASH',
+  'RED', 'GREEN', 'YELLOW', 'BLUE', 'VOLUMEUP', 'VOLUMEDOWN', 'MUTE', 'CHANNELUP', 'CHANNELDOWN',
+  'PLAY', 'PAUSE', 'STOP', 'REWIND', 'FASTFORWARD', 'CC', 'ASTERISK',
+  ...'0123456789'.split(''),
+]);
 
 // The registration every open-source webOS remote sends (this copy follows
 // home-assistant-libs/aiowebostv). The TV only accepts permission lists signed by LG.
@@ -139,9 +147,11 @@ export function frameReader(onMessage) {
  * Opens a WebSocket to host:port. Resolves with { send(text), close(), onText, onClose }.
  * secure uses TLS without checking the certificate (the TV's is self-signed).
  */
-export function openSocket(host, port, { secure, timeoutMs = 4000 } = {}) {
+export function openSocket(host, port, { secure, timeoutMs = 4000, path = '/' } = {}) {
   return new Promise((resolve, reject) => {
     const socket = secure ? tls.connect({ host, port, rejectUnauthorized: false }) : net.connect({ host, port });
+    // Key presses are tiny frames; don't let Nagle hold them back waiting for an ACK.
+    socket.setNoDelay(true);
     const key = crypto.randomBytes(16).toString('base64');
     let head = Buffer.alloc(0);
     let open = false;
@@ -149,7 +159,11 @@ export function openSocket(host, port, { secure, timeoutMs = 4000 } = {}) {
     const ws = {
       onText: null,
       onClose: null,
-      send: (text) => socket.write(encodeFrame(text)),
+      closed: false,
+      send: (text) => {
+        if (ws.closed) throw new Error('closed');
+        socket.write(encodeFrame(text));
+      },
       close: () => socket.destroy(),
     };
     const fail = (err) => {
@@ -167,7 +181,7 @@ export function openSocket(host, port, { secure, timeoutMs = 4000 } = {}) {
     });
     socket.once(secure ? 'secureConnect' : 'connect', () => {
       socket.write(
-        `GET / HTTP/1.1\r\nHost: ${host}:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+        `GET ${path} HTTP/1.1\r\nHost: ${host}:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
       );
     });
     socket.on('data', (chunk) => {
@@ -197,6 +211,7 @@ export function openSocket(host, port, { secure, timeoutMs = 4000 } = {}) {
     });
     socket.on('error', (err) => fail(err));
     socket.on('close', () => {
+      ws.closed = true;
       fail(new Error('closed'));
       ws.onClose?.();
     });
@@ -248,7 +263,9 @@ export async function defaultConnect(ip, { key = null, secure = null, promptMs =
       w.reject(new TvError(502, `The TV answered: ${msg.error ?? msg.payload?.errorText ?? 'error'}`));
     } else w.resolve(msg.payload ?? {});
   };
+  let closed = false;
   ws.onClose = () => {
+    closed = true;
     const gone = new TvError(503, 'The TV closed the connection.');
     registered?.reject(gone);
     for (const w of waiting.values()) w.reject(gone);
@@ -283,10 +300,19 @@ export async function defaultConnect(ip, { key = null, secure = null, promptMs =
     return {
       key: newKey,
       secure: usedSecure,
+      get closed() {
+        return closed;
+      },
       request(uri, payload = {}) {
+        if (closed) return Promise.reject(new TvError(503, 'The TV closed the connection.'));
         const id = `req_${nextId++}`;
         const reply = new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
-        ws.send(JSON.stringify({ type: 'request', id, uri: `ssap://${uri}`, payload }));
+        try {
+          ws.send(JSON.stringify({ type: 'request', id, uri: `ssap://${uri}`, payload }));
+        } catch {
+          waiting.delete(id);
+          return Promise.reject(new TvError(503, 'The TV closed the connection.'));
+        }
         return withTimeout(reply, 8000, "The TV didn't answer.").finally(() => waiting.delete(id));
       },
       close: () => ws.close(),
@@ -358,9 +384,17 @@ export function createLgTv({
   wait = (ms) => new Promise((r) => setTimeout(r, ms)),
   // How long a switched-off TV gets to boot and answer after the wake-up packet.
   bootMs = 30000,
+  // The remote's session closes after this long without a press.
+  idleMs = 20000,
+  openPointer = openSocket,
 } = {}) {
   let config = null; // { ip, name, model, mac, key, secure }
   let busy = null;
+  // The remote control's held session, its last state answer, and the app list.
+  let remote = null; // { ready: Promise<session>, pointer: Promise<ws> | null, timer }
+  let state = null; // { at, value }
+  let stateBusy = null;
+  let catalog = null; // { at, value }
 
   async function load() {
     if (config) return config;
@@ -428,6 +462,9 @@ export function createLgTv({
     try {
       const info = await session.request('system/getSystemInfo').catch(() => ({}));
       const name = String(body?.name ?? '').trim().slice(0, 80) || old.name || info.modelName || 'LG TV';
+      dropRemote();
+      state = null;
+      catalog = null;
       await save({ ip, name, model: info.modelName ?? old.model ?? '', mac: (await macOf(ip)) ?? (old.ip === ip ? old.mac : null) ?? null, key: session.key, secure: session.secure });
     } finally {
       session.close();
@@ -436,6 +473,9 @@ export function createLgTv({
   }
 
   async function unlink() {
+    dropRemote();
+    state = null;
+    catalog = null;
     await save({});
     return status();
   }
@@ -539,10 +579,11 @@ export function createLgTv({
   }
 
   /** Sets the volume of whatever the TV plays through. */
-  async function setVolume(percent) {
+  async function setVolume(percent, held = null) {
     const v = Math.round(Number(percent));
     if (!Number.isFinite(v) || v < 0 || v > 100) throw new TvError(400, 'Volume must be 0 to 100');
-    const s = await session();
+    // The remote passes its own open session, which stays open afterwards.
+    const s = held ?? (await session());
     try {
       const before = await s.request('audio/getVolume').catch(() => null);
       const output = readOutput(before);
@@ -574,15 +615,289 @@ export function createLgTv({
       if (err instanceof TvError) throw err;
       throw new TvError(409, `The TV didn't let PiDisplay change its volume (${err.message}). Use the TV remote for this speaker.`);
     } finally {
-      s.close();
+      if (!held) s.close();
     }
+  }
+
+  // ---- Remote control ------------------------------------------------------------
+  //
+  // Button presses come in quick runs, and every new connection costs a TLS handshake
+  // and a register round trip, so the remote keeps one session (and the pointer socket
+  // for arrow keys and the touchpad) open until it has been idle for idleMs.
+
+
+  function dropRemote() {
+    const r = remote;
+    if (!r) return;
+    remote = null;
+    clearTimeout(r.timer);
+    r.ready.then((s) => s.close(), () => {});
+    r.pointer?.then((p) => p.close(), () => {});
+  }
+
+  function touch(r) {
+    clearTimeout(r.timer);
+    r.timer = setTimeout(() => remote === r && dropRemote(), idleMs);
+    r.timer.unref?.();
+  }
+
+  /** The held session; wakeUp switches the TV on first (power button), otherwise an off TV is an error. */
+  async function remoteSession(wakeUp = false) {
+    const had = remote;
+    if (had) {
+      const s = await had.ready.catch(() => null);
+      if (s && !s.closed && remote === had) {
+        touch(had);
+        return s;
+      }
+      if (remote === had) dropRemote();
+    }
+    if (remote) return remoteSession(wakeUp); // someone else just opened one
+    const r = { ready: null, pointer: null, timer: 0 };
+    remote = r;
+    r.ready = (async () => {
+      if (wakeUp) return awake();
+      const c = await load();
+      const s = await session().catch((err) => {
+        if (err instanceof TvError && err.status === 503) throw new TvError(503, `${c.name ?? 'The TV'} is off or not answering.`);
+        throw err;
+      });
+      return s;
+    })();
+    r.ready.catch(() => remote === r && dropRemote());
+    touch(r);
+    return r.ready;
+  }
+
+  const plainError = (err) => {
+    if (err instanceof TvError && /\b401\b|permission/i.test(err.message)) {
+      return new TvError(403, "The TV won't let PiDisplay do that yet. Unlink the TV and link it again so it can grant the newer permissions.");
+    }
+    return err;
+  };
+
+  /** One SSAP request on the held session, retried once on a fresh session if the old one had gone stale. */
+  async function ask(uri, payload) {
+    for (let attempt = 0; ; attempt++) {
+      const s = await remoteSession().catch((err) => {
+        throw plainError(err);
+      });
+      try {
+        return await s.request(uri, payload);
+      } catch (err) {
+        if (attempt === 0 && err instanceof TvError && err.status === 503) {
+          dropRemote();
+          continue;
+        }
+        throw plainError(err);
+      }
+    }
+  }
+
+  async function pointer() {
+    const s = await remoteSession();
+    const r = remote;
+    if (!r) throw new TvError(503, 'Lost the connection to the TV. Try again.');
+    r.pointer ??= (async () => {
+      const reply = await s.request('com.webos.service.networkinput/getPointerInputSocket').catch((err) => {
+        throw plainError(err);
+      });
+      let url;
+      try {
+        url = new URL(reply.socketPath);
+      } catch {
+        throw new TvError(502, "The TV didn't give PiDisplay its remote-control socket.");
+      }
+      const secure = url.protocol === 'wss:';
+      // Only ever the TV itself, whatever host name the reply carries.
+      const ws = await openPointer((await load()).ip, Number(url.port) || (secure ? 443 : 80), { secure, path: `${url.pathname}${url.search}` });
+      return ws;
+    })();
+    r.pointer.catch(() => {
+      if (remote === r) r.pointer = null;
+    });
+    return r.pointer;
+  }
+
+  /** Sends one pointer-socket message, reopening the socket once if it had closed. */
+  async function sendPointer(text) {
+    for (let attempt = 0; ; attempt++) {
+      const p = await pointer();
+      try {
+        p.send(text);
+        return;
+      } catch {
+        if (remote?.pointer) remote.pointer = null;
+        if (attempt > 0) throw new TvError(503, 'Lost the connection to the TV. Try again.');
+      }
+    }
+  }
+
+  const readMuted = (r) => Boolean(r?.volumeStatus?.muteStatus ?? r?.muteStatus ?? r?.muted ?? r?.mute ?? false);
+
+  /** Volume as the remote shows it. On a soundbar (HDMI ARC and the like) the level is only a guess. */
+  async function sound() {
+    const r = await ask('audio/getVolume').catch(() => null);
+    const output = readOutput(r);
+    return { volume: external(output) ? (lastLevel ?? readVolume(r)) : readVolume(r), muted: readMuted(r), output, external: external(output) };
+  }
+
+  /** Whether the TV is on, what it is showing and how loud. Cached briefly so several screens can poll. */
+  function getState() {
+    const ttl = state?.value.on ? 2000 : 8000;
+    if (state && Date.now() - state.at < ttl) return Promise.resolve(state.value);
+    stateBusy ??= (async () => {
+      const c = await load();
+      const base = { linked: Boolean(c.ip && c.key), name: c.name ?? null, canWake: Boolean(c.mac) };
+      if (!base.linked) return { ...base, on: false };
+      try {
+        await remoteSession(); // an unreachable TV is off
+        const power = await ask('com.webos.service.tvpower/power/getPowerState').catch(() => null);
+        if (power?.state && power.state !== 'Active') {
+          dropRemote();
+          return { ...base, on: false };
+        }
+        const [app, s] = await Promise.all([ask('com.webos.applicationManager/getForegroundAppInfo').catch(() => null), sound()]);
+        return { ...base, on: true, appId: app?.appId || null, ...s };
+      } catch (err) {
+        if (err instanceof TvError && err.status === 503) return { ...base, on: false };
+        throw err;
+      }
+    })()
+      .then((value) => {
+        state = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        stateBusy = null;
+      });
+    return stateBusy;
+  }
+
+  const httpUrl = (u) => (typeof u === 'string' && /^https?:\/\//i.test(u) ? u : null);
+
+  /** The TV's apps and inputs, for the launcher. Kept for ten minutes. */
+  async function getApps(fresh = false) {
+    if (!fresh && catalog && Date.now() - catalog.at < 10 * 60 * 1000) return catalog.value;
+    const [apps, inputs] = await Promise.all([ask('com.webos.applicationManager/listLaunchPoints'), ask('tv/getExternalInputList').catch(() => null)]);
+    const value = {
+      apps: (apps?.launchPoints ?? [])
+        .filter((a) => a?.id && a.title)
+        .map((a) => ({ id: String(a.id), title: String(a.title), icon: httpUrl(a.icon) ?? httpUrl(a.largeIcon) })),
+      inputs: (inputs?.devices ?? [])
+        .filter((d) => d?.id)
+        .map((d) => ({ id: String(d.id), label: String(d.label || d.id), icon: httpUrl(d.icon), connected: d.connected !== false })),
+    };
+    catalog = { at: Date.now(), value };
+    return value;
+  }
+
+  const SIMPLE = {
+    volumeUp: 'audio/volumeUp',
+    volumeDown: 'audio/volumeDown',
+    channelUp: 'tv/channelUp',
+    channelDown: 'tv/channelDown',
+    play: 'media.controls/play',
+    pause: 'media.controls/pause',
+    stop: 'media.controls/stop',
+    rewind: 'media.controls/rewind',
+    fastForward: 'media.controls/fastForward',
+    enter: 'com.webos.ime/sendEnterKey',
+  };
+  const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, Math.round(Number(v) || 0)));
+
+  /** One remote action: { action, ...args }. */
+  async function press(body) {
+    const action = String(body?.action ?? '');
+    const done = (extra = {}) => {
+      state = null; // the next /state read is fresh
+      return { ok: true, ...extra };
+    };
+    if (action === 'key') {
+      const name = String(body?.key ?? '').toUpperCase();
+      if (!BUTTONS.has(name)) throw new TvError(400, `Unknown button ${name || '(none)'}`);
+      await sendPointer(`type:button\nname:${name}\n\n`);
+      return done();
+    }
+    if (action === 'move') {
+      await sendPointer(`type:move\ndx:${clampInt(body?.dx, -500, 500)}\ndy:${clampInt(body?.dy, -500, 500)}\ndown:0\n\n`);
+      return { ok: true };
+    }
+    if (action === 'click') {
+      await sendPointer('type:click\n\n');
+      return done();
+    }
+    if (action === 'scroll') {
+      await sendPointer(`type:scroll\ndx:0\ndy:${clampInt(body?.dy, -500, 500)}\n\n`);
+      return { ok: true };
+    }
+    if (action === 'power') {
+      if (body?.on) {
+        dropRemote();
+        await remoteSession(true);
+        return done({ on: true });
+      }
+      await ask('system/turnOff');
+      dropRemote();
+      state = { at: Date.now(), value: { ...(await status()), on: false } };
+      return { ok: true, on: false };
+    }
+    if (action === 'volumeUp' || action === 'volumeDown') {
+      await ask(SIMPLE[action]);
+      // Through a soundbar the TV's number may not move; keep the Spotify slider's guess in step.
+      if (lastLevel !== null) lastLevel = Math.max(0, Math.min(100, lastLevel + (action === 'volumeUp' ? 1 : -1)));
+      return done(await sound());
+    }
+    if (action === 'volume') {
+      const v = await setVolume(body?.percent, await remoteSession());
+      return done({ ...(await sound()), volume: v.volume });
+    }
+    if (action === 'mute') {
+      const muted = typeof body?.mute === 'boolean' ? body.mute : !(await sound()).muted;
+      await ask('audio/setMute', { mute: muted });
+      return done({ muted });
+    }
+    if (action in SIMPLE) {
+      await ask(SIMPLE[action]);
+      return done();
+    }
+    if (action === 'launch') {
+      const id = String(body?.id ?? '').trim();
+      if (!id || id.length > 200) throw new TvError(400, 'Which app?');
+      await ask('system.launcher/launch', { id });
+      return done();
+    }
+    if (action === 'input') {
+      const id = String(body?.id ?? '').trim();
+      if (!id || id.length > 200) throw new TvError(400, 'Which input?');
+      await ask('tv/switchInput', { inputId: id });
+      return done();
+    }
+    if (action === 'text') {
+      const text = String(body?.text ?? '').slice(0, 500);
+      if (!text) throw new TvError(400, 'Nothing to type');
+      await ask('com.webos.ime/insertText', { text, replace: 0 });
+      if (body?.enter) await ask('com.webos.ime/sendEnterKey');
+      return done();
+    }
+    if (action === 'toast') {
+      const message = String(body?.message ?? '').trim().slice(0, 200);
+      if (!message) throw new TvError(400, 'Nothing to show');
+      await ask('system.notifications/createToast', { message });
+      return { ok: true };
+    }
+    throw new TvError(400, `Unknown remote action ${action || '(none)'}`);
   }
 
   /** Routes /api/tv/... */
   async function handle(method, parts, body) {
     const [, action] = parts; // parts[0] is "tv"
     if (!action && method === 'GET') return status();
+    if (action === 'state' && method === 'GET') return getState();
+    if (action === 'apps' && method === 'GET') return getApps();
     if (method !== 'POST') throw new TvError(404, 'Not found');
+    if (action === 'apps') return getApps(true);
+    if (action === 'remote') return press(body);
     if (action === 'find') return { tvs: await find() };
     if (action === 'link') return link(body);
     if (action === 'unlink') return unlink();
@@ -591,5 +906,5 @@ export function createLgTv({
     throw new TvError(404, 'Not found');
   }
 
-  return { status, find, link, unlink, openSpotify, getVolume, setVolume, handle };
+  return { status, find, link, unlink, openSpotify, getVolume, setVolume, getState, getApps, press, close: dropRemote, handle };
 }

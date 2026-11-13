@@ -17,11 +17,16 @@ function serverFrame(text, opcode = 0x1) {
 /** A stand-in LG TV speaking SSAP over plain ws on a random local port. */
 async function fakeTv({ accept = true, key = 'KEY-1' } = {}) {
   const seen = [];
+  const pointer = [];
+  let port = 0;
   const server = net.createServer((socket) => {
     let open = false;
     let head = '';
+    let isPointer = false;
     const read = frameReader((opcode, payload) => {
       if (opcode !== 0x1) return;
+      // The pointer socket takes plain "type:button\nname:UP\n\n" messages.
+      if (isPointer) return void pointer.push(payload.toString());
       const msg = JSON.parse(payload.toString());
       seen.push(msg);
       const reply = (m) => socket.write(serverFrame(JSON.stringify(m)));
@@ -35,6 +40,11 @@ async function fakeTv({ accept = true, key = 'KEY-1' } = {}) {
         const frame = serverFrame(JSON.stringify({ type: 'response', id: msg.id, payload: { returnValue: true, modelName: '55UA7700AUA', pad: 'x'.repeat(300) } }));
         socket.write(frame.subarray(0, 50));
         setTimeout(() => socket.write(frame.subarray(50)), 5);
+      } else if (msg.uri === 'ssap://com.webos.service.networkinput/getPointerInputSocket') {
+        // A host name that doesn't resolve: the client must use the TV's own address.
+        reply({ type: 'response', id: msg.id, payload: { returnValue: true, socketPath: `ws://tv.invalid:${port}/resources/abc123/netinput.pointer.sock` } });
+      } else if (msg.uri === 'ssap://audio/getVolume') {
+        reply({ type: 'response', id: msg.id, payload: { returnValue: true, volumeStatus: { volume: 12, muteStatus: false } } });
       } else if (msg.uri === 'ssap://bad/call') {
         reply({ type: 'error', id: msg.id, error: '404 no such service' });
       } else reply({ type: 'response', id: msg.id, payload: { returnValue: true } });
@@ -44,6 +54,7 @@ async function fakeTv({ accept = true, key = 'KEY-1' } = {}) {
       if (open) return read(chunk);
       head += chunk.toString('latin1');
       if (!head.includes('\r\n\r\n')) return;
+      isPointer = /^GET \/resources\/abc123\/netinput\.pointer\.sock /.test(head);
       const wsKey = /sec-websocket-key:\s*(\S+)/i.exec(head)[1];
       const acceptKey = crypto.createHash('sha1').update(`${wsKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
       socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${acceptKey}\r\n\r\n`);
@@ -51,9 +62,18 @@ async function fakeTv({ accept = true, key = 'KEY-1' } = {}) {
     });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const port = server.address().port;
+  port = server.address().port;
+  const sockets = new Set();
+  server.on('connection', (c) => (sockets.add(c), c.on('close', () => sockets.delete(c))));
   // Nothing listens on the "wss" port, as on an old set; the client must fall back.
-  return { seen, ports: { wss: 1, ws: port }, close: () => server.close() };
+  return {
+    seen,
+    pointer,
+    ports: { wss: 1, ws: port },
+    /** How many connections are open right now (SSAP plus pointer). */
+    openCount: () => sockets.size,
+    close: () => (sockets.forEach((c) => c.destroy()), server.close()),
+  };
 }
 
 test('frames survive a round trip, including fragmented and masked ones', () => {
@@ -107,7 +127,7 @@ test('magic packet is six FF bytes then the address sixteen times', () => {
 });
 
 /** createLgTv with a scripted TV: states is what each connect attempt finds. */
-async function service({ refuseSet = false, output = 'tv_speaker', states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03' } = {}) {
+async function service({ refuseSet = false, output = 'tv_speaker', states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03', deny = [], stale = false } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-lgtv-'));
   const log = [];
   let attempt = 0;
@@ -116,6 +136,10 @@ async function service({ refuseSet = false, output = 'tv_speaker', states = ['Ac
     configFile: path.join(dir, 'lgtv.json'),
     wait: async () => {},
     bootMs: 200,
+    openPointer: async (host, port, opts) => {
+      log.push(['pointer-open', host, port, opts.path]);
+      return { closed: false, send: (text) => log.push(['pointer', text]), close: () => {} };
+    },
     macOf: async () => mac,
     wake: async (m, ip) => void log.push(['wake', m, ip]),
     search: async ({ st }) => (st.includes('lge') ? ['http://192.168.1.50:1754/'] : ['http://192.168.1.50:1900/dd.xml', 'http://192.168.1.60:8008/dd.xml']),
@@ -131,12 +155,23 @@ async function service({ refuseSet = false, output = 'tv_speaker', states = ['Ac
       const state = states[Math.min(attempt++, states.length - 1)];
       log.push(['connect', ip, opts.key ?? null, state]);
       if (state === 'down') throw new TvError(503, "Can't reach the TV.");
-      return {
+      let calls = 0;
+      const session = {
         key: 'KEY-1',
         secure: true,
+        closed: false,
         close: () => {},
         request: async (uri, payload) => {
           log.push(['request', uri, payload]);
+          // A session the TV dropped quietly: its second request finds it gone.
+          if (stale && ++calls > 1 && attempt === 2) {
+            session.closed = true;
+            throw new TvError(503, 'The TV closed the connection.');
+          }
+          if (deny.includes(uri)) throw new TvError(502, 'The TV answered: 401 insufficient permissions');
+          if (uri.endsWith('getPointerInputSocket')) return { socketPath: 'wss://192.168.1.50:3001/resources/abc/netinput.pointer.sock' };
+          if (uri.endsWith('getForegroundAppInfo')) return { appId: 'netflix' };
+          if (uri.endsWith('getExternalInputList')) return { devices: [{ id: 'HDMI_1', label: 'PlayStation', icon: 'http://192.168.1.50:3000/hdmi.png', connected: true }] };
           if (uri.endsWith('getPowerState')) return { state };
           if (uri.endsWith('getSystemInfo')) return { modelName: '55UA7700AUA' };
           if (uri.endsWith('listLaunchPoints')) return { launchPoints: apps };
@@ -150,6 +185,7 @@ async function service({ refuseSet = false, output = 'tv_speaker', states = ['Ac
           return {};
         },
       };
+      return session;
     },
   });
   return { tv, log, dir };
@@ -223,4 +259,122 @@ test('sets the TV volume, or presses volume up when the sound output ignores a s
   assert.equal((await arc.tv.setVolume(6)).volume, 6);
   assert.ok(!arc.log.some((l) => l[1] === 'audio/setVolume'));
   assert.equal(arc.log.filter((l) => l[1] === 'audio/volumeDown').length, 4);
+});
+
+test('the remote keeps one session for a run of presses, sends keys over the pointer socket and closes when idle', async () => {
+  const fake = await fakeTv();
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-lgtv-'));
+  const tv = createLgTv({
+    configFile: path.join(dir, 'lgtv.json'),
+    connect: (ip, opts) => defaultConnect(ip, { ...opts, ports: fake.ports }),
+    macOf: async () => null,
+    idleMs: 150,
+  });
+  try {
+    await tv.link({ ip: '127.0.0.1' });
+    const registers = () => fake.seen.filter((m) => m.type === 'register').length;
+    const before = registers();
+    await tv.press({ action: 'key', key: 'up' });
+    await tv.press({ action: 'key', key: 'ENTER' });
+    await tv.press({ action: 'move', dx: 12.4, dy: -3 });
+    await tv.press({ action: 'click' });
+    assert.deepEqual(await tv.press({ action: 'volumeUp' }), { ok: true, volume: 12, muted: false, output: '', external: false });
+    assert.equal(registers(), before + 1, 'one register for the whole run');
+    // Arrive asynchronously; give the fake TV a moment.
+    await new Promise((r) => setTimeout(r, 30));
+    assert.deepEqual(fake.pointer, ['type:button\nname:UP\n\n', 'type:button\nname:ENTER\n\n', 'type:move\ndx:12\ndy:-3\ndown:0\n\n', 'type:click\n\n']);
+    assert.ok(fake.seen.some((m) => m.uri === 'ssap://audio/volumeUp'));
+    assert.equal(fake.openCount(), 2);
+
+    // Idle: both sockets close; the next press opens them again.
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(fake.openCount(), 0);
+    await tv.press({ action: 'key', key: 'BACK' });
+    assert.equal(registers(), before + 2);
+    const state = await tv.getState();
+    assert.equal(state.on, true);
+    assert.equal(state.volume, 12);
+  } finally {
+    tv.close();
+    fake.close();
+  }
+});
+
+test('remote state says off without waking the TV, and the power button wakes it', async () => {
+  const { tv, log } = await service({ states: ['Active', 'down', 'down', 'down', 'Active'] });
+  assert.deepEqual(await tv.getState(), { linked: false, name: null, canWake: false, on: false });
+  await tv.link({ ip: '192.168.1.50', name: 'Living Room TV' });
+  log.length = 0;
+  const off = await tv.getState();
+  assert.equal(off.on, false);
+  assert.equal(log.filter((l) => l[0] === 'connect').length, 1, 'no retry for a TV that is simply off');
+  assert.equal(log.filter((l) => l[0] === 'wake').length, 0);
+  await assert.rejects(tv.press({ action: 'key', key: 'UP' }), /off or not answering/);
+
+  await tv.press({ action: 'power', on: true });
+  assert.ok(log.some((l) => l[0] === 'wake'));
+  log.length = 0;
+  const on = await tv.getState();
+  assert.deepEqual({ on: on.on, appId: on.appId, volume: on.volume }, { on: true, appId: 'netflix', volume: 10 });
+  assert.equal(log.filter((l) => l[0] === 'connect').length, 0, 'reuses the session the power button opened');
+
+  await tv.press({ action: 'power', on: false });
+  assert.ok(log.some((l) => l[1] === 'system/turnOff'));
+  assert.equal((await tv.getState()).on, false);
+  tv.close();
+});
+
+test('remote actions map to the TV calls, with checks on what comes in', async () => {
+  const { tv, log } = await service({ apps: [{ id: 'netflix', title: 'Netflix', icon: 'http://192.168.1.50:3000/n.png' }, { id: 'x', title: 'Bad', icon: 'javascript:alert(1)' }, { title: 'no id' }] });
+  await tv.link({ ip: '192.168.1.50' });
+  log.length = 0;
+  const call = async (body) => (await tv.press(body), log.filter((l) => l[0] === 'request').at(-1).slice(1));
+  assert.deepEqual(await call({ action: 'channelUp' }), ['tv/channelUp', undefined]);
+  assert.deepEqual(await call({ action: 'pause' }), ['media.controls/pause', undefined]);
+  assert.deepEqual(await call({ action: 'launch', id: 'netflix' }), ['system.launcher/launch', { id: 'netflix' }]);
+  assert.deepEqual(await call({ action: 'input', id: 'HDMI_1' }), ['tv/switchInput', { inputId: 'HDMI_1' }]);
+  assert.deepEqual(await call({ action: 'mute', mute: true }), ['audio/setMute', { mute: true }]);
+  assert.deepEqual(await call({ action: 'volume', percent: 30 }), ['audio/getVolume', undefined]);
+  assert.ok(log.some((l) => l[1] === 'audio/setVolume' && l[2].volume === 30));
+  assert.deepEqual(await call({ action: 'text', text: 'news', enter: true }), ['com.webos.ime/sendEnterKey', undefined]);
+  await tv.press({ action: 'key', key: '7' });
+  assert.deepEqual(log.find((l) => l[0] === 'pointer-open'), ['pointer-open', '192.168.1.50', 3001, '/resources/abc/netinput.pointer.sock']);
+  assert.deepEqual(log.at(-1), ['pointer', 'type:button\nname:7\n\n']);
+  await assert.rejects(tv.press({ action: 'key', key: 'POWER; rm' }), (err) => err.status === 400);
+  await assert.rejects(tv.press({ action: 'warp' }), (err) => err.status === 400);
+  await assert.rejects(tv.press({ action: 'volume', percent: 101 }), (err) => err.status === 400);
+  assert.equal(log.filter((l) => l[0] === 'connect').length, 1, 'all on one session');
+
+  const { apps, inputs } = await tv.getApps();
+  assert.deepEqual(apps, [{ id: 'netflix', title: 'Netflix', icon: 'http://192.168.1.50:3000/n.png' }, { id: 'x', title: 'Bad', icon: null }]);
+  assert.deepEqual(inputs, [{ id: 'HDMI_1', label: 'PlayStation', icon: 'http://192.168.1.50:3000/hdmi.png', connected: true }]);
+  tv.close();
+});
+
+test('a stale session is replaced once, and missing permissions get a plain answer', async () => {
+  const stale = await service({ stale: true, states: ['Active'] });
+  await stale.tv.link({ ip: '192.168.1.50' });
+  await stale.tv.press({ action: 'channelUp' });
+  await stale.tv.press({ action: 'channelDown' });
+  assert.equal(stale.log.filter((l) => l[0] === 'connect').length, 3, 'link, the remote session, then one fresh one');
+  assert.equal(stale.log.filter((l) => l[1] === 'tv/channelDown').length, 2);
+  stale.tv.close();
+
+  const denied = await service({ deny: ['tv/channelUp'] });
+  await denied.tv.link({ ip: '192.168.1.50' });
+  await assert.rejects(denied.tv.press({ action: 'channelUp' }), (err) => err.status === 403 && /link it again/.test(err.message));
+  denied.tv.close();
+});
+
+test('the remote steps the volume through an HDMI ARC soundbar instead of setting it', async () => {
+  const { tv, log } = await service({ output: 'external_arc' });
+  await tv.link({ ip: '192.168.1.50' });
+  log.length = 0;
+  const set = await tv.press({ action: 'volume', percent: 14 });
+  assert.equal(log.filter((l) => l[1] === 'audio/setVolume').length, 0);
+  assert.equal(log.filter((l) => l[1] === 'audio/volumeUp').length, 4);
+  assert.deepEqual({ volume: set.volume, external: set.external }, { volume: 14, external: true });
+  assert.equal((await tv.press({ action: 'volumeDown' })).volume, 13);
+  assert.equal(log.filter((l) => l[0] === 'connect').length, 1);
+  tv.close();
 });

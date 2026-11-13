@@ -82,6 +82,7 @@ part for you:
 2. With the TV on, open **Speakers** on the display and tap **Link my LG TV**. Pick the TV
    (or type its address), then choose **Accept** on the TV's prompt. The pairing key is
    saved in `$PIDISPLAY_DATA/lgtv.json` on the Pi.
+   The **TV remote** widget uses the same link ([TV-REMOTE.md](TV-REMOTE.md)).
 3. **Open Spotify on (TV name)** now switches the TV on if needed, opens its Spotify app and
    waits for it to appear. The first time, sign in to Spotify on the TV with the same
    account. If no default speaker is set yet, the TV becomes the default.

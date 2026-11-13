@@ -1,0 +1,200 @@
+/* TV remote widget. Every control is a real button sized for a finger. */
+
+.tvr-icon { display: inline-flex; width: 1em; height: 1em; }
+.tvr-icon svg { width: 100%; height: 100%; }
+
+.tvr { height: 100%; display: flex; flex-direction: column; gap: 10px; min-height: 0; position: relative; --btn: clamp(48px, 15cqh, 76px); }
+.tvr.size-small { gap: 8px; --btn: clamp(48px, 24cqh, 64px); }
+.tvr.size-medium { --btn: clamp(48px, 24cqh, 64px); }
+.tvr.size-tall { --btn: clamp(48px, 11cqh, 70px); justify-content: space-between; }
+.tvr.size-sheet { --btn: 76px; height: 100%; }
+
+.tvr-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--btn);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: calc(var(--btn) * 0.42);
+  touch-action: manipulation;
+  user-select: none;
+}
+.tvr-btn:active,
+.tvr-btn.down { transform: scale(0.95); background: color-mix(in srgb, var(--accent) 25%, var(--surface-2)); }
+.tvr-btn:disabled { opacity: 0.45; }
+.tvr-btn-text { font-size: 0.62em; font-weight: 700; letter-spacing: 0.02em; }
+.tvr-extra { flex-direction: column; gap: 2px; }
+.tvr-caption { font-size: 14px; color: var(--text-dim); line-height: 1; }
+.tvr.size-small .tvr-rocker-h { flex: 1; max-height: 96px; }
+.tvr-rockers { max-height: 440px; }
+
+.tvr-row { display: flex; gap: 10px; flex: none; }
+.tvr-cols { flex: 1; min-height: 0; display: flex; gap: 18px; }
+.tvr-stack { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; justify-content: space-between; }
+.tvr-left { flex: none; justify-content: center; align-items: stretch; }
+
+/* ---- Head: name, what's on, power ---- */
+
+.tvr-head { display: flex; align-items: center; gap: 10px; flex: none; }
+.tvr-title { flex: 1; min-width: 0; }
+.tvr-name { font-weight: 700; font-size: clamp(17px, min(7cqh, 7cqw), 26px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tvr-sub { color: var(--text-dim); font-size: clamp(14px, 5cqh, 18px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 1.2em; }
+.tvr-head .tvr-btn { flex: none; width: var(--btn); }
+.tvr-power { color: var(--danger); }
+.tvr-power.on { border-color: color-mix(in srgb, var(--danger) 60%, var(--border)); }
+
+/* ---- D-pad: a ring of arrows around OK ---- */
+
+.tvr-dpad {
+  --pad: min(100cqh - 20px, 46cqw, 330px);
+  width: var(--pad);
+  height: var(--pad);
+  flex: none;
+  align-self: center;
+  display: grid;
+  grid-template: 1fr 1.15fr 1fr / 1fr 1.15fr 1fr;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.tvr-dpad .tvr-btn { border: none; border-radius: 0; background: transparent; min-height: 0; font-size: calc(var(--pad) * 0.16); }
+.tvr-dpad .tvr-btn:active,
+.tvr-dpad .tvr-btn.down { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+.tvr-d-up { grid-area: 1 / 2 / 2 / 3; }
+.tvr-d-left { grid-area: 2 / 1 / 3 / 2; }
+.tvr-d-right { grid-area: 2 / 3 / 3 / 4; }
+.tvr-d-down { grid-area: 3 / 2 / 4 / 3; }
+.tvr-dpad .tvr-d-ok {
+  grid-area: 2 / 2 / 3 / 3;
+  z-index: 1;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: calc(var(--pad) * 0.1);
+  font-weight: 700;
+}
+.tvr-dpad .tvr-d-ok .tvr-btn-text { font-size: 1em; }
+.tvr.size-medium .tvr-dpad { --pad: min(100cqh - 8px, 40cqw); }
+.tvr.size-tall .tvr-dpad { --pad: min(38cqh, 92cqw); }
+.tvr.size-large .tvr-dpad,
+.tvr.size-sheet .tvr-dpad { --pad: min(100cqh - var(--btn) - 30px, 46cqw, 360px); }
+.tvr.size-xlarge .tvr-dpad,
+.tvr.size-full .tvr-dpad { --pad: min(100cqh - var(--btn) - 30px, 30cqw, 400px); }
+
+/* ---- Volume and channel ---- */
+
+.tvr-rocker-h .tvr-mute,
+.tvr-rocker-label { flex: 1.3; }
+.tvr-rocker-label { display: inline-flex; align-items: center; justify-content: center; color: var(--text-dim); font-weight: 700; font-size: calc(var(--btn) * 0.3); }
+.tvr-vol-label { display: inline-flex; align-items: center; gap: 6px; }
+.tvr-vol-value { font-size: 0.62em; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.tvr-rockers { flex: 1; min-height: 0; display: flex; gap: 14px; }
+.tvr-rocker { flex: 1; display: flex; flex-direction: column; border-radius: 22px; border: 1px solid var(--border); background: var(--surface-2); overflow: hidden; }
+.tvr-rocker .tvr-btn { border: none; border-radius: 0; background: transparent; flex: 1; }
+.tvr-rocker .tvr-rocker-mid { flex: 0.8; border-block: 1px solid var(--border); }
+
+/* ---- Apps ---- */
+
+.tvr-side { flex: 1.15; }
+.tvr-side-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; font-size: 20px; flex: none; }
+.tvr-side-head .tvr-btn { flex: none; width: auto; padding: 0 16px; --btn: 52px; }
+.tvr-apps { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); grid-auto-rows: max-content; gap: 10px; }
+.tvr-apps-all { overflow: visible; }
+.tvr-app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  min-width: 0;
+}
+.tvr-app:active { transform: scale(0.96); }
+.tvr-app.active { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent); }
+.tvr-app-art { position: relative; width: 64px; height: 64px; border-radius: 14px; overflow: hidden; display: grid; place-items: center; background: var(--surface); }
+.tvr-app-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; }
+.tvr-app-art.has-img img { opacity: 1; }
+.tvr-app-letter { font-size: 30px; font-weight: 800; color: var(--text-dim); }
+.tvr-app-name { font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Off, not linked, errors ---- */
+
+.tvr-message { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 8px; }
+.tvr-message-icon { font-size: clamp(36px, 18cqh, 72px); color: var(--text-dim); }
+.tvr-message-title { font-weight: 700; font-size: clamp(18px, 8cqh, 28px); }
+.tvr-hint { color: var(--text-dim); font-size: clamp(14px, 5cqh, 18px); margin: 0; }
+.tvr-turn-on { display: inline-flex; align-items: center; gap: 10px; min-height: 60px; padding: 0 28px; font-size: 20px; }
+.tvr-turn-on .tvr-icon { font-size: 24px; }
+.size-small .tvr-message-icon,
+.size-medium .tvr-message-icon { display: none; }
+.tvr-tap-hint { color: var(--text-dim); font-size: 14px; text-align: center; margin-top: auto; }
+
+.tvr-error {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--danger) 85%, #000);
+  color: #fff;
+  font-size: 16px;
+  display: none;
+}
+.tvr-error.show { display: block; }
+
+/* ---- Full remote sheet ---- */
+
+.tvr-sheet { display: flex; flex-direction: column; gap: 8px; position: relative; }
+.tvr-tabs { flex: none; margin-top: 0; }
+.tvr-sheet-page { height: min(54vh, 540px); min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.tvr-sheet-remote { height: 100%; container-type: size; }
+.tvr-sheet-error { position: static; margin-top: 4px; }
+
+.tvr-section { margin: 14px 0 6px; font-size: 18px; }
+.tvr-section-row { display: flex; align-items: center; justify-content: space-between; }
+.tvr-section-row .btn { display: inline-flex; align-items: center; gap: 6px; }
+.tvr-input { display: inline-flex; align-items: center; gap: 8px; min-height: 56px; }
+.tvr-input.dim { opacity: 0.6; }
+.tvr-apps-page .tvr-apps { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+.tvr-numbers { display: flex; gap: 28px; height: 100%; --btn: 76px; }
+.tvr-numpad { flex: 1.2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tvr-num { font-size: 30px; }
+.tvr-num .tvr-btn-text { font-size: 1em; }
+.tvr-num-ok { color: var(--accent); }
+.tvr-num-side { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.tvr-colour { border-bottom-width: 6px; }
+.tvr-red { border-bottom-color: #e53935; }
+.tvr-green { border-bottom-color: #43a047; }
+.tvr-yellow { border-bottom-color: #fdd835; }
+.tvr-blue { border-bottom-color: #1e88e5; }
+
+.tvr-touch { height: 100%; display: flex; flex-direction: column; gap: 12px; --btn: 68px; }
+.tvr-pad-wrap { flex: 1; min-height: 240px; display: flex; gap: 12px; }
+.tvr-pad,
+.tvr-pad-strip {
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  touch-action: none;
+  user-select: none;
+}
+.tvr-pad { flex: 1; display: grid; place-items: center; }
+.tvr-pad-hint { color: var(--text-dim); font-size: 18px; pointer-events: none; }
+.tvr-pad-strip { width: 84px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: 14px 0; color: var(--text-dim); font-size: 30px; }
+
+.tvr-type { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.tvr-type > .btn { align-self: flex-start; }

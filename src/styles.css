@@ -464,6 +464,22 @@ select { font: inherit; color: inherit; }
 .conn-hint { color: var(--text-dim); font-size: 17px; margin: 8px 0; }
 .conn-warn { color: var(--warning); font-size: 16px; margin: 6px 0 0; }
 
+/* Linking the LG TV (core/tv-link.ts), shared by Spotify and the TV remote. */
+.tv-link { min-height: 240px; }
+.tv-link .btn { margin-top: 12px; }
+.tv-link-search { display: flex; gap: 10px; margin: 8px 0 4px; }
+.tv-link-search .btn { margin-top: 0; }
+.tv-link-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  user-select: text;
+}
+
 /* Sleep screen (gear menu) and the black shade over the wall display while it sleeps. */
 .sleep-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; font-size: 20px; border-bottom: 1px solid var(--border); }
 .sleep-stepper { display: flex; align-items: center; gap: 12px; }
