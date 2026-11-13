@@ -405,9 +405,17 @@ export function createSpotify({
     return value;
   }
 
+  /** Music on the TV: Spotify calls it a TV, or it is the TV picked as the default speaker. */
+  async function onTv(device) {
+    if (!device || !tvVolume) return false;
+    if (device.type === 'tv') return true;
+    const { preferred } = await load();
+    return preferred?.type === 'tv' && (device.id === preferred.id || device.name === preferred.name);
+  }
+
   async function player() {
     let [p, list] = await Promise.all([nowPlaying(), devices()]);
-    if (p?.device?.type === 'tv' && tvVolume) {
+    if (await onTv(p?.device)) {
       const volume = await tvVolumeNow();
       if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true } };
     }
@@ -531,7 +539,7 @@ export function createSpotify({
         const v = Math.round(Number(body.percent));
         if (!Number.isFinite(v) || v < 0 || v > 100) throw new SpotifyError(400, 'Volume must be 0 to 100');
         const playingOn = tvVolume ? await nowPlaying().catch(() => null) : null;
-        if (playingOn?.device?.type === 'tv') {
+        if (await onTv(playingOn?.device)) {
           // Music on the TV: turn the TV itself up or down.
           const done = await tvVolume.set(v).catch((err) => {
             throw new SpotifyError(err.status ?? 502, err.message);

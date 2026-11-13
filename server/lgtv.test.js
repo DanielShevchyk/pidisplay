@@ -107,10 +107,11 @@ test('magic packet is six FF bytes then the address sixteen times', () => {
 });
 
 /** createLgTv with a scripted TV: states is what each connect attempt finds. */
-async function service({ refuseSet = false, states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03' } = {}) {
+async function service({ refuseSet = false, output = 'tv_speaker', states = ['Active'], apps = [{ id: 'spotify-beehive', title: 'Spotify' }], mac = 'aa:bb:cc:01:02:03' } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-lgtv-'));
   const log = [];
   let attempt = 0;
+  let level = 10;
   const tv = createLgTv({
     configFile: path.join(dir, 'lgtv.json'),
     wait: async () => {},
@@ -139,8 +140,13 @@ async function service({ refuseSet = false, states = ['Active'], apps = [{ id: '
           if (uri.endsWith('getPowerState')) return { state };
           if (uri.endsWith('getSystemInfo')) return { modelName: '55UA7700AUA' };
           if (uri.endsWith('listLaunchPoints')) return { launchPoints: apps };
-          if (uri === 'audio/getVolume') return { volumeStatus: { volume: 10 } };
-          if (uri === 'audio/setVolume' && refuseSet) throw new TvError(500, 'volume is not adjustable');
+          if (uri === 'audio/getVolume') return { volumeStatus: { volume: level, soundOutput: output } };
+          if (uri === 'audio/setVolume') {
+            if (refuseSet) throw new TvError(500, 'volume is not adjustable');
+            if (output === 'tv_speaker') level = payload.volume;
+          }
+          if (uri === 'audio/volumeUp') level++;
+          if (uri === 'audio/volumeDown') level--;
           return {};
         },
       };
@@ -194,18 +200,27 @@ test('says how to enable waking when the TV never comes on, and when Spotify is 
   await assert.rejects(none.tv.openSpotify(), /no Spotify app/);
 });
 
-test('sets the TV volume, or presses volume up when the sound output refuses a set value', async () => {
+test('sets the TV volume, or presses volume up when the sound output ignores a set level', async () => {
   const plain = await service();
   await assert.rejects(plain.tv.setVolume(20), /No TV is linked/);
   await plain.tv.link({ ip: '192.168.1.50' });
-  assert.deepEqual(await plain.tv.getVolume(), { volume: 10 });
+  assert.deepEqual(await plain.tv.getVolume(), { volume: 10, output: 'tv_speaker' });
   plain.log.length = 0;
-  await plain.tv.setVolume(20);
-  assert.deepEqual(plain.log.at(-1), ['request', 'audio/setVolume', { volume: 20 }]);
+  assert.equal((await plain.tv.setVolume(20)).volume, 20);
+  assert.ok(plain.log.some((l) => l[1] === 'audio/setVolume'));
+  assert.ok(!plain.log.some((l) => l[1] === 'audio/volumeUp'));
 
-  const arc = await service({ refuseSet: true });
+  const refused = await service({ refuseSet: true });
+  await refused.tv.link({ ip: '192.168.1.50' });
+  refused.log.length = 0;
+  assert.equal((await refused.tv.setVolume(13)).volume, 13);
+  assert.equal(refused.log.filter((l) => l[1] === 'audio/volumeUp').length, 3);
+
+  // A soundbar on HDMI ARC: a set level is accepted and ignored, so it goes straight to presses.
+  const arc = await service({ output: 'external_arc' });
   await arc.tv.link({ ip: '192.168.1.50' });
   arc.log.length = 0;
-  await arc.tv.setVolume(13);
-  assert.equal(arc.log.filter((l) => l[1] === 'audio/volumeUp').length, 3);
+  assert.equal((await arc.tv.setVolume(6)).volume, 6);
+  assert.ok(!arc.log.some((l) => l[1] === 'audio/setVolume'));
+  assert.equal(arc.log.filter((l) => l[1] === 'audio/volumeDown').length, 4);
 });

@@ -93,8 +93,10 @@ moves over, and with nothing to pick up again it plays your Liked Songs. If it c
 music plays on the display and the widget says why.
 
 While music plays on the TV, the volume slider changes the TV's own volume (the TV's
-Spotify app ignores Spotify volume changes). If the TV refuses a set level, as some
-soundbar outputs do, the display presses volume up or down instead, like the remote.
+Spotify app ignores Spotify volume changes). With the sound going to a soundbar or
+receiver (HDMI ARC, optical, Bluetooth) the display presses volume up or down, like the
+remote, one press per step of the slider; the TV passes those on over HDMI-CEC. The slider
+then shows where you left it, since the soundbar's own level can't be read.
 
 Give the TV a fixed address in the router (DHCP reservation) so the link keeps working.
 

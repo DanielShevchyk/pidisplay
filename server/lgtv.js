@@ -518,35 +518,61 @@ export function createLgTv({
     const v = r?.volumeStatus?.volume ?? r?.volume;
     return typeof v === 'number' && v >= 0 ? v : null;
   };
+  const readOutput = (r) => String(r?.volumeStatus?.soundOutput ?? r?.soundOutput ?? '');
+  // Where the sound goes decides how volume works: the TV's own speakers take a set level;
+  // a soundbar or receiver (HDMI ARC, optical, Bluetooth) only follows up/down presses,
+  // which the TV passes on, and a set level is accepted but does nothing there.
+  const external = (output) => Boolean(output) && !/^tv_speaker$/.test(output);
+  let lastLevel = null; // what the slider last asked for, when the TV can't say
 
   /** The TV's own volume, 0-100, or null when it doesn't say (some sound outputs). */
   async function getVolume() {
     const s = await session();
     try {
-      return { volume: readVolume(await s.request('audio/getVolume')) };
+      const r = await s.request('audio/getVolume');
+      const output = readOutput(r);
+      // Through a soundbar the TV's own number may not move at all, so trust the slider.
+      return { volume: external(output) ? (lastLevel ?? readVolume(r)) : readVolume(r), output };
     } finally {
       s.close();
     }
   }
 
-  /**
-   * Sets the TV's volume. Some sound outputs (a soundbar on ARC, say) refuse a set
-   * value but still take volume up/down presses, as the remote sends.
-   */
+  /** Sets the volume of whatever the TV plays through. */
   async function setVolume(percent) {
     const v = Math.round(Number(percent));
     if (!Number.isFinite(v) || v < 0 || v > 100) throw new TvError(400, 'Volume must be 0 to 100');
     const s = await session();
     try {
-      try {
-        await s.request('audio/setVolume', { volume: v });
-        return { volume: v };
-      } catch {
-        const now = readVolume(await s.request('audio/getVolume').catch(() => null));
-        if (now === null) throw new TvError(409, "The TV didn't let PiDisplay change its volume. Use the TV remote for this speaker.");
-        for (let i = 0; i < Math.min(Math.abs(v - now), 25); i++) await s.request(v > now ? 'audio/volumeUp' : 'audio/volumeDown');
-        return { volume: readVolume(await s.request('audio/getVolume').catch(() => null)) ?? v };
+      const before = await s.request('audio/getVolume').catch(() => null);
+      const output = readOutput(before);
+      let now = readVolume(before);
+      if (!external(output)) {
+        const ok = await s.request('audio/setVolume', { volume: v }).then(() => true, () => false);
+        const after = ok ? readVolume(await s.request('audio/getVolume').catch(() => null)) : null;
+        // Took it (or can't tell): done. Otherwise press the buttons like the remote does.
+        if (ok && (after === null || Math.abs(after - v) <= 1)) {
+          lastLevel = v;
+          return { volume: v, output };
+        }
+        if (after !== null) now = after;
       }
+      if (external(output)) now = lastLevel ?? now;
+      now ??= lastLevel ?? 50;
+      const steps = Math.min(Math.abs(v - now), 25);
+      if (!steps) return { volume: v, output };
+      const button = v > now ? 'audio/volumeUp' : 'audio/volumeDown';
+      for (let i = 0; i < steps; i++) {
+        await s.request(button);
+        await wait(60);
+      }
+      lastLevel = v;
+      if (external(output)) return { volume: v, output };
+      const after = readVolume(await s.request('audio/getVolume').catch(() => null));
+      return { volume: after ?? v, output };
+    } catch (err) {
+      if (err instanceof TvError) throw err;
+      throw new TvError(409, `The TV didn't let PiDisplay change its volume (${err.message}). Use the TV remote for this speaker.`);
     } finally {
       s.close();
     }
