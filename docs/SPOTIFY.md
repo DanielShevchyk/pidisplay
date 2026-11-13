@@ -99,6 +99,10 @@ receiver (HDMI ARC, optical, Bluetooth) the TV can't read the soundbar's level, 
 slider is replaced by **−** and **+**: each tap is one press of the remote's volume button,
 which the TV passes on over HDMI-CEC.
 
+The speaker button next to the volume mutes. On the TV it uses the TV's own mute (passed on to
+a soundbar like the volume buttons); on other speakers, which Spotify can't mute, it sets the
+volume to 0 and puts it back on the second tap.
+
 Give the TV a fixed address in the router (DHCP reservation) so the link keeps working.
 
 ## Library

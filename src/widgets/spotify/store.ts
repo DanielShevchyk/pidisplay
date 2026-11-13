@@ -24,6 +24,9 @@ export interface Device {
   supportsVolume: boolean;
   /** Only up/down presses work (a soundbar on the TV, whose level nobody can read). */
   volumeSteps?: boolean;
+  /** Mute works here (the TV's own mute, or volume 0 and back), and whether it's on. */
+  canMute?: boolean;
+  muted?: boolean;
 }
 
 export interface Item {
@@ -48,7 +51,7 @@ export interface PlayerState {
   disallows: string[];
 }
 
-export type Action = 'play' | 'pause' | 'next' | 'previous' | 'seek' | 'volume' | 'shuffle' | 'repeat' | 'transfer';
+export type Action = 'play' | 'pause' | 'next' | 'previous' | 'seek' | 'volume' | 'mute' | 'shuffle' | 'repeat' | 'transfer';
 
 const PLAYING_POLL_MS = 3000;
 const IDLE_POLL_MS = 10000;
@@ -190,6 +193,7 @@ class SpotifyStore {
         p.isPlaying = action === 'play';
       }
       if (action === 'shuffle') p.shuffle = Boolean(body.on);
+      if (action === 'mute') p.device.muted = Boolean(body.on);
       if (action === 'repeat') p.repeat = body.mode as PlayerState['repeat'];
       if (action === 'volume' && body.percent !== undefined) p.device.volume = Number(body.percent);
       if (action === 'seek') {

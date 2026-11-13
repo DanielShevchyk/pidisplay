@@ -408,11 +408,13 @@ export function createSpotify({
     const r = await tvVolume.get().catch(() => null);
     const value =
       typeof r === 'number'
-        ? { volume: r, external: false }
-        : { volume: typeof r?.volume === 'number' ? r.volume : null, external: Boolean(r?.output) && r.output !== 'tv_speaker' };
+        ? { volume: r, external: false, muted: false }
+        : { volume: typeof r?.volume === 'number' ? r.volume : null, external: Boolean(r?.output) && r.output !== 'tv_speaker', muted: Boolean(r?.muted) };
     tvVol = { at: now(), value };
     return value;
   }
+
+  const unmuteTo = new Map(); // device id -> volume before "mute"
 
   /** Music on the TV: Spotify calls it a TV, or it is the TV picked as the default speaker. */
   async function onTv(device) {
@@ -425,9 +427,13 @@ export function createSpotify({
   async function player() {
     let [p, list] = await Promise.all([nowPlaying(), devices()]);
     if (await onTv(p?.device)) {
-      const { volume, external } = await tvVolumeNow();
-      if (external && tvVolume.step) p = { ...p, device: { ...p.device, volume: null, supportsVolume: false, volumeSteps: true } };
-      else if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true } };
+      const { volume, external, muted } = await tvVolumeNow();
+      const mute = tvVolume.mute ? { canMute: true, muted } : {};
+      if (external && tvVolume.step) p = { ...p, device: { ...p.device, volume: null, supportsVolume: false, volumeSteps: true, ...mute } };
+      else if (volume !== null) p = { ...p, device: { ...p.device, volume, supportsVolume: true, ...mute } };
+    } else if (p?.device) {
+      // Spotify has no mute: volume 0, remembering the level to go back to.
+      p = { ...p, device: { ...p.device, canMute: p.device.supportsVolume && p.device.volume !== null, muted: unmuteTo.has(p.device.id) && p.device.volume === 0 } };
     }
     return { player: p, devices: list };
   }
@@ -569,6 +575,28 @@ export function createSpotify({
           }
         }
         await api('PUT', `/me/player/volume${q({ volume_percent: v })}`);
+        break;
+      }
+      case 'mute': {
+        const on = Boolean(body.on);
+        const playing = await nowPlaying().catch(() => null);
+        const device = playing?.device;
+        if (!device?.id) throw new SpotifyError(409, 'Nothing is playing right now.');
+        if (tvVolume?.mute && (await onTv(device))) {
+          await tvVolume.mute(on).catch((err) => {
+            throw new SpotifyError(err.status ?? 502, err.message);
+          });
+          if (tvVol) tvVol = { ...tvVol, value: { ...tvVol.value, muted: on } };
+          break;
+        }
+        if (on) {
+          if (device.volume) unmuteTo.set(device.id, device.volume);
+          await api('PUT', `/me/player/volume${q({ volume_percent: 0, device_id: device.id })}`);
+        } else {
+          const back = unmuteTo.get(device.id) ?? 50;
+          await api('PUT', `/me/player/volume${q({ volume_percent: back, device_id: device.id })}`);
+          unmuteTo.delete(device.id);
+        }
         break;
       }
       case 'shuffle':

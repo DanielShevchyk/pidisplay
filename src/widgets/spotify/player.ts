@@ -14,6 +14,7 @@ const ICONS = {
   shuffle: '<path d="M16 4l4 3.5-4 3.5V8.5h-1.6a3 3 0 0 0-2.4 1.2l-4.6 6.1A5 5 0 0 1 3.4 17.8H2v-2.2h1.4a3 3 0 0 0 2.4-1.2l4.6-6.1a5 5 0 0 1 4-2H16z M2 6.2h1.4a5 5 0 0 1 4 2l.6.8-1.4 1.8-.8-1a3 3 0 0 0-2.4-1.2H2z M12.6 14.2l1.4-1.8.4.5a3 3 0 0 0 2.4 1.2H16V12.6l4 3.5-4 3.5v-2.2h-1.6a5 5 0 0 1-4-2z"/>',
   repeat: '<path d="M7 7h10V4.5l4 3.5-4 3.5V9H7a2 2 0 0 0-2 2v1.5H3V11a4 4 0 0 1 4-4zm10 10H7v2.5L3 16l4-3.5V15h10a2 2 0 0 0 2-2v-1.5h2V13a4 4 0 0 1-4 4z"/>',
   speaker: '<path d="M4 9h3.5L12 5v14l-4.5-4H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1zm11.5-.5a5 5 0 0 1 0 7l-1.4-1.4a3 3 0 0 0 0-4.2zm2.8-2.8a9 9 0 0 1 0 12.6l-1.4-1.4a7 7 0 0 0 0-9.8z"/>',
+  muted: '<path d="M4 9h3.5L12 5v14l-4.5-4H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"/><path d="M15.3 9.3l1.4-1.4 2.3 2.3 2.3-2.3 1.4 1.4-2.3 2.3 2.3 2.3-1.4 1.4-2.3-2.3-2.3 2.3-1.4-1.4 2.3-2.3z"/>',
   library: '<rect x="4" y="4" width="3" height="16" rx="1"/><rect x="9" y="4" width="3" height="16" rx="1"/><path d="M14.6 5.2l2.9-.8 3.4 14.9-2.9.7z"/>',
 };
 
@@ -93,8 +94,16 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
   // A soundbar on the TV can't report its level, so it gets the remote's - and + instead.
   const step = (dir: 1 | -1, label: string, text: string) =>
     h('button', { class: 'spt-btn spt-vol-step', 'aria-label': label, onclick: (e: Event) => (e.stopPropagation(), void spotify.act('volume', { step: dir })) }, text);
-  const stepsRow = h('div', { class: 'spt-volume spt-vol-steps' }, step(-1, 'Volume down', '−'), icon('speaker', 'spt-vol-icon'), step(1, 'Volume up', '+'));
-  const volumeRow = h('div', { class: 'spt-volume' }, icon('speaker', 'spt-vol-icon'), volume);
+  // Mute, one per row so it sits with whichever volume control is showing.
+  const muteBtn = () =>
+    h('button', {
+      class: 'spt-btn spt-mute',
+      'aria-label': 'Mute',
+      onclick: (e: Event) => (e.stopPropagation(), void spotify.act('mute', { on: !spotify.player?.device.muted })),
+    });
+  const muteBtns = [muteBtn(), muteBtn()];
+  const stepsRow = h('div', { class: 'spt-volume spt-vol-steps' }, muteBtns[0], step(-1, 'Volume down', '−'), step(1, 'Volume up', '+'));
+  const volumeRow = h('div', { class: 'spt-volume' }, muteBtns[1], volume);
 
   const speakersBtn = h('button', { class: 'btn spt-chip', onclick: (e: Event) => (e.stopPropagation(), openSpeakersSheet()) }, icon('speaker'), device);
   const libraryBtn = h('button', { class: 'btn spt-chip', onclick: (e: Event) => (e.stopPropagation(), openLibrarySheet()) }, icon('library'), 'Library');
@@ -197,6 +206,12 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     const supportsVolume = p.device.supportsVolume && p.device.volume !== null;
     volumeRow.hidden = !supportsVolume;
     stepsRow.hidden = !p.device.volumeSteps;
+    for (const b of muteBtns) {
+      b.hidden = !p.device.canMute;
+      b.classList.toggle('on', Boolean(p.device.muted));
+      b.setAttribute('aria-label', p.device.muted ? 'Unmute' : 'Mute');
+      b.replaceChildren(icon(p.device.muted ? 'muted' : 'speaker'));
+    }
     if (supportsVolume && !dragging) volume.value = String(p.device.volume);
     tick();
   };

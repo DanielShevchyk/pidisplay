@@ -420,3 +420,27 @@ test('music on a TV with a soundbar gets volume buttons, not a slider', async ()
   await spotify.control('volume', { step: -1 });
   assert.deepEqual(steps, [1, -1]);
 });
+
+test('mute: the TV mutes itself; other speakers go to 0 and back', async () => {
+  const tvMutes = [];
+  let device = { id: 'tv9', name: 'TV', type: 'TV', is_active: true, volume_percent: null, supports_volume: false };
+  const { spotify, calls, advance } = await setup({
+    routes: { 'GET /me/player': () => [200, { is_playing: true, progress_ms: 5, device, item: null }] },
+    tvVolume: { get: async () => ({ volume: 12, output: 'external_arc', muted: false }), step: async () => {}, mute: async (on) => void tvMutes.push(on) },
+  });
+  await connect(spotify);
+  assert.equal((await spotify.player()).player.device.canMute, true);
+  await spotify.control('mute', { on: true });
+  assert.deepEqual(tvMutes, [true]);
+  assert.equal((await spotify.player()).player.device.muted, true);
+
+  device = { id: 'pi', name: 'PiDisplay', type: 'Speaker', is_active: true, volume_percent: 70, supports_volume: true };
+  advance(5000);
+  await spotify.control('mute', { on: true });
+  assert.ok(calls.at(-1).url.includes('volume_percent=0'));
+  device = { ...device, volume_percent: 0 };
+  advance(5000);
+  assert.equal((await spotify.player()).player.device.muted, true);
+  await spotify.control('mute', { on: false });
+  assert.ok(calls.at(-1).url.includes('volume_percent=70'));
+});

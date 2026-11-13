@@ -193,10 +193,11 @@ export function createServer({
       // Over the remote's held connection, so Spotify's polling doesn't reconnect each time.
       get: async () => {
         const t = await tv.getState();
-        return t.on ? { volume: t.volume ?? null, output: t.output ?? '' } : null;
+        return t.on ? { volume: t.volume ?? null, output: t.output ?? '', muted: Boolean(t.muted) } : null;
       },
       // One remote press: the only volume control that works through a soundbar on HDMI ARC.
       step: async (dir) => ((await tv.status()).linked ? tv.press({ action: dir > 0 ? 'volumeUp' : 'volumeDown' }) : null),
+      mute: async (on) => ((await tv.status()).linked ? tv.press({ action: 'mute', mute: on }) : null),
       set: async (percent) => ((await tv.status()).linked ? tv.setVolume(percent) : null),
     },
     linkedTv: async () => {

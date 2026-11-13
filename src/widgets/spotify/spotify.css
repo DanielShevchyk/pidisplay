@@ -90,6 +90,10 @@
 .spt-vol-icon { font-size: 24px; }
 .spt-volume[hidden] { display: none; }
 .spt-vol-steps { gap: 20px; }
+.spt-mute { width: 64px; height: 64px; color: var(--text); background: var(--surface-2); }
+.spt-mute .spt-icon { width: 32px; height: 32px; }
+.spt-mute.on { color: var(--danger); }
+.spt-mute[hidden] { display: none; }
 .spt-vol-step { background: var(--surface-2); font-size: clamp(28px, 7cqh, 40px); font-weight: 600; }
 .spt-range { flex: 1; min-width: 0; height: 40px; accent-color: var(--accent); }
 .spt-range::-webkit-slider-thumb { width: 32px; height: 32px; }
