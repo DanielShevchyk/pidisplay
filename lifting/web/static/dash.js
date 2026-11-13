@@ -119,10 +119,9 @@ async function renderTrend(el) {
 
   const chartEl = h('div', { class: 'chart' });
   const table = h('table', { class: 'data' },
-    h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Day'), h('th', {}, 'How'), h('th', { class: 'num' }, 'Top set'), h('th', { class: 'num' }, 'e1RM'), h('th', { class: 'num' }, 'Sets'), h('th', {}, ''))),
+    h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Day'), h('th', { class: 'num' }, 'Top set'), h('th', { class: 'num' }, 'e1RM'), h('th', { class: 'num' }, 'Sets'), h('th', {}, ''))),
     h('tbody', {}, ...ses.slice().reverse().map((x) => h('tr', {},
       h('td', {}, longDate(x.date)), h('td', {}, x.day_label),
-      h('td', { class: 'dim' }, x.variations.filter(Boolean).join(', ')),
       h('td', { class: 'num' }, x.top_weight !== null ? `${lb(x.top_weight)}${x.top_reps ? ` × ${x.top_reps}` : ''}` : x.max_height_in !== null ? `${num(x.max_height_in)} in` : x.max_duration_s !== null ? `${num(x.max_duration_s)} s` : '–'),
       h('td', { class: 'num' }, x.e1rm !== null ? `${rough(x.e1rm_rough)}${num(x.e1rm)}` : '–'),
       h('td', { class: 'num' }, String(x.sets)),

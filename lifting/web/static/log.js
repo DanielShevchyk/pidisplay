@@ -83,11 +83,10 @@ async function renderSets(el) {
   const names = [...new Set(exercises.map((e) => e.name))].sort();
   const exSelect = h('select', {},
     h('option', { value: '' }, 'All exercises'),
+    // One entry per exercise name; its variations are filtered together.
     ...names.map((n) => {
-      const vars = exercises.filter((e) => e.name === n);
-      return vars.length > 1
-        ? h('optgroup', { label: n }, h('option', { value: `name:${n}`, selected: filters.exercise === `name:${n}` }, `${n} (all variations)`), ...vars.map((v) => h('option', { value: `id:${v.id}`, selected: filters.exercise === `id:${v.id}` }, `${n} · ${v.variation || 'standard'}`)))
-        : h('option', { value: `id:${vars[0].id}`, selected: filters.exercise === `id:${vars[0].id}` }, vars[0].label);
+      const ids = exercises.filter((e) => e.name === n).map((e) => `id:${e.id}`);
+      return h('option', { value: `name:${n}`, selected: filters.exercise === `name:${n}` || ids.includes(filters.exercise) }, n);
     }));
   const from = h('input', { type: 'date', value: filters.from });
   const to = h('input', { type: 'date', value: filters.to });

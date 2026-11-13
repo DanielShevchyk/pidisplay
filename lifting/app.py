@@ -106,6 +106,14 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 
+    @app.middleware("http")
+    async def revalidate_static(request: Request, call_next):
+        # Without this the kiosk's Chromium may keep an old script after a deploy.
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     async def person_id(person: Optional[str] = Query(None, description="Person id or name; blank = the default person")) -> int:
         """Every view and write is for one person, picked with ?person= (async: runs on the event loop)."""
         pid = find_person(conn, person)

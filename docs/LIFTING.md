@@ -41,7 +41,7 @@ but assume at most 2% e1RM gain per week, since early sessions jump a lot.
 
 ## Pages
 
-- **Trends**: per lift, estimated 1RM and top-set weight over time. A lift is an exercise name: its variations (stance, grip, machine) are drawn as one line, and the table under the chart says which was used each day.
+- **Trends**: per lift, estimated 1RM and top-set weight over time. A lift is an exercise name: its variations (stance, grip, machine) are drawn as one line.
 - **Volume**: working sets per muscle group for each week (Monday start), with last week as a tick.
 - **PRs**: recent PRs; tap one to open that lift's trend.
 - **Month**: a calendar month next to the one before: sessions, working sets, weight moved (weight × reps), PRs, average effort, sets per muscle group, training-day calendar.

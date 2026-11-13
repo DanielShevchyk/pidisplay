@@ -406,3 +406,7 @@ def test_variations_roll_up_into_one_lift(client):
     last = metrics.summary(conn, 1, today=date(2026, 10, 10))["last_session"]["exercises"]
     assert last == [{"label": "Belt squat", "name": "Belt squat", "top_weight": 310, "sets": 2}]
     assert len(client.get(f"/api/trend/{lifts[0]['exercise_id']}").json()["sessions"]) == 2  # one variation, by id
+
+
+def test_static_files_revalidate(client):
+    assert client.get("/static/dash.js").headers["cache-control"] == "no-cache"
