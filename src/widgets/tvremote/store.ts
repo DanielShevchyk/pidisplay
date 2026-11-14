@@ -15,6 +15,8 @@ export interface TvState {
   output?: string;
   /** True for a soundbar or receiver: the volume number is then only PiDisplay's guess. */
   external?: boolean;
+  /** On, but showing its screensaver ('saver') or with the picture switched off ('off'). */
+  screen?: 'saver' | 'off' | null;
 }
 
 export interface TvApp {

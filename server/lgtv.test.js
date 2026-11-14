@@ -5,7 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { createLgTv, defaultConnect, encodeFrame, frameReader, magicPacket, TvError } from './lgtv.js';
+import { createLgTv, defaultConnect, encodeFrame, frameReader, magicPacket, powerIsOn, TvError } from './lgtv.js';
 
 /** An unmasked frame, as a server sends it. */
 function serverFrame(text, opcode = 0x1) {
@@ -376,5 +376,36 @@ test('the remote steps the volume through an HDMI ARC soundbar instead of settin
   assert.deepEqual({ volume: set.volume, external: set.external }, { volume: 14, external: true });
   assert.equal((await tv.press({ action: 'volumeDown' })).volume, 13);
   assert.equal(log.filter((l) => l[0] === 'connect').length, 1);
+  tv.close();
+});
+
+test('a TV showing its screensaver, or with the picture off, counts as on', async () => {
+  assert.equal(powerIsOn({ state: 'Active' }), true);
+  assert.equal(powerIsOn({ state: 'Screen Saver' }), true);
+  assert.equal(powerIsOn({ state: 'Screen Off' }), true);
+  assert.equal(powerIsOn({ state: 'Active', processing: 'Request Power Off' }), false);
+  assert.equal(powerIsOn({ state: 'Active Standby' }), false);
+  assert.equal(powerIsOn({ state: 'Suspend' }), false);
+  assert.equal(powerIsOn(null), true);
+
+  const { tv, log } = await service({ states: ['Active', 'Screen Saver'] });
+  await tv.link({ ip: '192.168.1.50' });
+  const st = await tv.getState();
+  assert.deepEqual({ on: st.on, screen: st.screen }, { on: true, screen: 'saver' });
+  log.length = 0;
+  await tv.openSpotify();
+  assert.equal(log.filter((l) => l[0] === 'wake').length, 0, 'no wake-up packet for a TV that is on');
+  tv.close();
+});
+
+test('one missed connection while the TV was on is retried before calling it off', async () => {
+  const { tv, log } = await service({ states: ['Active', 'Active', 'down', 'Active'] });
+  await tv.link({ ip: '192.168.1.50' });
+  assert.equal((await tv.getState()).on, true);
+  tv.close(); // the held session is gone, as after the idle timeout
+  await new Promise((r) => setTimeout(r, 2100)); // past the state cache
+  log.length = 0;
+  assert.equal((await tv.getState()).on, true);
+  assert.equal(log.filter((l) => l[0] === 'connect').length, 2);
   tv.close();
 });

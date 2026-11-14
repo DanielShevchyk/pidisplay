@@ -29,6 +29,18 @@ const DIAL_ST = 'urn:dial-multiscreen-org:service:dial:1';
 const SPOTIFY_APP_ID = 'spotify-beehive';
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const MAC = /^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i;
+// getPowerState says "Active" when the TV is on, but also "Screen Saver" (its screensaver
+// after a few idle minutes) and "Screen Off" (picture off, sound still playing). Those
+// are on too; "Active Standby" and "Suspend" are off. While it is switching, `processing`
+// names where it is heading, e.g. "Request Power Off".
+const POWER_ON_STATES = new Set(['Active', 'Screen Saver', 'Screen Off']);
+/** Whether a getPowerState answer means the TV is on. Sets that don't report it are on if they answer. */
+export function powerIsOn(power) {
+  if (!power?.state) return true;
+  return POWER_ON_STATES.has(power.state) && !/power ?off|suspend|standby|reboot/i.test(power.processing ?? '');
+}
+/** 'saver' or 'off' when the TV is on with its screensaver or its picture off, else null. */
+const screenOf = (power) => (power?.state === 'Screen Saver' ? 'saver' : power?.state === 'Screen Off' ? 'off' : null);
 const MAX_FRAME = 4 * 1024 * 1024;
 // Keys the TV takes over its pointer socket, as its own remote sends them.
 const BUTTONS = new Set([
@@ -491,8 +503,7 @@ export function createLgTv({
     };
     const isOn = async (session) => {
       const power = await session.request('com.webos.service.tvpower/power/getPowerState').catch(() => null);
-      // Older sets don't report it; if they answer at all, they're on.
-      return !power?.state || power.state === 'Active';
+      return powerIsOn(power);
     };
 
     let session = await connect(c.ip, opts).catch((err) => {
@@ -751,14 +762,20 @@ export function createLgTv({
       const base = { linked: Boolean(c.ip && c.key), name: c.name ?? null, canWake: Boolean(c.mac) };
       if (!base.linked) return { ...base, on: false };
       try {
-        await remoteSession(); // an unreachable TV is off
+        // An unreachable TV is off. One missed connection while it was on is more likely a
+        // network blip (or a busy TV) than a switch-off, so try once more before saying so.
+        await remoteSession().catch(async (err) => {
+          if (!(err instanceof TvError && err.status === 503 && state?.value.on)) throw err;
+          await wait(500);
+          return remoteSession();
+        });
         const power = await ask('com.webos.service.tvpower/power/getPowerState').catch(() => null);
-        if (power?.state && power.state !== 'Active') {
+        if (!powerIsOn(power)) {
           dropRemote();
           return { ...base, on: false };
         }
         const [app, s] = await Promise.all([ask('com.webos.applicationManager/getForegroundAppInfo').catch(() => null), sound()]);
-        return { ...base, on: true, appId: app?.appId || null, ...s };
+        return { ...base, on: true, screen: screenOf(power), appId: app?.appId || null, ...s };
       } catch (err) {
         if (err instanceof TvError && err.status === 503) return { ...base, on: false };
         throw err;

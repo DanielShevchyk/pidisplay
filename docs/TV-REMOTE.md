@@ -58,6 +58,9 @@ same as the TV's own remote, and doesn't show a number. Mute is passed on the sa
 - **"The TV won't let PiDisplay do that yet"**: newer firmware wanted a permission the
   link didn't ask for. Unlink the TV (Spotify > Speakers) and link it again. If it still
   happens, compare `MANIFEST` in `server/lgtv.js` with aiowebostv's current one.
+- The TV's screensaver and "picture off" (screen off with sound on) count as on; the
+  tile then says **Screensaver** or **Picture off** under the TV's name, and any button
+  wakes the picture.
 - **"... is off or not answering"**: the TV is off, or its address changed. Check the
   DHCP reservation.
 - **Power doesn't switch it on**: check step 1 above, and that the TV was once switched

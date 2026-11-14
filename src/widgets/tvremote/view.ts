@@ -198,7 +198,9 @@ export class Parts {
     const paint = () => {
       const s = remote.state;
       name.textContent = s?.name ?? 'TV';
-      sub.textContent = remote.waking ? 'Switching on…' : !s?.on ? 'Off' : appTitle(s.appId) ?? (s.external ? 'Sound on the soundbar' : '');
+      const screen = s?.screen === 'saver' ? 'Screensaver' : s?.screen === 'off' ? 'Picture off' : '';
+      const app = appTitle(s?.appId) ?? (s?.external ? 'Sound on the soundbar' : '');
+      sub.textContent = remote.waking ? 'Switching on…' : !s?.on ? 'Off' : [screen, app].filter(Boolean).join(' · ');
     };
     this.onDestroy(remote.subscribeQuiet(paint));
     paint();
