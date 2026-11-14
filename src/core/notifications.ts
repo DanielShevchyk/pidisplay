@@ -22,7 +22,7 @@ export class Notifications {
   private sheet: SheetHandle | null = null;
   readonly button = h(
     'button',
-    { class: 'btn btn-ghost bar-btn', 'aria-label': 'Notifications', onclick: () => this.open() },
+    { class: 'btn btn-ghost bar-btn bell-btn', 'aria-label': 'Notifications', onclick: () => this.open() },
     icon('bell'),
     this.badge,
   );

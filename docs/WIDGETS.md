@@ -51,7 +51,7 @@ Subscriptions made through `storage.onChange` and `on` are cleaned up automatica
 
 ## Sizing
 
-`el` is a CSS size container, so `cqw`/`cqh` units scale text to the tile: `font-size: min(26cqw, 48cqh)`. The `clock` widget is the reference example, including a compact top-bar view (`supportsBar: true` and `placement === 'bar'`).
+`el` is a CSS size container, so `cqw`/`cqh` units scale text to the tile: `font-size: min(26cqw, 48cqh)`. The `clock` widget is the reference example, including a compact top-bar view (`supportsBar: true` and `placement === 'bar'`). A bar view should be one line, about 56px tall and not too wide: the bar never wraps, and an item that doesn't fit on its side is hidden whole.
 
 ## Colors
 

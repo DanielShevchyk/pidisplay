@@ -14,6 +14,8 @@ import { showBluetooth, showWifi } from './connections';
 import { currentTheme, setTheme, type Theme } from './theme';
 import { VoiceUI } from './voice';
 import { SleepUI, showSleep } from './sleep';
+import { BarEditor } from './bar-edit';
+import { BarFit, type BarSide } from './topbar';
 import { cellsFor, emptyCells, ensurePlaced, placeWithPush, rectOf, renderSizeFor, spotForNew, type Rect } from './grid';
 import {
   SIZE_LABELS,
@@ -62,13 +64,15 @@ interface Mounted {
   cleanups: (() => void)[];
 }
 
-type BarSide = 'left' | 'right';
-
 export class App {
   private page = 0;
   private editing = false;
   private tiles = new Map<string, Mounted>();
   private barItems = new Map<string, Mounted>();
+  /** Live widget views in the bar editor's tray. */
+  private previews = new Map<string, Mounted>();
+  private barFit!: BarFit;
+  private barEditor!: BarEditor;
   private lastInteraction = 0;
   private lastPageChange = Date.now();
   /** Voice "stay on this page": no rotating until then. */
@@ -84,6 +88,8 @@ export class App {
   private undoStack: string[] = [];
   private lastSnapshot = '';
   private undoBtn!: HTMLButtonElement;
+  private barActions!: HTMLElement;
+  private barCenter!: HTMLElement;
   private editTitle = h('div', { class: 'page-title' });
   private ghost = h('div', { class: 'ghost' });
 
@@ -154,7 +160,7 @@ export class App {
       h('button', { class: 'btn', onclick: () => this.openAddTile() }, icon('plus'), ' Tile'),
       h('button', { class: 'btn', onclick: () => this.addPage() }, icon('plus'), ' Page'),
       h('button', { class: 'btn', onclick: () => this.openPageSettings() }, 'Page'),
-      h('button', { class: 'btn', onclick: () => this.openTopBarSettings() }, 'Top bar'),
+      h('button', { class: 'btn', onclick: () => this.setBarEditing(true) }, 'Top bar'),
       h('button', { class: 'btn', onclick: () => this.openDisplaySettings() }, 'Display'),
       h('span', { class: 'editbar-gap' }),
       this.saveStatus,
@@ -162,17 +168,43 @@ export class App {
       h('button', { class: 'btn btn-primary', onclick: () => this.setEditing(false) }, 'Done'),
     );
     root.classList.add('app');
-    root.append(
-      h(
-        'header',
-        { class: 'topbar' },
-        this.barLeft,
-        h('div', { class: 'bar-center' }, this.pageTitle, this.dots),
-        h('div', { class: 'bar-slot bar-actions' }, this.barRight, alerts.chip, reminderAlerts.chip, checkinPrompt.chip, this.voice.button, this.notifications.button, editBtn, menuBtn),
-      ),
-      editBar,
-      this.main,
+    this.barCenter = h('div', { class: 'bar-center' }, this.pageTitle, this.dots);
+    this.barActions = h(
+      'div',
+      { class: 'bar-slot bar-actions' },
+      this.barRight,
+      alerts.chip,
+      reminderAlerts.chip,
+      checkinPrompt.chip,
+      this.voice.button,
+      this.notifications.button,
+      editBtn,
+      menuBtn,
     );
+    const topbar = h('header', { class: 'topbar' }, this.barLeft, this.barCenter, this.barActions);
+    this.barFit = new BarFit(this.barLeft, this.barRight, this.barActions, this.barCenter);
+    const app = this;
+    this.barEditor = new BarEditor(
+      {
+        get layout() {
+          return app.layout;
+        },
+        get fit() {
+          return app.barFit;
+        },
+        changed: () => this.changed(),
+        back: () => this.setBarEditing(false),
+        done: () => this.setEditing(false),
+        undo: () => this.undo(),
+        openItemSettings: (id) => this.openBarItemSettings(id),
+        mountPreview: (type, config) => this.mountInto(this.previews, `preview-${type}`, type, 'bar', config).el,
+        clearPreviews: () => this.prune(this.previews, new Set()),
+      },
+      topbar,
+      { left: this.barLeft, right: this.barRight },
+      this.barCenter,
+    );
+    root.append(topbar, editBar, this.main, this.barEditor.tray, this.barEditor.pill);
 
     this.bindGestures();
     this.sync();
@@ -191,6 +223,9 @@ export class App {
   private sync() {
     const { settings, pages, topBar } = this.layout;
     const { columns, rows } = settings;
+    this.root.classList.toggle('hide-page', !!topBar.hide?.page);
+    this.root.classList.toggle('hide-voice', !!topBar.hide?.voice);
+    this.root.classList.toggle('hide-bell', !!topBar.hide?.bell);
     this.main.style.setProperty('--cols', String(columns));
     this.main.style.setProperty('--rows', String(rows));
 
@@ -201,11 +236,14 @@ export class App {
         ...topBar[side].map((item) => {
           seenBar.add(item.id);
           const m = this.mountInto(this.barItems, item.id, item.widget, 'bar', item.config);
+          this.barFit.observe(m.el);
           return m.el;
         }),
       );
     }
     this.prune(this.barItems, seenBar);
+    this.barFit.schedule();
+    this.barEditor.refresh();
 
     const seenTiles = new Set<string>();
     this.track.replaceChildren(
@@ -263,7 +301,7 @@ export class App {
       const body = h('div', { class: 'widget-body' });
       const el =
         placement === 'bar'
-          ? h('div', { class: 'bar-item', 'data-id': id, onclick: () => this.editing && this.openBarItemSettings(id) }, body)
+          ? h('div', { class: 'bar-item', 'data-id': id }, body)
           : h('div', { class: 'tile', 'data-id': id }, body);
       m = { el, body, key, cleanups: [] };
       registry.set(id, m);
@@ -329,6 +367,7 @@ export class App {
     for (const [id, m] of registry) {
       if (keep.has(id)) continue;
       this.teardown(m);
+      this.barFit.unobserve(m.el);
       m.el.remove();
       registry.delete(id);
     }
@@ -451,10 +490,27 @@ export class App {
     this.selected = null;
     this.undoStack = [];
     this.lastSnapshot = on ? JSON.stringify(this.layout) : '';
-    this.undoBtn.disabled = true;
-    if (!on) this.flushSave();
+    this.setUndoState();
+    if (!on) {
+      this.setBarEditing(false);
+      this.flushSave();
+    }
     // Adds or removes the "+" slots in empty cells.
     this.sync();
+  }
+
+  private setUndoState() {
+    this.undoBtn.disabled = this.barEditor.undoBtn.disabled = !this.undoStack.length;
+  }
+
+  /** The top bar editor: the real bar comes back over the edit bar, with its tray under it. */
+  private setBarEditing(on: boolean) {
+    if (on === this.barEditor.isOpen) return;
+    this.root.classList.toggle('bar-editing', on);
+    if (on) {
+      this.select(null);
+      this.barEditor.open();
+    } else this.barEditor.close();
   }
 
   // ---- Edit mode: selecting --------------------------------------------
@@ -786,7 +842,7 @@ export class App {
         if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
         this.lastSnapshot = now;
       }
-      this.undoBtn.disabled = !this.undoStack.length;
+      this.setUndoState();
     }
     this.scheduleSave();
   }
@@ -799,7 +855,7 @@ export class App {
 
   private undo() {
     const prev = this.undoStack.pop();
-    this.undoBtn.disabled = !this.undoStack.length;
+    this.setUndoState();
     if (!prev) return;
     this.layout = JSON.parse(prev);
     this.lastSnapshot = prev;
@@ -1060,66 +1116,11 @@ export class App {
     ]);
   }
 
-  private openTopBarSettings() {
-    const sheet = openSheet('Top bar', []);
-    const render = () => {
-      const barWidgets = allWidgets().filter((d) => d.supportsBar);
-      sheet.body.replaceChildren(
-        ...(['left', 'right'] as BarSide[]).flatMap((side) => [
-          h('h3', {}, side === 'left' ? 'Left side' : 'Right side'),
-          h(
-            'ul',
-            { class: 'bar-list' },
-            ...this.layout.topBar[side].map((item, i) =>
-              h(
-                'li',
-                {},
-                h('span', {}, `${getWidget(item.widget)?.icon ?? '?'} ${getWidget(item.widget)?.name ?? item.widget}`),
-                h('button', { class: 'btn btn-ghost', onclick: () => this.openBarItemSettings(item.id) }, icon('settings')),
-                h(
-                  'button',
-                  {
-                    class: 'btn btn-ghost',
-                    onclick: () => {
-                      this.layout.topBar[side].splice(i, 1);
-                      this.changed();
-                      render();
-                    },
-                  },
-                  icon('x'),
-                ),
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { class: 'chips' },
-            ...barWidgets.map((def) =>
-              h(
-                'button',
-                {
-                  class: 'chip',
-                  onclick: () => {
-                    this.layout.topBar[side].push({ id: uid(`bar-${def.type}`), widget: def.type, config: {} });
-                    this.changed();
-                    render();
-                  },
-                },
-                `${def.icon} ${def.name}`,
-              ),
-            ),
-          ),
-        ]),
-      );
-    };
-    render();
-  }
-
   private openBarItemSettings(id: string) {
     const item = [...this.layout.topBar.left, ...this.layout.topBar.right].find((i) => i.id === id);
     const def = item && getWidget(item.widget);
     if (!item || !def) return;
-    openSheet(`${def.icon} ${def.name} (top bar)`, [
+    openSheet(`${def.name} (top bar)`, [
       def.settings?.length
         ? settingsForm(def.settings, { ...def.defaultConfig, ...item.config }, (next) => {
             item.config = next;

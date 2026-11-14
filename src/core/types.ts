@@ -201,7 +201,12 @@ export interface LayoutSettings {
 export interface Layout {
   version: 1;
   settings: LayoutSettings;
-  topBar: { left: BarItemConfig[]; right: BarItemConfig[] };
+  topBar: {
+    left: BarItemConfig[];
+    right: BarItemConfig[];
+    /** Built-in bar parts switched off in the bar editor. Edit and Settings always show. */
+    hide?: { page?: boolean; voice?: boolean; bell?: boolean };
+  };
   pages: PageConfig[];
 }
 
