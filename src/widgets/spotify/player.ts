@@ -35,7 +35,10 @@ interface Options {
 
 export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): () => void {
   const full = placement === 'sheet' || FULL.has(placement as Placement);
-  const root = h('div', { class: `spt size-${placement}` });
+  // Small, wide and tall tiles: a now-playing card (art, title, a few buttons, a thin
+  // progress line). Tapping one opens the full player in a sheet.
+  const compact = !full && placement !== 'bar';
+  const root = h('div', { class: `spt size-${placement}${compact ? ' spt-compact' : ''}` });
   el.append(root);
 
   // ---- Pieces, built once ------------------------------------------------
@@ -45,6 +48,10 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
   const artist = h('div', { class: 'spt-artist' });
   const album = h('div', { class: 'spt-album' });
   const device = h('div', { class: 'spt-device' });
+  const where = h('span', { class: 'spt-where-name' });
+  const whereLine = h('div', { class: 'spt-where' }, icon('speaker'), where);
+  const miniFill = h('div', { class: 'spt-mini-fill' });
+  const miniBar = h('div', { class: 'spt-mini-bar' }, miniFill);
 
   const btn = (name: keyof typeof ICONS, label: string, onclick: () => void, cls = '') =>
     h('button', { class: `spt-btn ${cls}`, 'aria-label': label, onclick: (e: Event) => (e.stopPropagation(), onclick()) }, icon(name));
@@ -115,12 +122,17 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     full ? shuffleBtn : null,
     placement === 'small' || placement === 'bar' ? null : prevBtn,
     playBtn,
-    nextBtn,
+    placement === 'small' ? null : nextBtn,
     full ? repeatBtn : null,
   );
-  const info = h('div', { class: 'spt-info' }, title, artist, full ? album : null);
+  const info = h('div', { class: 'spt-info' }, title, artist, full ? album : null, compact && placement !== 'small' ? whereLine : null);
 
-  const playerView = h(
+  const playerView = compact
+    ? placement === 'small'
+      ? // Art fills the tile; the song and a play button sit on a shade along the bottom.
+        h('div', { class: 'spt-player' }, artBox, h('div', { class: 'spt-shade' }), h('div', { class: 'spt-badge' }, spotifyLogo()), h('div', { class: 'spt-main' }, info, controls), miniBar)
+      : h('div', { class: 'spt-player' }, artBox, h('div', { class: 'spt-main' }, info, controls, miniBar))
+    : h(
     'div',
     { class: 'spt-player' },
     artBox,
@@ -151,7 +163,24 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
 
   const idleView = () => {
     if (placement === 'bar') return h('button', { class: 'spt-bar-empty', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, spotifyLogo());
-    if (placement === 'small') return message(spotifyLogo(), '', h('button', { class: 'btn btn-primary', onclick: (e: Event) => (e.stopPropagation(), onExpand?.()) }, 'Play'));
+    if (compact) {
+      // The same card as when playing, with the logo in place of the art.
+      const resume = h('button', { class: 'spt-btn spt-play', 'aria-label': 'Resume', onclick: (e: Event) => (e.stopPropagation(), void spotify.act('play')) }, icon('play'));
+      const library = h('button', { class: 'btn spt-chip', onclick: (e: Event) => (e.stopPropagation(), openLibrarySheet()) }, icon('library'), 'Library');
+      const small = placement === 'small';
+      return h(
+        'div',
+        { class: 'spt-player spt-idle' },
+        h('div', { class: 'spt-art' }, h('div', { class: 'spt-art-empty' }, spotifyLogo())),
+        small ? h('div', { class: 'spt-shade' }) : null,
+        h(
+          'div',
+          { class: 'spt-main' },
+          h('div', { class: 'spt-info' }, h('div', { class: 'spt-title' }, 'Nothing playing'), h('div', { class: 'spt-artist' }, small ? 'Spotify' : 'Pick something to play')),
+          h('div', { class: 'spt-controls' }, resume, small ? null : library),
+        ),
+      );
+    }
     return message(
       spotifyLogo(),
       'Nothing playing',
@@ -186,7 +215,8 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     if (mode !== 'player' || !p) return;
 
     const item = p.item;
-    const src = (placement === 'bar' || placement === 'small' ? item?.thumb : item?.image) ?? '';
+    // A small tile shows the art edge to edge, so it needs the bigger image too.
+    const src = (placement === 'bar' ? item?.thumb : item?.image ?? item?.thumb) ?? '';
     if (art.getAttribute('src') !== src) {
       if (src) art.src = src;
       else art.removeAttribute('src');
@@ -196,6 +226,8 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
     artist.textContent = item?.artists.join(', ') ?? '';
     album.textContent = item?.album ?? '';
     device.textContent = p.device.name;
+    where.textContent = p.device.name;
+    root.classList.toggle('is-paused', !p.isPlaying);
     playBtn.replaceChildren(icon(p.isPlaying ? 'pause' : 'play'));
     playBtn.setAttribute('aria-label', p.isPlaying ? 'Pause' : 'Play');
     prevBtn.disabled = p.disallows.includes('skipping_prev') && spotify.progress() <= 4000;
@@ -218,11 +250,16 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
 
   const tick = () => {
     const p = spotify.player;
-    if (!full || !p?.item) return;
+    if (!p?.item || !(full || compact)) return;
     const ms = spotify.progress();
+    const pct = `${p.item.durationMs ? Math.min(100, (ms / p.item.durationMs) * 100) : 0}%`;
+    if (compact) {
+      miniFill.style.width = pct;
+      return;
+    }
     elapsed.textContent = formatTime(ms);
     total.textContent = formatTime(p.item.durationMs);
-    fill.style.width = `${p.item.durationMs ? (ms / p.item.durationMs) * 100 : 0}%`;
+    fill.style.width = pct;
   };
 
   if (onExpand) root.addEventListener('click', () => shown === 'player' || shown === 'idle' ? onExpand() : undefined);

@@ -146,20 +146,98 @@
 .spt.size-xlarge .spt-player { gap: 5cqw; padding: 2cqh 2cqw; }
 .spt.size-full .spt-art { width: min(45cqw, 90cqh); }
 
-.spt.size-medium .spt-controls { justify-content: flex-start; }
+/* Large (2 x 2): art and the song side by side on top, the controls full width below. */
+.spt.size-large .spt-player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  column-gap: 22px;
+  row-gap: 12px;
+}
+.spt.size-large .spt-main { display: contents; }
+.spt.size-large .spt-art { grid-row: 1; width: min(40cqh, 40cqw); border-radius: 18px; }
+.spt.size-large .spt-info { grid-column: 2; align-self: center; }
+.spt.size-large .spt-title { font-weight: 700; font-size: clamp(20px, 7cqh, 30px); }
+.spt.size-large .spt-artist { font-size: clamp(15px, 4.6cqh, 22px); }
+.spt.size-large .spt-main > :not(.spt-info) { grid-column: 1 / -1; }
+.spt.size-large .spt-controls { max-width: none; }
+.spt.size-large .spt-volume { max-width: none; }
 
-.spt.size-tall .spt-player { flex-direction: column; align-items: stretch; gap: 3cqh; }
-.spt.size-tall .spt-art { width: min(100cqw, 52cqh); align-self: center; }
-.spt.size-tall .spt-main { justify-content: flex-start; }
-.spt.size-tall .spt-title { font-size: clamp(16px, 9cqw, 30px); }
-.spt.size-tall .spt-artist { font-size: clamp(14px, 7cqw, 24px); }
-.spt.size-tall .spt-controls { justify-content: space-around; }
+/* ---- Compact tiles: small, wide and tall ---- */
 
-.spt.size-small .spt-player { flex-direction: column; gap: 2cqh; }
-.spt.size-small .spt-art { width: min(100cqw, 60cqh); }
-.spt.size-small .spt-info { display: none; }
-.spt.size-small .spt-controls { gap: 4cqw; }
-.spt.size-small .spt-btn { width: 30cqh; height: 30cqh; font-size: 16cqh; }
+.spt-compact .spt-btn { width: 52px; height: 52px; font-size: 26px; }
+.spt-compact .spt-btn.spt-play { width: 60px; height: 60px; font-size: 28px; }
+.spt-compact .spt-controls { justify-content: flex-start; gap: 6px; max-width: none; }
+.spt-compact .spt-title { font-weight: 700; letter-spacing: -0.01em; }
+.spt-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-size: 14px;
+  min-width: 0;
+}
+.spt-where .spt-icon { flex: none; font-size: 15px; }
+.spt-where-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spt-mini-bar { height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; flex: none; }
+.spt-mini-fill { height: 100%; width: 0; border-radius: 2px; background: var(--text); }
+.spt-compact.is-paused .spt-mini-fill { opacity: 0.5; }
+
+/* Wide: art down the left, the song and controls beside it, a progress line under them. */
+.spt.size-medium .spt-player { gap: 22px; align-items: stretch; }
+.spt.size-medium .spt-art { width: auto; height: 100%; border-radius: 18px; box-shadow: 0 8px 24px var(--shadow); }
+.spt.size-medium .spt-main { justify-content: space-between; gap: 8px; padding: 2px 0; }
+.spt.size-medium .spt-title { font-size: clamp(20px, 15cqh, 30px); }
+.spt.size-medium .spt-artist { font-size: clamp(15px, 10cqh, 20px); margin-top: 2px; }
+.spt.size-medium .spt-controls { margin-left: -10px; }
+
+/* Tall: art on top, the song, controls and a progress line below. */
+.spt.size-tall .spt-player { flex-direction: column; align-items: stretch; gap: 14px; }
+.spt.size-tall .spt-art { width: min(100cqw, 50cqh); align-self: center; border-radius: 20px; box-shadow: 0 8px 24px var(--shadow); }
+.spt.size-tall .spt-main { justify-content: space-between; gap: 10px; }
+.spt.size-tall .spt-title { font-size: clamp(18px, 10cqw, 28px); }
+.spt.size-tall .spt-artist { font-size: clamp(14px, 7.5cqw, 20px); margin-top: 2px; }
+.spt.size-tall .spt-controls { justify-content: space-between; }
+
+/* Small: the art fills the tile; title, artist and play sit on a shade along the bottom. */
+.spt.size-small { margin: -20px -22px; height: calc(100% + 40px); }
+.spt.size-small .spt-player { position: relative; display: block; height: 100%; }
+.spt.size-small .spt-art { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
+.spt.size-small .spt-art-empty { font-size: 34cqh; padding-bottom: 22cqh; }
+.spt.size-small .spt-shade {
+  position: absolute;
+  inset: 35% 0 0;
+  background: linear-gradient(rgba(10, 8, 26, 0), rgba(10, 8, 26, 0.82));
+  pointer-events: none;
+}
+.spt.size-small .spt-badge { position: absolute; top: 14px; right: 14px; font-size: 26px; line-height: 0; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5)); }
+.spt.size-small .spt-art:not(.has-art) ~ .spt-badge { display: none; }
+.spt.size-small .spt-main {
+  position: absolute;
+  left: 18px;
+  right: 14px;
+  bottom: 18px;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+.spt.size-small .spt-info { flex: 1; min-width: 0; color: #fff; }
+.spt.size-small .spt-title { font-size: clamp(18px, 10cqh, 24px); line-height: 1.2; }
+.spt.size-small .spt-artist { color: rgba(255, 255, 255, 0.75); font-size: clamp(14px, 7.5cqh, 17px); margin-top: 1px; }
+.spt.size-small .spt-controls { flex: none; }
+.spt.size-small .spt-btn.spt-play { width: 54px; height: 54px; font-size: 24px; background: #fff; color: #17142e; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.spt.size-small .spt-mini-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; border-radius: 0; background: rgba(255, 255, 255, 0.2); }
+.spt.size-small .spt-mini-fill { background: #fff; border-radius: 0; }
+.spt-idle .spt-art { background: var(--surface-2); box-shadow: none; }
+.spt-idle .spt-art-empty { font-size: 40cqh; }
+.spt.size-tall .spt-idle .spt-art-empty { font-size: 22cqh; }
+.spt.size-medium .spt-idle .spt-artist { white-space: normal; }
+.spt-compact .spt-idle .spt-controls { gap: 12px; justify-content: flex-start; }
+.spt-compact .spt-idle .spt-chip { min-height: 52px; }
+.spt.size-small .spt-idle .spt-art-empty { font-size: 30cqh; padding-bottom: 24cqh; }
+.spt.size-small .spt-error { left: 10px; right: 10px; bottom: 10px; font-size: 14px; }
 
 .spt.size-bar .spt-player { gap: 12px; height: 56px; }
 .spt.size-bar .spt-art { width: 48px; border-radius: 8px; box-shadow: none; }
