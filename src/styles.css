@@ -225,16 +225,16 @@ select { font: inherit; color: inherit; }
   border: 1px solid var(--border);
 }
 .page-title { font-size: 22px; font-weight: 700; white-space: nowrap; }
-.dots { display: flex; }
+.dots { display: flex; align-items: center; height: 56px; padding: 0 4px; touch-action: none; cursor: pointer; }
 .dots[hidden] { display: none; }
+/* Sliding a finger along the dots changes pages; the strip lights up while it's held. */
+.dots.scrubbing { border-radius: 999px; background: var(--surface-2); }
 .dot {
-  width: 22px;
-  height: 40px;
-  border: 0;
-  padding: 0;
-  background: none;
+  width: 30px;
+  height: 56px;
   display: grid;
   place-items: center;
+  color: color-mix(in srgb, var(--text) 40%, transparent);
 }
 .dot::before {
   content: '';
@@ -244,8 +244,14 @@ select { font: inherit; color: inherit; }
   background: color-mix(in srgb, var(--text) 30%, transparent);
   transition: background 0.2s, width 0.2s;
 }
-.dot.active { width: 38px; }
+.dot.active { width: 42px; }
 .dot.active::before { width: 26px; background: var(--accent); }
+/* The first page is home: a house instead of a dot. */
+.dot-home { width: 38px; }
+.dot-home::before { display: none; }
+.dot-home .ico { width: 21px; height: 21px; transition: color 0.2s; }
+.dot-home.active { width: 42px; color: var(--accent); }
+.dot-home.active .ico { width: 24px; height: 24px; }
 
 /* ---- Pages and grid --------------------------------------------------- */
 

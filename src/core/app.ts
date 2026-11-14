@@ -207,6 +207,7 @@ export class App {
     root.append(topbar, editBar, this.main, this.barEditor.tray, this.barEditor.pill);
 
     this.bindGestures();
+    this.bindDots();
     this.sync();
     setInterval(() => this.tick(), 1000);
     onServerEvent('layout', async () => {
@@ -388,16 +389,52 @@ export class App {
     if (jump) this.main.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 250, easing: 'ease-out' });
     this.pageTitle.textContent = this.layout.pages[this.page].name;
     this.editTitle.textContent = this.layout.pages[this.page].name;
-    this.dots.replaceChildren(
-      ...this.layout.pages.map((p, i) =>
-        h('button', {
-          class: `dot${i === this.page ? ' active' : ''}`,
-          'aria-label': p.name,
-          onclick: () => this.goTo(i),
-        }),
-      ),
-    );
+    this.renderDots();
     this.dots.hidden = count < 2;
+  }
+
+  /** One dot per page, the first a house. Rebuilt only when the pages change; otherwise just the active mark moves. */
+  private renderDots() {
+    const names = this.layout.pages.map((p) => p.name).join('\n');
+    if (this.dots.dataset.names !== names) {
+      this.dots.dataset.names = names;
+      this.dots.replaceChildren(
+        ...this.layout.pages.map((p, i) =>
+          h('span', { class: `dot${i === 0 ? ' dot-home' : ''}`, role: 'button', 'aria-label': p.name }, i === 0 ? icon('house') : null),
+        ),
+      );
+    }
+    [...this.dots.children].forEach((d, i) => d.classList.toggle('active', i === this.page));
+  }
+
+  /** Tap a dot to jump there, or slide a finger along the dots to step through the pages. */
+  private bindDots() {
+    this.dots.addEventListener('pointerdown', (e) => {
+      if (!e.isPrimary || this.root.classList.contains('bar-editing')) return;
+      e.preventDefault();
+      this.dots.setPointerCapture(e.pointerId);
+      this.dots.classList.add('scrubbing');
+      const rects = [...this.dots.children].map((d) => d.getBoundingClientRect());
+      const at = (x: number) => {
+        let best = 0;
+        rects.forEach((r, i) => {
+          if (Math.abs(x - (r.left + r.width / 2)) < Math.abs(x - (rects[best].left + rects[best].width / 2))) best = i;
+        });
+        if (best !== this.page) this.goTo(best);
+      };
+      at(e.clientX);
+      const move = (ev: PointerEvent) => ev.pointerId === e.pointerId && at(ev.clientX);
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== e.pointerId) return;
+        this.dots.classList.remove('scrubbing');
+        this.dots.removeEventListener('pointermove', move);
+        this.dots.removeEventListener('pointerup', up);
+        this.dots.removeEventListener('pointercancel', up);
+      };
+      this.dots.addEventListener('pointermove', move);
+      this.dots.addEventListener('pointerup', up);
+      this.dots.addEventListener('pointercancel', up);
+    });
   }
 
   private tick() {
