@@ -206,6 +206,29 @@ export function sleptHours(bedtime, waketime) {
 /** Files saved before this version get one-time changes in normalize(). */
 const VERSION = 3;
 
+/**
+ * base, or base-2, base-3, ... (trimmed so the id stays within ID_RE's 40 characters)
+ * when taken(id) says it's in use.
+ */
+export function uniqueId(base, taken) {
+  if (!taken(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const id = base.slice(0, 40 - suffix.length) + suffix;
+    if (!taken(id)) return id;
+  }
+}
+
+/** A saved day that the client can show: a real date with an answers object (hand-edited files may hold anything). */
+function validEntry(date, e) {
+  try {
+    parseDate(date);
+  } catch {
+    return false;
+  }
+  return Boolean(e && typeof e === 'object' && e.answers && typeof e.answers === 'object' && !Array.isArray(e.answers));
+}
+
 function newProfile(id, name, emoji) {
   return { id, name, emoji, prompt: true, questions: structuredClone(DEFAULT_QUESTIONS), entries: {} };
 }
@@ -232,7 +255,7 @@ function normalize(saved) {
       emoji: typeof p.emoji === 'string' && p.emoji ? p.emoji.slice(0, 8) : '🙂',
       prompt: p.prompt !== false,
       questions: normalizeQuestions(p.questions),
-      entries: p.entries && typeof p.entries === 'object' ? p.entries : {},
+      entries: Object.fromEntries(Object.entries(p.entries && typeof p.entries === 'object' ? p.entries : {}).filter(([d, e]) => validEntry(d, e))),
     }));
   if (!profiles.length) profiles = [newProfile('me', 'Me', '🙂')];
   if ((s.version ?? 1) < 2) {
@@ -253,22 +276,32 @@ function normalize(saved) {
   return { version: VERSION, settings, profiles, skipped: typeof s.skipped === 'string' ? s.skipped : null };
 }
 
-/** CSV of every person's days, oldest first, one column per question (by short name). */
+/**
+ * CSV of every person's days, oldest first, one column per question. Columns are keyed
+ * by question id (people sharing a built-in question share its column); the header is
+ * the short name, numbered when two questions share one (a custom "Sleep" next to the built-in).
+ */
 export function toCsv(state) {
   const columns = [];
-  for (const p of state.profiles) for (const q of p.questions) if (!columns.includes(q.short)) columns.push(q.short);
+  for (const p of state.profiles) for (const q of p.questions) if (!columns.some((c) => c.id === q.id)) columns.push({ id: q.id, short: q.short });
+  const headers = [];
+  for (const c of columns) {
+    let name = c.short;
+    for (let n = 2; headers.includes(name); n++) name = `${c.short} (${n})`;
+    headers.push(name);
+  }
   const cell = (v) => {
     if (v === undefined || v === null) return '';
     if (typeof v === 'boolean') return v ? 'yes' : 'no';
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const rows = [['person', 'date', ...columns, 'note', 'answered at'].map(cell).join(',')];
+  const rows = [['person', 'date', ...headers, 'note', 'answered at'].map(cell).join(',')];
   for (const p of state.profiles) {
     for (const date of Object.keys(p.entries).sort()) {
       const e = p.entries[date];
       const values = columns.map((c) => {
-        const q = p.questions.find((x) => x.short === c);
+        const q = p.questions.find((x) => x.id === c.id);
         const v = q ? e.answers?.[q.id] : undefined;
         if (q?.type === 'choice') return q.options.find((o) => o.value === v)?.label ?? v;
         if (q?.type === 'time' && typeof v === 'number') return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
@@ -352,14 +385,26 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
           if (v === null || v === undefined) continue;
           answers[id] = validAnswer(find(p, id), v);
         }
-        // Hours slept from the two times, unless hours were answered directly.
-        if (typeof answers.bedtime === 'number' && typeof answers.waketime === 'number' && answers.hours === undefined && p.questions.some((q) => q.id === 'hours'))
-          answers.hours = sleptHours(answers.bedtime, answers.waketime);
         const note = text(body.note, 'Note', MAX_NOTE, false);
         const missing = p.questions.find((q) => q.enabled && q.required && answers[q.id] === undefined);
         if (missing) throw bad(`${missing.short} is required`);
         if (!Object.keys(answers).length && !note) throw bad('Answer at least one question');
-        p.entries[date] = { answers, ...(note ? { note } : {}), at: now() };
+
+        // The form only shows the questions that are on, so an edit keeps this day's
+        // answers to the others (turned off since, or removed) rather than wiping them.
+        const old = p.entries[date];
+        const on = (id) => p.questions.some((q) => q.id === id && q.enabled);
+        const kept = old ? Object.entries(old.answers).filter(([id]) => id !== 'hours' && !on(id) && answers[id] === undefined) : [];
+        for (const [id, v] of kept) answers[id] = v;
+        const times = (a) => typeof a?.bedtime === 'number' && typeof a?.waketime === 'number';
+        if (answers.hours === undefined && p.questions.some((q) => q.id === 'hours')) {
+          // Hours slept from the two times, unless hours were answered directly.
+          if (times(answers)) answers.hours = sleptHours(answers.bedtime, answers.waketime);
+          // Hours that were worked out from times no longer there go with them; hours
+          // answered directly (before version 2) stay while the question is off.
+          else if (!on('hours') && old?.answers.hours !== undefined && !times(old.answers)) answers.hours = old.answers.hours;
+        }
+        p.entries[date] = { answers, ...(note ? { note } : {}), at: old?.at ?? now(), ...(old ? { edited: now() } : {}) };
         return commit();
       }
     }
@@ -391,9 +436,8 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
       const p = newProfile('', '', EMOJIS[state.profiles.length % EMOJIS.length]);
       profileFields({ emoji: p.emoji, ...body }, p);
       if (!p.name) throw bad('Name is required');
-      let id = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'person';
-      while (state.profiles.some((x) => x.id === id)) id += '-2';
-      p.id = id;
+      const base = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'person';
+      p.id = uniqueId(base, (id) => state.profiles.some((x) => x.id === id));
       // Start from someone else's questions, e.g. a family sharing one set.
       if (body?.copyFrom) p.questions = structuredClone(profile(body.copyFrom).questions);
       state.profiles.push(p);

@@ -29,7 +29,10 @@ export interface Question {
 export interface Entry {
   answers: Record<string, Answer>;
   note?: string;
+  /** When the day was first answered. */
   at: number;
+  /** When it was last changed after that. */
+  edited?: number;
 }
 
 export interface CheckinSettings {
@@ -164,6 +167,16 @@ export const charted = (b: Book) => {
 };
 
 export const checkin = new CheckinStore();
+
+/** base, or base-2, base-3, ... trimmed to the server's 40-character id limit; matches server/checkin.js. */
+export function uniqueId(base: string, taken: (id: string) => boolean): string {
+  if (!taken(base)) return base;
+  for (let n = 2; ; n++) {
+    const suffix = `-${n}`;
+    const id = base.slice(0, 40 - suffix.length) + suffix;
+    if (!taken(id)) return id;
+  }
+}
 
 // ---- Dates ----------------------------------------------------------------
 

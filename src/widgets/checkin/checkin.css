@@ -196,6 +196,8 @@
 
 .ci-history { display: flex; flex-direction: column; gap: 8px; max-height: min(70vh, 760px); overflow-y: auto; }
 .ci-day {
+  /* Without this the list squeezes long days to min-height and their pills overlap. */
+  flex: none;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -221,6 +223,7 @@
 .ci-add input[type='text'] { min-height: 56px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); font-size: 18px; }
 .ci-add-ends { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .ci-reset { color: var(--text-dim); }
+.ci-reset.btn-danger { color: var(--danger); }
 .ci-person-name { flex: 1; min-width: 0; display: flex; flex-direction: column; border: 0; background: none; padding: 0; text-align: left; font-size: 20px; }
 .ci-person-name small { color: var(--text-dim); font-size: 15px; }
 .ci-toggle-label { color: var(--text-dim); font-size: 15px; }

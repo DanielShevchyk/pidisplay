@@ -17,6 +17,7 @@ import {
   type Profile,
   type Question,
   type QuestionType,
+  uniqueId,
 } from '../../core/checkin';
 import { renderForm } from './form';
 import { drawChart, factorCard, factors, isNumeric, ownAxis, RANGES, SERIES, statCard, stats, type Range } from './trends';
@@ -144,7 +145,11 @@ export function renderPanel(
     const preferred = scales.filter((q) => q.id === 'sleep' || q.id === 'mood');
     return preferred.length ? preferred : scales.slice(0, 2);
   };
-  const colorOf = (b: Book, q: Question) => SERIES[Math.max(0, b.questions.indexOf(q)) % SERIES.length];
+  // By place among the questions the chart can show, so lines drawn together differ.
+  const colorOf = (b: Book, q: Question) => {
+    const i = charted(b).filter(isNumeric).findIndex((x) => x.id === q.id);
+    return SERIES[Math.max(0, i) % SERIES.length];
+  };
 
   const setView = (v: View) => {
     view = v;
@@ -292,6 +297,8 @@ export function openSettingsSheet(profile: string | undefined) {
   let editing: string | null = null;
   /** Person id whose Delete was tapped once. */
   let confirmDelete: string | null = null;
+  /** Reset was tapped once; any other render (another tap, a save landing) takes it back. */
+  let confirmReset = false;
   let off = () => {};
   openSheet('Check-in settings', [content], { onClose: () => off() });
 
@@ -446,8 +453,7 @@ export function openSettingsSheet(profile: string | undefined) {
         formError.textContent = 'Type the question first';
         return;
       }
-      let id = `c-${text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'q'}`;
-      while (b.questions.some((q) => q.id === id)) id += '-2';
+      const id = uniqueId(`c-${text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'q'}`, (x) => b.questions.some((q) => q.id === x));
       const q: Question = { id, label: text, short: short.value.trim(), type, enabled: true };
       if (type === 'scale') Object.assign(q, { low: low.value.trim(), high: high.value.trim(), lowerIsBetter });
       editing = null;
@@ -476,6 +482,8 @@ export function openSettingsSheet(profile: string | undefined) {
     if (!s || !b) return;
     current = b.id;
     const st = s.settings;
+    const resetting = confirmReset;
+    confirmReset = false;
     const change = (i: number, patch: Partial<Question>) =>
       void run(() => checkin.saveQuestions(b.id, b.questions.map((x, j) => (j === i ? { ...x, ...patch } : x))));
     const questionRows = b.questions.map((q, i) =>
@@ -528,8 +536,18 @@ export function openSettingsSheet(profile: string | undefined) {
         : h('button', { class: 'btn btn-wide', onclick: () => ((editing = 'question'), render()) }, icon('plus'), ' Add your own question'),
       h(
         'button',
-        { class: 'btn btn-ghost btn-wide ci-reset', onclick: () => void run(() => checkin.resetQuestions(b.id)) },
-        'Reset to the built-in questions',
+        {
+          class: resetting ? 'btn btn-danger btn-wide ci-reset' : 'btn btn-ghost btn-wide ci-reset',
+          onclick: () => {
+            if (!resetting) {
+              confirmReset = true;
+              render();
+              return;
+            }
+            void run(() => checkin.resetQuestions(b.id));
+          },
+        },
+        resetting ? 'Tap again to undo your on/off and required choices' : 'Reset to the built-in questions',
       ),
       h(
         'p',

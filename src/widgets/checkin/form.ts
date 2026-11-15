@@ -37,7 +37,8 @@ export function renderForm(opts: FormOptions): HTMLElement {
   const existing = book.entries[opts.date];
   const answers: Record<string, Answer | null> = { ...(existing?.answers ?? {}) };
   const questions = active(book);
-  // Turned-off questions answered on this day keep their answers.
+  // Only the turned-on questions are sent; the server keeps this day's answers to the
+  // others (turned off or removed since), which the form can't show.
   for (const id of Object.keys(answers)) if (!questions.some((q) => q.id === id)) delete answers[id];
 
   const error = h('div', { class: 'ci-error' });

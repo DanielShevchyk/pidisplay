@@ -2,7 +2,7 @@ process.env.TZ = 'America/Los_Angeles';
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCheckin, DEFAULT_QUESTIONS, sleptHours, toCsv } from './checkin.js';
+import { createCheckin, DEFAULT_QUESTIONS, sleptHours, toCsv, uniqueId } from './checkin.js';
 
 const at = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm).getTime();
 
@@ -211,4 +211,102 @@ test('hours slept come from the fell-asleep and woke-up times', async () => {
 test('CSV writes times as 24-hour clock times', () => {
   const csv = toCsv({ profiles: [{ name: 'Dan', questions: [{ id: 'bedtime', short: 'Fell asleep', type: 'time' }], entries: { '2026-10-13': { answers: { bedtime: 1365 }, at: 0 } } }] });
   assert.equal(csv, 'person,date,Fell asleep,note,answered at\nDan,2026-10-13,22:45,,\n');
+});
+
+test('editing a day keeps answers to questions the form does not show', async () => {
+  const qs = DEFAULT_QUESTIONS.map((q) => (q.id === 'body' ? { ...q, enabled: true } : q));
+  const saved = {
+    version: 3,
+    profiles: [
+      {
+        id: 'me',
+        name: 'Me',
+        questions: [...qs, { id: 'c-focus', label: 'Focus?', short: 'Focus', type: 'scale', enabled: true }],
+        entries: {
+          // Answered before version 2: hours directly, no times.
+          '2026-10-01': { answers: { sleep: 3, hours: 6.5, body: 4 }, at: 100 },
+          '2026-10-02': { answers: { sleep: 4, bedtime: 1380, waketime: 420, hours: 8, body: 2, 'c-focus': 5 }, note: 'x', at: 200 },
+        },
+      },
+    ],
+  };
+  const { call, clock } = setup(saved);
+  // Body and the custom question go away; hours was never on.
+  await call('PUT', 'checkin/profiles/me/questions', DEFAULT_QUESTIONS);
+  clock.t += 1000;
+
+  // Fixing the sleep score keeps body and the directly answered hours, keeps `at`, records `edited`.
+  let s = await call('PUT', 'checkin/profiles/me/entries/2026-10-01', { answers: { sleep: 4 } });
+  let e = s.profiles[0].entries['2026-10-01'];
+  assert.deepEqual(e.answers, { sleep: 4, hours: 6.5, body: 4 });
+  assert.equal(e.at, 100);
+  assert.equal(e.edited, clock.t);
+
+  // Answers for questions that are on come only from the request: leaving one out clears it.
+  s = await call('PUT', 'checkin/profiles/me/entries/2026-10-02', { answers: { bedtime: 1380, waketime: 450 } });
+  e = s.profiles[0].entries['2026-10-02'];
+  assert.deepEqual(e.answers, { bedtime: 1380, waketime: 450, body: 2, 'c-focus': 5, hours: 8.5 });
+  assert.equal(e.note, undefined);
+  // Hours worked out from the times go when a time is cleared.
+  s = await call('PUT', 'checkin/profiles/me/entries/2026-10-02', { answers: { bedtime: 1380 } });
+  assert.deepEqual(s.profiles[0].entries['2026-10-02'].answers, { bedtime: 1380, body: 2, 'c-focus': 5 });
+
+  // A new day gets `at` and no `edited`.
+  s = await call('PUT', 'checkin/profiles/me/entries/2026-10-03', { answers: { sleep: 2 } });
+  assert.equal(s.profiles[0].entries['2026-10-03'].at, clock.t);
+  assert.equal(s.profiles[0].entries['2026-10-03'].edited, undefined);
+
+  // With hours turned on, it is a normal question again: the form's answer (or none) wins.
+  const now = (await call('GET', 'checkin')).profiles[0].questions;
+  await call('PUT', 'checkin/profiles/me/questions', now.map((q) => (q.id === 'hours' ? { ...q, enabled: true } : q)));
+  s = await call('PUT', 'checkin/profiles/me/entries/2026-10-01', { answers: { sleep: 4 } });
+  assert.deepEqual(s.profiles[0].entries['2026-10-01'].answers, { sleep: 4, body: 4 });
+});
+
+test('a hand-edited file with broken days still loads', async () => {
+  const saved = {
+    version: 3,
+    profiles: [
+      {
+        id: 'me',
+        name: 'Me',
+        questions: DEFAULT_QUESTIONS,
+        entries: { '2026-10-01': { answers: { sleep: 3 }, at: 1 }, '2026-02-30': { answers: { sleep: 3 } }, 'oops': { answers: {} }, '2026-10-02': { at: 1 }, '2026-10-03': null, '2026-10-04': { answers: [3] } },
+      },
+    ],
+  };
+  const s = await setup(saved).call('GET', 'checkin');
+  assert.deepEqual(Object.keys(s.profiles[0].entries), ['2026-10-01']);
+});
+
+test('ids get a numbered suffix and stay within 40 characters', async () => {
+  const taken = new Set(['a', 'a-2']);
+  assert.equal(uniqueId('b', (id) => taken.has(id)), 'b');
+  assert.equal(uniqueId('a', (id) => taken.has(id)), 'a-3');
+  const long = 'x'.repeat(40);
+  assert.equal(uniqueId(long, (id) => id === long), `${'x'.repeat(38)}-2`);
+  // Names that differ only in punctuation share a slug.
+  const { call } = setup();
+  const name = 'Bob';
+  for (const end of ['', '!', '?', '.']) await call('POST', 'checkin/profiles', { name: name + end });
+  const ids = (await call('GET', 'checkin')).profiles.map((p) => p.id);
+  const slug = 'bob';
+  assert.deepEqual(ids, ['me', slug, `${slug}-2`, `${slug}-3`, `${slug}-4`]);
+});
+
+test('CSV keeps two questions with the same short name apart', () => {
+  const csv = toCsv({
+    profiles: [
+      {
+        name: 'Dan',
+        questions: [
+          { id: 'sleep', short: 'Sleep', type: 'scale' },
+          { id: 'c-sleep', short: 'Sleep', type: 'scale', custom: true },
+          { id: 'c-sleep-2', short: 'Sleep', type: 'yesno', custom: true },
+        ],
+        entries: { '2026-10-13': { answers: { sleep: 4, 'c-sleep': 2, 'c-sleep-2': true }, at: 0 } },
+      },
+    ],
+  });
+  assert.equal(csv, 'person,date,Sleep,Sleep (2),Sleep (3),note,answered at\nDan,2026-10-13,4,2,yes,,\n');
 });
