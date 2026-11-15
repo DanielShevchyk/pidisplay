@@ -22,6 +22,7 @@ import {
 import { renderForm } from './form';
 import { drawChart, factorCard, factors, isNumeric, ownAxis, RANGES, SERIES, statCard, stats, type Range } from './trends';
 import { icon } from '../../core/icons';
+import { liftingFactor, liftingPill, liftingStat, liftingStatCard } from './lifting';
 
 export interface View {
   range: Range;
@@ -29,6 +30,8 @@ export interface View {
   metrics: string[];
   /** Whose check-in this tile shows; missing means the first person. */
   profile?: string;
+  /** Lifting days as bars under the lines; missing means on. */
+  lifting?: boolean;
 }
 
 export const DEFAULT_VIEW: View = { range: '30d', metrics: [] };
@@ -50,7 +53,8 @@ export function openFormSheet(profile: string | undefined, date?: string) {
   if (!s || !book) return;
   const day = date ?? s.today;
   const title = day === s.today ? `☀️ ${titleFor(book)}` : titleFor(book);
-  const sheet = openSheet(title, [renderForm({ profile: book.id, date: day, onDone: () => sheet.close() })]);
+  const workout = day === s.today ? undefined : checkin.liftingFor(book.id)?.days[day];
+  const sheet = openSheet(title, [renderForm({ profile: book.id, date: day, onDone: () => sheet.close(), extra: workout && liftingPill(workout) })]);
 }
 
 /** Small answer pills for one day, colored good to bad. */
@@ -217,19 +221,36 @@ export function renderPanel(
         ),
     );
 
+    const lifting = checkin.liftingFor(b.id);
+    const bars = lifting && view.lifting !== false;
+    if (lifting)
+      metrics.append(
+        h(
+          'button',
+          { class: `chip ci-lift-chip${bars ? ' on' : ''}`, onclick: () => setView({ ...view, lifting: !bars }) },
+          icon('dumbbell'),
+          'Lifting',
+        ),
+      );
+    // Small tiles have no chips: a dumbbell in the legend says what the bars are.
+    if (opts.compact && bars) legend.append(h('span', { class: 'ci-legend-lift', 'aria-label': 'Bars: lifting days' }, icon('dumbbell')));
+
     const answered = Object.keys(b.entries).length;
     empty.textContent = answered < 2 ? 'Trends show up here after a few mornings.' : '';
     empty.hidden = answered >= 2;
-    drawChart(chart, b, sel.map((q) => ({ q, color: colorOf(b, q) })), view.range);
-    statsRow.replaceChildren(...stats(b, charted(b), view.range).map(statCard));
-    const fs = factors(b, charted(b), view.range);
+    drawChart(chart, b, sel.map((q) => ({ q, color: colorOf(b, q) })), view.range, bars ? lifting.days : null);
+    statsRow.replaceChildren(...stats(b, charted(b), view.range).map(statCard), ...(lifting ? [liftingStatCard(liftingStat(b, lifting, view.range), view.range)] : []));
+    const lf = lifting && liftingFactor(b, lifting, charted(b), view.range);
+    const fs = [...factors(b, charted(b), view.range), ...(lf ? [lf] : [])].sort((x, y) => Math.abs(y.better) - Math.abs(x.better));
     factorList.replaceChildren(...(fs.length ? [h('div', { class: 'ci-sub' }, 'What goes with what'), ...fs.map(factorCard)] : []));
   }
 
   const off = checkin.subscribe(render);
+  void checkin.refreshLifting();
   const resize = new ResizeObserver(() => {
     const b = book();
-    if (b) drawChart(chart, b, selected(b).map((q) => ({ q, color: colorOf(b, q) })), view.range);
+    const lifting = b && view.lifting !== false ? checkin.liftingFor(b.id) : null;
+    if (b) drawChart(chart, b, selected(b).map((q) => ({ q, color: colorOf(b, q) })), view.range, lifting?.days ?? null);
   });
   resize.observe(chart);
   return () => {
@@ -264,10 +285,12 @@ export function openHistorySheet(profile: string | undefined) {
       .filter((d) => d < recent[recent.length - 1])
       .sort()
       .reverse();
+    const lifting = checkin.liftingFor(b.id);
     list.replaceChildren(
       ...[...recent, ...older].map((d) => {
         const pills = answerPills(b, d);
         const note = b.entries[d]?.note;
+        const workout = lifting?.days[d];
         return h(
           'button',
           { class: `ci-day${pills.length ? '' : ' missing'}`, onclick: () => openFormSheet(b.id, d) },
@@ -276,6 +299,7 @@ export function openHistorySheet(profile: string | undefined) {
             'span',
             { class: 'ci-day-vals' },
             ...(pills.length ? pills : [h('span', { class: 'ci-day-none' }, 'Not answered · tap to fill in')]),
+            workout && liftingPill(workout),
             note && h('span', { class: 'ci-day-note' }, `“${note}”`),
           ),
         );
@@ -283,6 +307,7 @@ export function openHistorySheet(profile: string | undefined) {
     );
   };
   off = checkin.subscribe(render);
+  void checkin.refreshLifting();
 }
 
 // ---- Settings ---------------------------------------------------------------
@@ -381,11 +406,50 @@ export function openSettingsSheet(profile: string | undefined) {
     );
   }
 
+  /**
+   * Whose lifting days this person's trends show: Automatic (the lifting person with the
+   * same name), None, or someone picked. Only while the lifting tracker answers.
+   */
+  function liftingPicker(p: Profile): HTMLElement | null {
+    const l = checkin.lifting;
+    if (!l) return null;
+    const auto = p.lifting === undefined;
+    const matched = auto ? l.byProfile[p.id]?.person : undefined;
+    // A name saved earlier that the tracker no longer has still shows, so it's clear what is picked.
+    const names = [...l.people, ...(p.lifting && !l.people.some((n) => n.toLowerCase() === p.lifting!.toLowerCase()) ? [p.lifting] : [])];
+    const chip = (label: string, on: boolean, value: string | null) =>
+      h(
+        'button',
+        {
+          class: `chip${on ? ' active' : ''}`,
+          onclick: () =>
+            void run(async () => {
+              await checkin.updateProfile(p.id, { lifting: value });
+              await checkin.refreshLifting();
+            }),
+        },
+        label,
+      );
+    return h(
+      'div',
+      { class: 'ci-lift-pick' },
+      h('span', { class: 'ci-lift-pick-label' }, icon('dumbbell'), 'Lifting data'),
+      h(
+        'div',
+        { class: 'chips' },
+        chip(matched ? `Automatic (${matched})` : 'Automatic', auto, null),
+        chip('None', p.lifting === '', ''),
+        ...names.map((n) => chip(n, !auto && p.lifting !== '' && p.lifting!.toLowerCase() === n.toLowerCase(), n)),
+      ),
+    );
+  }
+
   function personRow(p: Profile): HTMLElement {
     if (editing === p.id) return personForm(p);
     const s = checkin.state!;
     const deleting = confirmDelete === p.id;
-    return h(
+    const picker = liftingPicker(p);
+    const row = h(
       'div',
       { class: 'sleep-row ci-qrow' },
       h(
@@ -419,6 +483,7 @@ export function openSettingsSheet(profile: string | undefined) {
         toggle(p.prompt, (v) => void run(() => checkin.updateProfile(p.id, { prompt: v }))),
       ),
     );
+    return picker ? h('div', { class: 'ci-person-block' }, row, picker) : row;
   }
 
   const typeName: Record<QuestionType, string> = { scale: '1–5', hours: 'hours', time: 'time', weight: 'pounds', yesno: 'yes/no', choice: 'choice' };
@@ -561,4 +626,5 @@ export function openSettingsSheet(profile: string | undefined) {
     // Don't wipe a half-typed form when a save lands.
     if (!editing) render();
   });
+  void checkin.refreshLifting();
 }

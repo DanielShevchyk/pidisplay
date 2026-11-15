@@ -9,6 +9,7 @@ import {
   parseKey,
   valuesFor,
   type Book,
+  type LiftingDay,
   type Question,
 } from '../../core/checkin';
 
@@ -48,8 +49,9 @@ export interface ChartSeries {
 /**
  * Draws the selected questions over the range into `box`. Scales share a 1-5
  * axis; hours slept and weight are shown on their own, on an axis fitted to the data.
+ * lifting: workout days, drawn as low bars under the lines (taller for more sets).
  */
-export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], range: Range) {
+export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], range: Range, lifting: Record<string, LiftingDay> | null = null) {
   const w = box.clientWidth;
   const hgt = box.clientHeight;
   box.replaceChildren();
@@ -89,6 +91,23 @@ export function drawChart(box: HTMLElement, state: Book, series: ChartSeries[], 
     const label = svg('text', { x: x(i), y: hgt - 6, class: 'ci-axis', 'text-anchor': k === 0 ? 'start' : k === nLabels - 1 ? 'end' : 'middle' });
     label.textContent = text;
     s.append(label);
+  }
+
+  // Lifting days: slim bars up from the bottom axis, at most about a fifth of the
+  // plot, in a muted color so the lines on top stay readable.
+  if (lifting) {
+    const base = hgt - pad.b;
+    const tall = (hgt - pad.t - pad.b) * 0.22;
+    const step = days.length > 1 ? (w - pad.l - pad.r) / (days.length - 1) : 20;
+    const bw = Math.max(2, Math.min(14, step * 0.55));
+    // A light day of 4 sets reads as light, whatever the busiest day in view is.
+    const most = Math.max(12, ...days.map((d) => lifting[d]?.sets ?? 0));
+    days.forEach((d, i) => {
+      const l = lifting[d];
+      if (!l) return;
+      const bh = Math.max(4, (l.sets / most) * tall);
+      s.append(svg('rect', { x: x(i) - bw / 2, y: base - bh, width: bw, height: bh, rx: Math.min(bw / 2, 4), class: 'ci-lift-bar' }));
+    });
   }
 
   // Past a week, a 7-day average line over faint daily dots keeps several series readable.
@@ -183,6 +202,26 @@ export interface Factor {
   no: number;
   /** Positive when "yes" days are better. */
   better: number;
+  /** "Lifted the day before" (from the lifting tracker) rather than a question. */
+  lifting?: boolean;
+}
+
+/**
+ * The 1-5 score (or hours slept) that differs most between the yes and no days, when
+ * there are 3 of each and the difference is big enough to mention; else null.
+ */
+export function bestFactor(state: Book, f: Question, questions: Question[], yesDays: string[], noDays: string[]): Factor | null {
+  if (yesDays.length < 3 || noDays.length < 3) return null;
+  let best: Factor | null = null;
+  for (const m of questions.filter((q) => q.type === 'scale' || q.type === 'hours')) {
+    const y = average(valuesFor(state, m, yesDays));
+    const n = average(valuesFor(state, m, noDays));
+    if (y === null || n === null) continue;
+    const scale = m.type === 'hours' ? 1 / 2 : 1; // an hour of sleep ~ half a point
+    const better = (y - n) * scale * (m.lowerIsBetter ? -1 : 1);
+    if (!best || Math.abs(better) > Math.abs(best.better)) best = { factor: f, metric: m, yes: y, no: n, better };
+  }
+  return best && Math.abs(best.better) >= 0.2 ? best : null;
 }
 
 /**
@@ -191,22 +230,12 @@ export interface Factor {
  */
 export function factors(state: Book, questions: Question[], range: Range): Factor[] {
   const days = daysBack(state.today, rangeDays(range));
-  const metrics = questions.filter((q) => q.type === 'scale' || q.type === 'hours');
   const out: Factor[] = [];
   for (const f of questions.filter((q) => q.type === 'yesno')) {
     const yesDays = days.filter((d) => state.entries[d]?.answers[f.id] === true);
     const noDays = days.filter((d) => state.entries[d]?.answers[f.id] === false);
-    if (yesDays.length < 3 || noDays.length < 3) continue;
-    let best: Factor | null = null;
-    for (const m of metrics) {
-      const y = average(valuesFor(state, m, yesDays));
-      const n = average(valuesFor(state, m, noDays));
-      if (y === null || n === null) continue;
-      const scale = m.type === 'hours' ? 1 / 2 : 1; // an hour of sleep ~ half a point
-      const better = (y - n) * scale * (m.lowerIsBetter ? -1 : 1);
-      if (!best || Math.abs(better) > Math.abs(best.better)) best = { factor: f, metric: m, yes: y, no: n, better };
-    }
-    if (best && Math.abs(best.better) >= 0.2) out.push(best);
+    const best = bestFactor(state, f, questions, yesDays, noDays);
+    if (best) out.push(best);
   }
   return out.sort((a, b) => Math.abs(b.better) - Math.abs(a.better));
 }
@@ -216,7 +245,7 @@ export function factorCard(f: Factor): HTMLElement {
   return h(
     'div',
     { class: `ci-factor ${f.better > 0 ? 'up' : 'down'}` },
-    h('span', { class: 'ci-factor-name' }, `${f.factor.short}: yes`),
-    h('span', {}, `${f.metric.short} ${fmt(f.yes)} vs ${fmt(f.no)} on "no" days`),
+    h('span', { class: 'ci-factor-name' }, f.lifting ? 'After lifting:' : `${f.factor.short}: yes`),
+    h('span', {}, `${f.metric.short} ${fmt(f.yes)} vs ${fmt(f.no)} ${f.lifting ? 'after rest days' : 'on "no" days'}`),
   );
 }

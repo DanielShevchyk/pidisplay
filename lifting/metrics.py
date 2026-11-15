@@ -536,3 +536,45 @@ def report(conn: sqlite3.Connection, pid: int, month: str | None = None, today: 
         "next_month": nxt[:7] if nxt[:7] <= today.isoformat()[:7] else None,
         "in_progress": month == today.isoformat()[:7],
     }
+
+
+# ---- Days, for the PiDisplay check-in ---------------------------------------------------------
+
+def days(conn: sqlite3.Connection, pid: int, date_from: str | None = None, date_to: str | None = None) -> dict:
+    """One entry per date with a session, oldest first, counted as in the monthly report.
+
+    The morning check-in charts these next to sleep and mood; first_date (the person's
+    first session ever) tells it from when a day without a session was a rest day.
+    """
+    where, params = "", []
+    if date_from:
+        where += " AND ss.date >= ?"; params.append(date_from)
+    if date_to:
+        where += " AND ss.date <= ?"; params.append(date_to)
+    by_date: dict[str, list] = defaultdict(list)
+    for r in _rows(conn, pid, where, tuple(params)):
+        by_date[r["date"]].append(r)
+    labels: dict[str, list[str]] = {}  # every session date, even one with only warmups
+    for r in conn.execute(f"SELECT ss.date, ss.day_label FROM sessions ss WHERE ss.person_id = ? {where} ORDER BY ss.date, ss.id", (pid, *params)):
+        used = labels.setdefault(r["date"], [])
+        if r["day_label"] and r["day_label"] not in used:
+            used.append(r["day_label"])
+    pr_count: dict[str, int] = defaultdict(int)
+    if labels:
+        for p in prs(conn, pid, 100000):
+            pr_count[p["date"]] += 1
+    out = []
+    for d in sorted(labels):
+        rows = by_date.get(d, [])
+        load = sum(r["weight_lb"] * r["reps"] * (2 if r["load_basis"] in DOUBLED else 1) for r in rows if r["weight_lb"] and r["reps"])
+        groups = sorted(credits(rows).items(), key=lambda kv: (-_total(kv[1]), kv[0]))
+        out.append({
+            "date": d,
+            "labels": labels[d],
+            "working_sets": len({(r["session_id"], r["exercise_id"], r["set_number"]) for r in rows}),
+            "volume_lb": round(load),
+            "groups": [g for g, _ in groups[:3]],
+            "prs": pr_count.get(d, 0),
+        })
+    first = conn.execute("SELECT min(date) FROM sessions WHERE person_id = ?", (pid,)).fetchone()[0]
+    return {"first_date": first, "days": out}

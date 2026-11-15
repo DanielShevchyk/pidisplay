@@ -26,6 +26,7 @@ import { createSleep, SleepError } from './sleep.js';
 import { createYouTube, YouTubeError } from './youtube.js';
 import { createFaresConfig, FaresConfigError } from './fares-config.js';
 import { createCheckin, CheckinError } from './checkin.js';
+import { createCheckinLifting } from './checkin-lifting.js';
 import { createVacuum, VacuumError } from './vacuum.js';
 import { createStrava, StravaError } from './strava.js';
 import { createLgTv, TvError } from './lgtv.js';
@@ -160,6 +161,8 @@ export function createServer({
   faresSettings = undefined,
   // The lifting tracker (lifting/, a Python service), shown under /lifting/.
   liftingUrl = process.env.LIFTING_URL || 'http://127.0.0.1:8090',
+  // Stand-in for the lifting service's JSON API (tests); the default uses fetch.
+  liftingFetchJson = undefined,
 } = {}) {
   const layoutFile = path.join(dataDir, 'layout.json');
   const notificationsFile = path.join(dataDir, 'notifications.json');
@@ -304,6 +307,8 @@ export function createServer({
     broadcast: (snapshot) => broadcast('checkin', snapshot),
   });
   checkin.start();
+  // Lifting days next to the check-in trends, read from the lifting service.
+  const checkinLifting = createCheckinLifting({ liftingUrl, fetchJson: liftingFetchJson });
 
   // Watchlist and alerts in stocks.json; the optional Twelve Data key in stocks-key.json
   // (a secret, written by deploy/stocks.ps1, never sent to the browser).
@@ -475,8 +480,12 @@ export function createServer({
 
     if (resource === 'checkin') {
       try {
+        if (key === 'lifting' && req.method === 'GET') {
+          return send(res, 200, await checkinLifting.forProfiles(await checkin.profiles()));
+        }
         if (key === 'export.csv' && req.method === 'GET') {
-          const csv = await checkin.exportCsv();
+          // Lifting columns when the lifting service answers; the export works without it.
+          const csv = await checkin.exportCsv((profiles) => checkinLifting.forProfiles(profiles, { allTime: true }));
           res.writeHead(200, {
             'Content-Type': 'text/csv; charset=utf-8',
             'Content-Disposition': 'attachment; filename="checkin.csv"',

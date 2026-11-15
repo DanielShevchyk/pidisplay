@@ -307,3 +307,28 @@
 /* Medium tile before today's check-in: the last day's answers on one line under "Last:". */
 .ci-sum.size-medium:not(.done) .ci-sum-pills { flex-wrap: nowrap; max-width: 100%; overflow: hidden; }
 .ci-sum.size-medium:not(.done):has(.ci-sum-pills) .ci-sum-icon { font-size: min(14cqw, 20cqh); }
+
+/* Lifting days from the lifting tracker: bars under the trend lines, the chip that
+   toggles them, the stat card, the workout pill and the settings picker. */
+.ci-panel, .ci-history, .ci-form { --ci-lift: color-mix(in srgb, var(--accent) 30%, transparent); }
+.ci-lift-bar { fill: var(--ci-lift); }
+.ci-lift-chip { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); }
+.ci-lift-chip .ico { width: 20px; height: 20px; opacity: 0.6; }
+.ci-lift-chip.on { color: var(--text); border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.ci-lift-chip.on .ico { opacity: 1; }
+.ci-legend-lift { display: inline-flex; align-items: center; color: var(--text-dim); }
+.ci-legend-lift .ico { width: 18px; height: 18px; }
+.ci-stat-name .ico { width: 15px; height: 15px; margin-right: 6px; vertical-align: -2px; }
+/* Inline spans so the line sits where the other cards' ▲ better line does. */
+.ci-stat-sub > span { margin-right: 8px; font-size: 14px; color: var(--text-dim); }
+.ci-stat-sub:empty { display: none; }
+.ci-pill-lift { --ci-c: var(--accent); align-items: center; color: var(--text-dim); }
+.ci-pill-lift .ico { width: 16px; height: 16px; }
+.ci-for { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.ci-person-block { border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.ci-person-block .sleep-row { border-bottom: 0; }
+.ci-lift-pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ci-lift-pick-label { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 15px; }
+.ci-lift-pick-label .ico { width: 18px; height: 18px; }
+.ci-lift-pick .chips { margin: 0; gap: 8px; }
+.ci-lift-pick .chip { min-height: 48px; padding: 0 16px; font-size: 16px; }

@@ -13,6 +13,8 @@ export interface FormOptions {
   onLater?(): void;
   /** Text for that button; "Back" when the popup has a person picker. */
   laterLabel?: string;
+  /** Shown next to the date of a past day (that day's workout). */
+  extra?: HTMLElement;
 }
 
 /** The last number answered for q before `date` (the stepper's starting point), or null. */
@@ -277,7 +279,7 @@ export function renderForm(opts: FormOptions): HTMLElement {
   return h(
     'div',
     { class: 'ci-form' },
-    opts.date !== s.today && h('div', { class: 'ci-for' }, `For ${dayLabel(opts.date, s.today)}`),
+    opts.date !== s.today && h('div', { class: 'ci-for' }, h('span', {}, `For ${dayLabel(opts.date, s.today)}`), opts.extra),
     h('div', { class: 'ci-questions' }, ...rows, s.settings.note && note),
     error,
     h(

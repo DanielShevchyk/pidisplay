@@ -50,6 +50,8 @@ export interface Profile {
   emoji: string;
   /** Included in the morning popup. */
   prompt: boolean;
+  /** Whose lifting days to show: missing is automatic (same name), '' is none, else a lifting person's name. */
+  lifting?: string;
   questions: Question[];
   entries: Record<string, Entry>;
 }
@@ -67,12 +69,46 @@ export interface CheckinState {
   skipped: string | null;
 }
 
+/** One day's workout, from the lifting service (server/checkin-lifting.js). */
+export interface LiftingDay {
+  /** Working sets (no warmups). */
+  sets: number;
+  /** Pounds moved, weight x reps. */
+  volume: number;
+  /** Main muscle groups, most sets first. */
+  groups: string[];
+  labels: string[];
+  prs: number;
+}
+
+/** A check-in person's lifting: every day with a session since `from` (null: all of them). */
+export interface LiftingPerson {
+  person: string;
+  /** The first session ever; days before it are unknown, not rest days. */
+  firstDate: string | null;
+  from: string | null;
+  days: Record<string, LiftingDay>;
+}
+
+export interface CheckinLifting {
+  /** The lifting service answered. */
+  available: boolean;
+  /** Everyone in the lifting tracker, for the settings picker. */
+  people: string[];
+  byProfile: Record<string, LiftingPerson>;
+}
+
 const POLL_MS = 60000;
+/** Workouts are logged after the fact, so a slow refresh is plenty. */
+const LIFTING_POLL_MS = 5 * 60000;
 
 class CheckinStore {
   state: CheckinState | null = null;
+  /** Lifting days next to the trends; null until loaded, or when there are none to show. */
+  lifting: CheckinLifting | null = null;
   private listeners = new Set<() => void>();
   private started = false;
+  private liftingLoad: Promise<void> | null = null;
 
   private start() {
     if (this.started) return;
@@ -81,6 +117,32 @@ class CheckinStore {
     const refresh = () => void this.refresh();
     refresh();
     setInterval(refresh, POLL_MS);
+    void this.refreshLifting();
+    setInterval(() => void this.refreshLifting(), LIFTING_POLL_MS);
+  }
+
+  /** Reloads the lifting days (the server caches them for a minute). Never fails: without them the check-in works as before. */
+  refreshLifting(): Promise<void> {
+    this.liftingLoad ??= call<CheckinLifting>('GET', '/api/checkin/lifting')
+      .then(
+        (l) => {
+          this.lifting = l?.available ? l : null;
+        },
+        () => {
+          this.lifting = null;
+        },
+      )
+      .then(() => {
+        this.liftingLoad = null;
+        if (this.state) this.listeners.forEach((fn) => fn());
+      });
+    return this.liftingLoad;
+  }
+
+  /** That person's lifting days, or null when there are none to show. */
+  liftingFor(profile: string): LiftingPerson | null {
+    const l = this.lifting?.byProfile[profile];
+    return l && l.firstDate && Object.keys(l.days).length ? l : null;
   }
 
   async refresh() {
@@ -127,7 +189,7 @@ class CheckinStore {
   addProfile(fields: { name: string; emoji?: string; copyFrom?: string }) {
     return this.send('POST', '/api/checkin/profiles', fields);
   }
-  updateProfile(profile: string, fields: Partial<Pick<Profile, 'name' | 'emoji' | 'prompt'>>) {
+  updateProfile(profile: string, fields: Partial<Pick<Profile, 'name' | 'emoji' | 'prompt'>> & { lifting?: string | null }) {
     return this.send('PUT', this.person(profile), fields);
   }
   deleteProfile(profile: string) {

@@ -254,6 +254,8 @@ function normalize(saved) {
       name: typeof p.name === 'string' && p.name.trim() ? p.name.trim().slice(0, 30) : 'Me',
       emoji: typeof p.emoji === 'string' && p.emoji ? p.emoji.slice(0, 8) : '🙂',
       prompt: p.prompt !== false,
+      // Whose lifting days to show (server/checkin-lifting.js); missing means automatic.
+      ...(typeof p.lifting === 'string' ? { lifting: p.lifting.trim().slice(0, 40) } : {}),
       questions: normalizeQuestions(p.questions),
       entries: Object.fromEntries(Object.entries(p.entries && typeof p.entries === 'object' ? p.entries : {}).filter(([d, e]) => validEntry(d, e))),
     }));
@@ -280,8 +282,10 @@ function normalize(saved) {
  * CSV of every person's days, oldest first, one column per question. Columns are keyed
  * by question id (people sharing a built-in question share its column); the header is
  * the short name, numbered when two questions share one (a custom "Sleep" next to the built-in).
+ * lifting (from server/checkin-lifting.js, by profile id) adds whether and how much
+ * each person lifted on each row's date.
  */
-export function toCsv(state) {
+export function toCsv(state, lifting = {}) {
   const columns = [];
   for (const p of state.profiles) for (const q of p.questions) if (!columns.some((c) => c.id === q.id)) columns.push({ id: q.id, short: q.short });
   const headers = [];
@@ -296,7 +300,9 @@ export function toCsv(state) {
     const s = String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const rows = [['person', 'date', ...headers, 'note', 'answered at'].map(cell).join(',')];
+  const lifted = state.profiles.some((p) => lifting[p.id]);
+  const liftingHeaders = lifted ? ['lifted', 'lifting sets', 'lifting volume lb'] : [];
+  const rows = [['person', 'date', ...headers, ...liftingHeaders, 'note', 'answered at'].map(cell).join(',')];
   for (const p of state.profiles) {
     for (const date of Object.keys(p.entries).sort()) {
       const e = p.entries[date];
@@ -307,7 +313,9 @@ export function toCsv(state) {
         if (q?.type === 'time' && typeof v === 'number') return `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`;
         return v;
       });
-      rows.push([p.name, date, ...values, e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
+      const day = lifting[p.id]?.days[date];
+      const liftingValues = lifted ? (day ? ['yes', day.sets, day.volume] : ['', '', '']) : [];
+      rows.push([p.name, date, ...values, ...liftingValues, e.note, e.at ? new Date(e.at).toISOString() : ''].map(cell).join(','));
     }
   }
   return rows.join('\n') + '\n';
@@ -355,6 +363,12 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
     if (body.prompt !== undefined) {
       if (typeof body.prompt !== 'boolean') throw bad('prompt must be true or false');
       p.prompt = body.prompt;
+    }
+    // A lifting person's name, '' for none, or null to go back to matching by name.
+    if (body.lifting !== undefined) {
+      if (body.lifting === null) delete p.lifting;
+      else if (typeof body.lifting !== 'string' || body.lifting.trim().length > 40) throw bad('Lifting data must be a name');
+      else p.lifting = body.lifting.trim();
     }
   }
 
@@ -458,9 +472,16 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
     throw new CheckinError(404, 'Not found');
   }
 
-  async function exportCsv() {
+  /** lifting: what liftingFor(profiles) returns, or nothing when the lifting service can't say. */
+  async function exportCsv(liftingFor) {
     await ensure();
-    return toCsv(state);
+    const lifting = liftingFor ? await liftingFor(state.profiles).catch(() => null) : null;
+    return toCsv(state, lifting?.byProfile ?? {});
+  }
+
+  async function profiles() {
+    await ensure();
+    return state.profiles;
   }
 
   /** Re-broadcasts when the date rolls over, so screens offer the new day's check-in. */
@@ -474,6 +495,7 @@ export function createCheckin({ load, save, broadcast, now = Date.now }) {
   return {
     handle,
     exportCsv,
+    profiles,
     tick,
     start() {
       void ensure().then(tick).catch((err) => console.error('Loading check-in data failed', err));

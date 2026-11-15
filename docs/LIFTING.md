@@ -74,6 +74,14 @@ From the laptop: `.\deploy\lifting.ps1 -Import C:\path\lifting_backfill.json` (a
 
 Every API endpoint takes `?person=` (id or name); without it, it is the first person.
 
+The morning check-in reads `GET /api/days?from=YYYY-MM-DD&to=YYYY-MM-DD` (both optional):
+`{ first_date, days: [{ date, labels, working_sets, volume_lb, groups, prs }] }`, one entry
+per date with a session, counted as on the Month page (`groups`: the three muscle groups
+with the most sets). Its trends then show lifting days next to sleep and mood (only read,
+never written; when the service is down the check-in just leaves them out). A check-in
+person is matched to the lifting person with the same name, or picked in the check-in
+settings under **Lifting data**.
+
 ## How the numbers work
 
 Warmups never count.

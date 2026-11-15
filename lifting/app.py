@@ -247,6 +247,16 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
         """A calendar month (YYYY-MM, default this month) compared with the one before."""
         return metrics.report(conn, pid, month)
 
+    @app.get("/api/days")
+    async def days(
+        date_from: Optional[str] = Query(None, alias="from", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+        date_to: Optional[str] = Query(None, alias="to", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+        pid: int = Person,
+    ):
+        """Each date with a session (oldest first): sets, weight moved, main muscle groups, PRs.
+        The morning check-in reads this to show lifting days next to sleep and mood."""
+        return metrics.days(conn, pid, date_from, date_to)
+
     @app.get("/api/prs")
     async def prs(limit: int = Query(30, ge=1, le=500), pid: int = Person):
         return metrics.prs(conn, pid, limit)

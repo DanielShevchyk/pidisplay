@@ -421,3 +421,26 @@ def test_pages_load_versioned_scripts(client):
     assert client.get("/static/v-old/dash.js").headers["cache-control"] == "no-cache"
     assert client.get(f"/static/{ver}/../app.py").status_code == 404
     assert client.get("/log").text.count(f"static/{ver}/") == 2
+
+
+def test_days_for_the_checkin(client):
+    assert client.get("/api/days").json() == {"first_date": None, "days": []}
+    client.post("/import", json=SAMPLE)
+    client.post("/import", json={"sessions": [{"date": "2026-11-05", "day": "C", "sets": [s("Row", 1, 100, 10, set_type="warmup")]}]})
+    r = client.get("/api/days").json()
+    assert r["first_date"] == "2026-11-03"
+    first, second = r["days"]
+    # Same counting as the monthly report: warmups out, a drop set is one set, per-hand doubles.
+    assert first == {"date": "2026-11-03", "labels": ["A"], "working_sets": 4,
+                     "volume_lb": round(270 * 18 + 2 * 37.5 * 7), "groups": ["Quads", "Biceps", "Core"], "prs": 0}
+    assert second["date"] == "2026-11-05" and second["labels"] == ["B", "C"] and second["working_sets"] == 4 and second["prs"] == 1
+    assert second["volume_lb"] == round(1800 + 3600 + 2 * 35 * 8 + 0)
+    assert len(second["groups"]) <= 3
+    # Date range, and someone else's days.
+    assert [d["date"] for d in client.get("/api/days?from=2026-11-04").json()["days"]] == ["2026-11-05"]
+    assert [d["date"] for d in client.get("/api/days?to=2026-11-04").json()["days"]] == ["2026-11-03"]
+    assert client.get("/api/days?from=2026-11-04").json()["first_date"] == "2026-11-03"
+    assert client.get("/api/days?from=nov").status_code == 422
+    client.post("/api/people", json={"name": "Alex"})
+    assert client.get("/api/days?person=Alex").json() == {"first_date": None, "days": []}
+    assert client.get("/api/days?person=Nobody").status_code == 404
