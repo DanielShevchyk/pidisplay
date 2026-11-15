@@ -1,6 +1,7 @@
 // The now-playing view, from a thumbnail-and-button strip up to the full player.
 // Built once per mount and updated in place, so album art doesn't reload on every tick.
 import { h } from '../../core/dom';
+import { icon as lineIcon } from '../../core/icons';
 import type { Placement } from '../../core/types';
 import { openLibrarySheet, openSetupSheet, openSpeakersSheet } from './sheets';
 import { spotifyLogo } from './logo';
@@ -116,6 +117,32 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
   const libraryBtn = h('button', { class: 'btn spt-chip', onclick: (e: Event) => (e.stopPropagation(), openLibrarySheet()) }, icon('library'), 'Library');
   const errorLine = h('div', { class: 'spt-error' });
 
+  // One tap flips to the other person's Spotify; only there when two or more are signed in.
+  const acctName = h('span', { class: 'spt-acct-name' });
+  const acctBtn = h(
+    'button',
+    { class: 'btn spt-chip spt-acct', onclick: (e: Event) => (e.stopPropagation(), void spotify.switchAccount()) },
+    lineIcon('user'),
+    acctName,
+    lineIcon('arrow-left-right', 'spt-acct-swap'),
+  );
+  // Small and tall tiles float it over the art; the others put it with their buttons.
+  const acctOverlay = placement === 'small' || placement === 'tall';
+  const placeAcct = () => {
+    if (placement === 'bar') return;
+    const spot = acctOverlay ? root : root.querySelector('.spt-actions') ?? root.querySelector('.spt-controls') ?? root.querySelector('.spt-message');
+    if (spot && acctBtn.parentElement !== spot) spot.append(acctBtn);
+  };
+  const updateAcct = () => {
+    const s = spotify.status;
+    const next = spotify.nextAccount();
+    acctBtn.hidden = !next || (s?.accounts?.length ?? 0) < 2;
+    const name = s?.account?.name ?? '';
+    // First names keep the pill short; the full name is in the label.
+    acctName.textContent = name.split(/\s+/)[0].slice(0, 14) || 'Account';
+    acctBtn.setAttribute('aria-label', next ? `${name}'s Spotify. Tap to switch to ${next.name}` : name);
+  };
+
   const controls = h(
     'div',
     { class: 'spt-controls' },
@@ -208,7 +235,9 @@ export function mountPlayer(el: HTMLElement, { placement, onExpand }: Options): 
       else if (mode === 'idle') root.replaceChildren(idleView(), errorLine);
       else if (mode === 'error') root.replaceChildren(placement === 'bar' ? h('span', { class: 'spt-bar-empty' }, spotifyLogo()) : message('⚠️', spotify.loadError));
       else root.replaceChildren(placement === 'bar' ? h('span', { class: 'spt-bar-empty' }, spotifyLogo()) : message('', 'Loading…'));
+      if (mode === 'player' || mode === 'idle' || mode === 'setup') placeAcct();
     }
+    updateAcct();
     errorLine.textContent = spotify.error;
     errorLine.hidden = !spotify.error;
     errorLine.classList.toggle('spt-info', spotify.errorIsInfo);

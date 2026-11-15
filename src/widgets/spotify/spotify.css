@@ -315,3 +315,40 @@
 
 .spt-lib-actions { display: flex; align-items: center; gap: 12px; margin: 8px 0 12px; }
 .spt-tv-actions { margin-top: 8px; }
+
+/* ---- Account switch: one tap flips to the other person's Spotify ---- */
+
+.spt .spt-acct { gap: 8px; max-width: 100%; }
+.spt .spt-acct .ico { flex: none; font-size: 20px; color: var(--accent); }
+.spt .spt-acct .spt-acct-swap { font-size: 16px; color: var(--text-dim); }
+.spt-acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.spt-compact .spt-controls .spt-acct { margin-left: auto; min-height: 52px; }
+/* Small and tall tiles: a pill in the top-left corner, over the art. */
+.spt.size-small > .spt-acct,
+.spt.size-tall > .spt-acct {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  min-height: 48px;
+  max-width: calc(100% - 70px);
+  padding: 0 14px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(10, 8, 26, 0.62);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+.spt.size-tall > .spt-acct { top: 4px; left: 4px; }
+.spt.size-small > .spt-acct .ico,
+.spt.size-tall > .spt-acct .ico { color: #fff; }
+.spt.size-small > .spt-acct .spt-acct-swap,
+.spt.size-tall > .spt-acct .spt-acct-swap { color: rgba(255, 255, 255, 0.7); }
+.spt .spt-acct:active { transform: scale(0.96); }
+.spt .spt-acct[hidden] { display: none; }
+.spt-accounts li { display: flex; align-items: center; gap: 4px; padding-right: 6px; }
+.spt-accounts .conn-row { flex: 1; min-width: 0; }
+.spt-accounts .conn-icon .ico { font-size: 22px; }
+.spt-acct-out { flex: none; min-height: 48px; }

@@ -42,6 +42,18 @@ Needs Spotify Premium (both for Spotify Connect receivers and for the Web API).
 Run `.\deploy\spotify.ps1` with no arguments to check the status or sign in again, and
 `.\deploy\spotify.ps1 -Logout` to sign the display out.
 
+## Two (or more) Spotify accounts
+
+Everyone in the house can sign in once; the display keeps each account's sign-in and shows one at a time.
+
+1. In the Spotify developer dashboard, open your app > **User Management** and add each person's name and Spotify email. Development-mode apps only work for accounts on that list (up to 5).
+2. Sign the next person in: on the display, **Speakers > Spotify account > Add another account**, or on the laptop `.\deploy\spotify.ps1 -Add`. Spotify may offer whoever signed in last; tap **Not you?** on its page to pick the other account.
+3. Switch with one tap: every Spotify tile shows the name of the account in use (a pill in the corner of small and tall tiles, a button next to the controls on the others). Tapping it flips to the next account. The Spotify account sheet lists everyone, with Log out per account.
+
+What follows the account: now playing, controls, Library (playlists, Liked Songs, Recent) and the speaker list. The default speaker ("Start new music on") is shared. A TV or speaker only shows up for the account its own Spotify app is signed in to, so switch the TV's Spotify profile too if it is missing. The PiDisplay speaker belongs to whoever linked it from their phone last.
+
+Old single-account sign-ins are kept and become the first account; its name shows after the first refresh.
+
 ## Speakers
 
 **Speakers** on the widget has three parts:

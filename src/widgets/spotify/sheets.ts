@@ -4,6 +4,7 @@ import { call } from '../../core/api';
 import { showBluetooth } from '../../core/connections';
 import { showTvLink, type TvStatus } from '../../core/tv-link';
 import { h } from '../../core/dom';
+import { icon } from '../../core/icons';
 import { openSheet, type SheetHandle } from '../../core/sheet';
 import { spotifyLogo } from './logo';
 import { spotify, type Device, type SpotifyStatus } from './store';
@@ -338,8 +339,16 @@ interface SearchResults {
 let playlistCache: Playlist[] | null = null;
 let likedCache: { total: number; tracks: Track[] } | null = null;
 let lastQuery = '';
+/** Whose library the caches above hold. */
+let cacheAccount: string | null = null;
 
 export function openLibrarySheet() {
+  const account = spotify.status?.account?.id ?? null;
+  if (account !== cacheAccount) {
+    playlistCache = null;
+    likedCache = null;
+    cacheAccount = account;
+  }
   const sheet = openSheet('Library', []);
   let tab: 'playlists' | 'liked' | 'recent' | 'search' = 'playlists';
   let status = '';
@@ -518,6 +527,69 @@ export function openSetupSheet() {
       // Spotify sends the browser back to /api/spotify/callback, which returns here.
       location.href = `/api/spotify/login?return=${encodeURIComponent(location.pathname + location.search)}`;
     };
+    const accounts = status.accounts ?? [];
+    const forget = () => {
+      playlistCache = null;
+      likedCache = null;
+    };
+
+    /** Everyone signed in here: tap one to make it the active account. */
+    const accountList = () =>
+      h(
+        'ul',
+        { class: 'conn-list spt-accounts' },
+        ...accounts.map((a) =>
+          h(
+            'li',
+            { class: a.active ? 'active' : '' },
+            h(
+              'button',
+              {
+                class: 'conn-row',
+                disabled: a.active,
+                onclick: async () => {
+                  await call('POST', '/api/spotify/account', { id: a.id }).catch((err) => (error = (err as Error).message));
+                  forget();
+                  await spotify.refresh(true);
+                  void render();
+                },
+              },
+              h('span', { class: 'conn-icon' }, icon('user')),
+              h('span', { class: 'conn-name' }, a.name),
+              h('span', { class: `conn-tag${a.active ? ' on' : ''}` }, a.active ? 'In use' : a.connected ? 'Tap to use' : 'Signed out'),
+            ),
+            h(
+              'button',
+              {
+                class: 'btn btn-ghost spt-acct-out',
+                'aria-label': `Log out ${a.name}`,
+                onclick: async () => {
+                  await call('POST', '/api/spotify/logout', { id: a.id }).catch((err) => (error = (err as Error).message));
+                  forget();
+                  void spotify.refresh(true);
+                  void render();
+                },
+              },
+              'Log out',
+            ),
+          ),
+        ),
+      );
+    const accountHelp = () =>
+      h(
+        'div',
+        {},
+        h(
+          'p',
+          { class: 'conn-hint' },
+          'Each account has to be on your Spotify app\'s user list first: in the developer dashboard open the app, then User Management, and add the person\'s name and Spotify email.',
+        ),
+        h(
+          'p',
+          { class: 'conn-hint' },
+          'Spotify may sign in as whoever used it last on this screen. Tap "Not you?" on its page to pick the other account.',
+        ),
+      );
 
     if (!status.configured) {
       const input = h('input', { type: 'text', class: 'spt-search-input', placeholder: 'Client ID', autocomplete: 'off', spellcheck: false });
@@ -553,6 +625,14 @@ export function openSetupSheet() {
           ),
         ),
       );
+    } else if (!status.connected && accounts.length) {
+      // The active account was signed out by Spotify; others may still be fine.
+      parts.push(
+        h('p', {}, `${status.account?.name ?? 'This account'} needs to log in again.`),
+        h('button', { class: 'btn btn-primary btn-wide', onclick: login }, 'Log in again'),
+        h('h3', {}, 'Accounts'),
+        accountList(),
+      );
     } else if (!status.connected) {
       parts.push(
         h('p', {}, 'Sign in to Spotify to finish. Either:'),
@@ -573,7 +653,7 @@ export function openSetupSheet() {
     } else {
       const r = status.receiver;
       parts.push(
-        h('p', {}, '✅ Spotify is connected.'),
+        h('p', {}, `Spotify is connected as ${status.account?.name ?? 'you'}.`),
         h(
           'p',
           { class: 'conn-hint' },
@@ -581,20 +661,17 @@ export function openSetupSheet() {
             ? `The ${r.name} speaker is linked, so music can start from this screen.`
             : `One more step: open Spotify on your phone or computer on the same Wi-Fi, tap the speaker icon and pick ${r.name}. After that, music can start from this screen.`,
         ),
+        h('h3', {}, 'Accounts'),
+        accountList(),
         h(
-          'button',
-          {
-            class: 'btn btn-danger',
-            onclick: async () => {
-              await call('POST', '/api/spotify/logout').catch((err) => (error = (err as Error).message));
-              playlistCache = null;
-              likedCache = null;
-              void spotify.refresh(true);
-              void render();
-            },
-          },
-          'Log out of Spotify',
+          'p',
+          { class: 'conn-hint' },
+          accounts.length > 1
+            ? 'The Spotify tiles show the account in use; tap the name on a tile to switch. A TV or speaker only shows up for the account its own Spotify app is signed in to.'
+            : 'Someone else in the house has Spotify too? Add their account, then switch with one tap on the Spotify tile.',
         ),
+        h('div', { class: 'spt-sheet-actions' }, h('button', { class: 'btn btn-primary', onclick: login }, 'Add another account')),
+        accountHelp(),
       );
     }
     if (sheet.body.isConnected) sheet.body.replaceChildren(h('div', { class: 'spt-sheet' }, ...parts.filter((p): p is HTMLElement => Boolean(p))));

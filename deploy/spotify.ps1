@@ -1,11 +1,12 @@
 # Connect the Spotify widget to your Spotify account, from this laptop (run from the pidisplay folder).
 #   .\deploy\spotify.ps1 -ClientId <id>   save your Spotify app's Client ID on the Pi, then sign in
 #   .\deploy\spotify.ps1                  sign in again (or check the status) with the saved Client ID
-#   .\deploy\spotify.ps1 -Logout          sign the display out of Spotify
+#   .\deploy\spotify.ps1 -Add             sign in one more Spotify account (someone else in the house)
+#   .\deploy\spotify.ps1 -Logout          sign the account in use out of the display
 # Sign-in opens in this laptop's browser through an SSH tunnel to the Pi, because Spotify only
 # returns to http://127.0.0.1:8080/api/spotify/callback. Tokens are stored only on the Pi, in
 # ~/pidisplay-data/spotify.json (readable by dan only). See docs/SPOTIFY.md.
-param([string]$ClientId, [switch]$Logout, [string]$PiHost = 'dan@piboy')
+param([string]$ClientId, [switch]$Logout, [switch]$Add, [string]$PiHost = 'dan@piboy')
 $ErrorActionPreference = 'Stop'
 $api = 'http://127.0.0.1:8080/api/spotify'
 
@@ -18,7 +19,7 @@ function Get-Status {
 
 if ($Logout) {
   ssh $PiHost "curl -fsS -X POST $api/logout" | Out-Null
-  Write-Host 'Signed the display out of Spotify.'
+  Write-Host 'Signed the account in use out of the display.'
   exit
 }
 
@@ -33,7 +34,8 @@ if ($ClientId) {
 $status = Get-Status
 if (-not $status.configured) { throw 'No Client ID saved yet. Run: .\deploy\spotify.ps1 -ClientId <your app''s Client ID>' }
 
-if (-not $status.connected) {
+$before = @($status.accounts).Count
+if (-not $status.connected -or $Add) {
   $busy = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
   if ($busy) { throw 'Something on this laptop already uses port 8080. Close it, or sign in on the display instead.' }
   Write-Host 'Opening a tunnel to the Pi and the Spotify sign-in page...'
@@ -42,18 +44,23 @@ if (-not $status.connected) {
     Start-Sleep -Seconds 3
     if ($tunnel.HasExited) { throw 'The SSH tunnel to the Pi did not start.' }
     Start-Process "$api/login"
-    Write-Host 'Sign in to Spotify in the browser and tap Agree.'
-    for ($i = 0; $i -lt 150 -and -not $status.connected; $i++) {
+    if ($Add) { Write-Host 'Sign in with the other Spotify account (tap "Not you?" if Spotify shows the wrong one) and tap Agree.' }
+    else { Write-Host 'Sign in to Spotify in the browser and tap Agree.' }
+    $done = { if ($Add) { @($status.accounts).Count -gt $before } else { $status.connected } }
+    for ($i = 0; $i -lt 150 -and -not (& $done); $i++) {
       Start-Sleep -Seconds 2
       $status = Get-Status
     }
   } finally {
     Stop-Process -Id $tunnel.Id -ErrorAction SilentlyContinue
   }
-  if (-not $status.connected) { throw 'Timed out waiting for the Spotify sign-in. Run the script again to retry.' }
+  if (-not (& $done)) { throw 'Timed out waiting for the Spotify sign-in (signing the same account in again does not add one). Run the script again to retry.' }
 }
 
-Write-Host 'Spotify is connected.' -ForegroundColor Green
+Write-Host "Spotify is connected as $($status.account.name)." -ForegroundColor Green
+if (@($status.accounts).Count -gt 1) {
+  Write-Host "Signed in: $((@($status.accounts) | ForEach-Object { $_.name }) -join ', '). Tap the name on a Spotify tile to switch."
+}
 if ($status.receiver.signedIn) {
   Write-Host "The $($status.receiver.name) speaker is linked too, so music can start from the display."
 } else {

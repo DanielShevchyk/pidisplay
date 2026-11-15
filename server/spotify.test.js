@@ -61,14 +61,15 @@ test('login uses PKCE and the callback stores tokens privately', async () => {
 
   const result = await spotify.callback(new URLSearchParams({ code: 'abc', state: url.searchParams.get('state') }));
   assert.equal(result.returnTo, '/?kiosk');
-  const sent = new URLSearchParams(calls.at(-1).body);
+  const sent = new URLSearchParams(calls.find((c) => c.url.endsWith('/api/token')).body);
   assert.equal(sent.get('grant_type'), 'authorization_code');
   assert.ok(sent.get('code_verifier').length >= 43);
   assert.equal(sent.get('client_secret'), null);
 
   const file = path.join(dir, 'spotify.json');
   const saved = JSON.parse(await fs.readFile(file, 'utf8'));
-  assert.equal(saved.refreshToken, 'refresh-2');
+  assert.equal(saved.accounts[0].refreshToken, 'refresh-2');
+  assert.equal(saved.active, saved.accounts[0].id);
   if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
   assert.equal((await spotify.status()).connected, true);
 
@@ -189,7 +190,8 @@ const DEVICES = [200, { devices: [
 test('screens polling together share one Spotify call, and actions refresh it', async () => {
   const { spotify, calls, advance } = await setup({ routes: { 'GET /me/player/devices': DEVICES } });
   await connect(spotify);
-  const count = () => calls.filter((c) => c.url.startsWith('https://api.spotify.com')).length;
+  // Not counting the "who signed in" lookup at sign-in.
+  const count = () => calls.filter((c) => c.url.startsWith('https://api.spotify.com') && !c.url.endsWith('/v1/me')).length;
   await Promise.all([spotify.player(), spotify.player(), spotify.player()]);
   assert.equal(count(), 2); // one now-playing, one device list
   await spotify.player();
@@ -443,4 +445,85 @@ test('mute: the TV mutes itself; other speakers go to 0 and back', async () => {
   assert.equal((await spotify.player()).player.device.muted, true);
   await spotify.control('mute', { on: false });
   assert.ok(calls.at(-1).url.includes('volume_percent=70'));
+});
+
+test('two accounts: each signs in once, one is active, switching changes whose music it is', async () => {
+  let who = 'dan';
+  const { spotify, calls, dir } = await setup({
+    routes: {
+      'GET /me': () => [200, who === 'dan' ? { id: 'dan1', display_name: 'Dan' } : { id: 'sam2', display_name: 'Sam' }],
+      'GET /me/playlists': (opts) => [200, { items: [{ uri: 'spotify:playlist:1', name: opts.headers.Authorization, images: [] }] }],
+    },
+    token: { authorization_code: undefined },
+  });
+  await connect(spotify);
+  const login = new URL(await spotify.loginUrl('/'));
+  assert.equal(login.searchParams.get('show_dialog'), 'true');
+  const danToken = (await spotify.playlists())[0].name;
+
+  who = 'sam';
+  const signedIn = await spotify.callback(new URLSearchParams({ code: 'x', state: login.searchParams.get('state') }));
+  assert.equal(signedIn.account.name, 'Sam');
+  let s = await spotify.status();
+  assert.deepEqual(s.accounts.map((a) => [a.name, a.active]), [['Dan', false], ['Sam', true]]);
+  assert.equal(s.account.name, 'Sam');
+  const samToken = (await spotify.playlists())[0].name;
+  assert.notEqual(samToken, danToken);
+
+  // No id: flip to the other one.
+  s = await spotify.switchAccount();
+  assert.equal(s.account.name, 'Dan');
+  assert.equal((await spotify.playlists())[0].name, danToken);
+  s = await spotify.switchAccount(s.accounts.find((a) => a.name === 'Sam').id);
+  assert.equal(s.account.name, 'Sam');
+  await assert.rejects(spotify.switchAccount('nobody'), /not signed in/);
+
+  // The same person signing in again replaces their sign-in instead of adding a third.
+  const again = new URL(await spotify.loginUrl('/'));
+  await spotify.callback(new URLSearchParams({ code: 'y', state: again.searchParams.get('state') }));
+  assert.equal((await spotify.status()).accounts.length, 2);
+
+  // Logging Sam out hands over to Dan.
+  s = await spotify.logout();
+  assert.deepEqual(s.accounts.map((a) => a.name), ['Dan']);
+  assert.equal(s.account.name, 'Dan');
+  assert.equal(s.connected, true);
+  await assert.rejects(spotify.switchAccount(), /Only one/);
+  const saved = JSON.parse(await fs.readFile(path.join(dir, 'spotify.json'), 'utf8'));
+  assert.equal(saved.accounts.length, 1);
+  assert.ok(calls.length);
+});
+
+test('a sign-in saved before accounts existed keeps working and learns its name', async () => {
+  const { spotify, dir } = await setup({ routes: { 'GET /me': [200, { id: 'dan1', display_name: 'Dan' }] } });
+  await fs.writeFile(
+    path.join(dir, 'spotify.json'),
+    JSON.stringify({ clientId: CLIENT, refreshToken: 'old-refresh', accessToken: 'old-access', expiresAt: 9e15, preferred: { id: 'tv', name: 'TV', type: 'tv' } }),
+  );
+  const s = await spotify.status();
+  assert.equal(s.connected, true);
+  assert.equal(s.account.name, 'Dan');
+  assert.equal(s.preferred.name, 'TV');
+  const saved = JSON.parse(await fs.readFile(path.join(dir, 'spotify.json'), 'utf8'));
+  assert.equal(saved.refreshToken, undefined);
+  assert.equal(saved.accounts[0].refreshToken, 'old-refresh');
+  assert.equal(saved.accounts[0].user, 'dan1');
+});
+
+test('a revoked sign-in only signs out that account', async () => {
+  let who = 'dan';
+  const { spotify, advance } = await setup({
+    routes: { 'GET /me': () => [200, { id: who, display_name: who }] },
+    token: { refresh_token: { error: 'invalid_grant' } },
+  });
+  await connect(spotify);
+  who = 'sam';
+  const url = new URL(await spotify.loginUrl('/'));
+  await spotify.callback(new URLSearchParams({ code: 'x', state: url.searchParams.get('state') }));
+  advance(2 * 3600 * 1000);
+  await assert.rejects(spotify.playlists(), /signed sam out/);
+  const s = await spotify.status();
+  assert.equal(s.connected, false);
+  assert.deepEqual(s.accounts.map((a) => [a.name, a.connected]), [['dan', true], ['sam', false]]);
+  assert.equal((await spotify.switchAccount()).connected, true);
 });

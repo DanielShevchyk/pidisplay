@@ -4,6 +4,8 @@
 // Connect receiver run by deploy/pidisplay-spotify.service.
 //
 // Tokens live in $PIDISPLAY_DATA/spotify.json (mode 600) and never reach the browser.
+// More than one Spotify account can be signed in (one household, two people); each
+// keeps its own tokens and one of them is active: that's whose music the widget shows.
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -38,8 +40,23 @@ const PLAYER_CACHE_MS = 2000;
 const DEVICES_CACHE_MS = 8000;
 const REQUEST_TIMEOUT_MS = 10000;
 const MAX_BACKOFF_MS = 5 * 60 * 1000;
+const MAX_ACCOUNTS = 6;
 // After the TV's Spotify app is opened, how long it gets to show up as a speaker.
 const TV_APPEAR_MS = 30000;
+
+/**
+ * The stored file, in the shape { clientId, preferred, accounts: [...], active }. Files
+ * from before accounts held one account's tokens at the top level; they become account 1.
+ */
+export function normalizeConfig(raw) {
+  const { refreshToken, accessToken, expiresAt, accounts, active, ...rest } = raw && typeof raw === 'object' ? raw : {};
+  let list = Array.isArray(accounts) ? accounts.filter((a) => a && typeof a.id === 'string' && a.id) : [];
+  if (!list.length && refreshToken) list = [{ id: 'main', user: null, name: '', refreshToken, accessToken, expiresAt }];
+  const current = list.find((a) => a.id === active) ?? list.find((a) => a.refreshToken) ?? list[0];
+  return { ...rest, accounts: list, active: current?.id ?? null };
+}
+
+const accountName = (a, i) => a.name || (i === undefined ? 'Spotify account' : `Account ${i + 1}`);
 
 const base64url = (buf) => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -156,8 +173,8 @@ export function createSpotify({
   tvVolume = null,
   wait = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
-  let config = null; // { clientId, refreshToken, accessToken, expiresAt }
-  let refreshing = null;
+  let config = null; // see normalizeConfig
+  const refreshing = new Map(); // account id -> token refresh in flight
   const pending = new Map(); // OAuth state -> { verifier, returnTo, created }
   // Spotify said "too many requests": no calls until this time.
   let blockedUntil = 0;
@@ -199,15 +216,16 @@ export function createSpotify({
   async function load() {
     if (config) return config;
     try {
-      config = JSON.parse(await fs.readFile(configFile, 'utf8'));
+      config = normalizeConfig(JSON.parse(await fs.readFile(configFile, 'utf8')));
     } catch (err) {
       if (err.code !== 'ENOENT') console.error('Reading spotify.json failed', err);
-      config = {};
+      config = normalizeConfig({});
     }
     return config;
   }
 
   async function save(next) {
+    next = normalizeConfig(next);
     config = next;
     await fs.mkdir(path.dirname(configFile), { recursive: true });
     const tmp = `${configFile}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
@@ -220,11 +238,39 @@ export function createSpotify({
     return fs.access(path.join(receiverCacheDir, 'credentials.json')).then(() => true, () => false);
   }
 
-  async function status() {
+  const activeAccount = (c) => c.accounts.find((a) => a.id === c.active) ?? null;
+
+  /** Saves changes to one account, if it is still signed in with the same tokens. */
+  async function updateAccount(id, patch) {
     const c = await load();
+    if (!c.accounts.some((a) => a.id === id)) return false;
+    await save({ ...c, accounts: c.accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)) });
+    return true;
+  }
+
+  let profileTried = new Set();
+  /** Accounts from before names were kept learn theirs the first time they're shown. */
+  async function fillProfile(c) {
+    const acc = activeAccount(c);
+    if (!acc?.refreshToken || acc.user || profileTried.has(acc.id)) return;
+    profileTried.add(acc.id);
+    const me = await api('GET', '/me').catch(() => null);
+    if (me?.id) await updateAccount(acc.id, { user: me.id, name: me.display_name || me.id });
+  }
+
+  async function status() {
+    let c = await load();
+    if (c.clientId) {
+      await fillProfile(c);
+      c = await load();
+    }
+    const acc = activeAccount(c);
     return {
       configured: Boolean(c.clientId),
-      connected: Boolean(c.clientId && c.refreshToken),
+      connected: Boolean(c.clientId && acc?.refreshToken),
+      // Whose music this is, and everyone else who has signed in here.
+      account: acc ? { id: acc.id, name: accountName(acc, c.accounts.indexOf(acc)), connected: Boolean(acc.refreshToken) } : null,
+      accounts: c.accounts.map((a, i) => ({ id: a.id, name: accountName(a, i), connected: Boolean(a.refreshToken), active: a.id === c.active })),
       redirectUri,
       receiver: { name: RECEIVER_NAME, signedIn: await receiverSignedIn() },
       // Where new music starts when nothing is playing; null = this display.
@@ -243,6 +289,7 @@ export function createSpotify({
     if (!id) {
       dropCache();
       await save({});
+      profileTried = new Set();
       return status();
     }
     if (!CLIENT_ID.test(id)) throw new SpotifyError(400, 'That doesn\'t look like a Spotify Client ID (32 letters and numbers).');
@@ -253,10 +300,33 @@ export function createSpotify({
     return status();
   }
 
-  async function logout() {
+  /** Signs one account out (the active one by default); another one takes over. */
+  async function logout(id) {
     const c = await load();
-    dropCache();
-    await save({ clientId: c.clientId, ...(c.preferred ? { preferred: c.preferred } : {}) });
+    const gone = typeof id === 'string' && id ? id : c.active;
+    const accounts = c.accounts.filter((a) => a.id !== gone);
+    if (gone === c.active) dropCache();
+    const active = gone === c.active ? (accounts.find((a) => a.refreshToken) ?? accounts[0])?.id ?? null : c.active;
+    await save({ ...c, accounts, active });
+    return status();
+  }
+
+  /** Makes another signed-in account the one whose music the widget shows and controls. */
+  async function switchAccount(id) {
+    const c = await load();
+    let target;
+    if (typeof id === 'string' && id) target = c.accounts.find((a) => a.id === id);
+    else {
+      // No id: the next one along, so a single button can flip between two people.
+      const i = c.accounts.findIndex((a) => a.id === c.active);
+      target = [...c.accounts.slice(i + 1), ...c.accounts.slice(0, i + 1)].find((a) => a.id !== c.active);
+    }
+    if (!target) throw new SpotifyError(404, id ? 'That Spotify account is not signed in here any more.' : 'Only one Spotify account is signed in. Add another under Spotify account.');
+    if (target.id !== c.active) {
+      dropCache();
+      unmuteTo.clear();
+      await save({ ...c, active: target.id });
+    }
     return status();
   }
 
@@ -289,6 +359,8 @@ export function createSpotify({
       code_challenge: base64url(crypto.createHash('sha256').update(verifier).digest()),
       scope: SCOPES.join(' '),
       state,
+      // Always ask, with a "Not you?" link, so a second person can sign in with their own account.
+      show_dialog: 'true',
     });
     return `${ACCOUNTS}/authorize?${params}`;
   }
@@ -303,16 +375,13 @@ export function createSpotify({
     return { ok: res.ok, body };
   }
 
-  function storeTokens(c, body) {
-    return save({
-      ...c,
-      accessToken: body.access_token,
-      // Refresh a minute early so a request never goes out with a dying token.
-      expiresAt: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000,
-      // PKCE refresh tokens rotate; keep the old one if Spotify didn't send a new one.
-      refreshToken: body.refresh_token || c.refreshToken,
-    });
-  }
+  const tokensFrom = (body, old) => ({
+    accessToken: body.access_token,
+    // Refresh a minute early so a request never goes out with a dying token.
+    expiresAt: now() + (Number(body.expires_in) || 3600) * 1000 - 60_000,
+    // PKCE refresh tokens rotate; keep the old one if Spotify didn't send a new one.
+    refreshToken: body.refresh_token || old?.refreshToken || null,
+  });
 
   /** Finishes sign-in from the redirect. Returns where to send the browser next. */
   async function callback(params) {
@@ -332,33 +401,55 @@ export function createSpotify({
     if (!ok || !body.access_token) {
       throw new SpotifyError(400, `Spotify sign-in failed: ${body.error_description || body.error || 'no token'}`);
     }
-    await storeTokens(c, body);
-    return { returnTo: entry.returnTo };
+    // Who signed in: the same person again replaces their old sign-in, anyone else is added.
+    const me = await request(`${API}/me`, { method: 'GET', headers: { Authorization: `Bearer ${body.access_token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+    const user = typeof me?.id === 'string' ? me.id : null;
+    const name = String(me?.display_name || user || '').slice(0, 80);
+    // An account from before names were kept has to learn whose it is before it can be matched.
+    await fillProfile(await load());
+    const fresh = await load();
+    const old = user ? fresh.accounts.find((a) => a.user === user) : null;
+    if (!old && fresh.accounts.length >= MAX_ACCOUNTS) throw new SpotifyError(400, `Up to ${MAX_ACCOUNTS} Spotify accounts can be signed in. Log one out first.`);
+    const id = old?.id ?? (user ? `u-${user}`.slice(0, 120) : `a-${base64url(crypto.randomBytes(6))}`);
+    const account = { ...(old ?? {}), id, user, name: name || old?.name || '', ...tokensFrom(body, old) };
+    const accounts = old ? fresh.accounts.map((a) => (a.id === old.id ? account : a)) : [...fresh.accounts, account];
+    if (id !== fresh.active) dropCache();
+    profileTried.delete(id);
+    await save({ ...fresh, accounts, active: id });
+    return { returnTo: entry.returnTo, account: { id, name: accountName(account, accounts.indexOf(account)) } };
   }
 
   async function accessToken(force = false) {
     const c = await load();
-    if (!c.clientId || !c.refreshToken) throw new SpotifyError(401, 'Spotify is not connected yet.');
-    if (!force && c.accessToken && now() < c.expiresAt) return c.accessToken;
-    refreshing ??= (async () => {
+    const acc = activeAccount(c);
+    if (!c.clientId || !acc?.refreshToken) throw new SpotifyError(401, 'Spotify is not connected yet.');
+    if (!force && acc.accessToken && now() < acc.expiresAt) return acc.accessToken;
+    let p = refreshing.get(acc.id);
+    if (p) return p;
+    p = (async () => {
+      // Still the same app and the same sign-in (not logged out or replaced meanwhile)?
+      const unchanged = () => config.clientId === c.clientId && config.accounts.some((a) => a.id === acc.id && a.refreshToken === acc.refreshToken);
       try {
-        const { ok, body } = await tokenRequest({ grant_type: 'refresh_token', refresh_token: c.refreshToken, client_id: c.clientId });
+        const { ok, body } = await tokenRequest({ grant_type: 'refresh_token', refresh_token: acc.refreshToken, client_id: c.clientId });
         if (!ok || !body.access_token) {
           if (body.error === 'invalid_grant' || body.error === 'invalid_client') {
-            if (config === c) await save({ clientId: c.clientId, ...(c.preferred ? { preferred: c.preferred } : {}) });
-            throw new SpotifyError(401, 'Spotify signed this display out. Log in again.');
+            // Kept in the list, signed out, so it's clear who needs to log in again.
+            if (unchanged()) await updateAccount(acc.id, { refreshToken: null, accessToken: null, expiresAt: 0 });
+            throw new SpotifyError(401, `Spotify signed ${acc.name || 'this account'} out on this display. Log in again.`);
           }
           throw new SpotifyError(502, `Spotify sign-in refresh failed: ${body.error_description || body.error || 'unknown error'}`);
         }
-        // Logged out (or switched apps) while this was in flight: don't sign back in.
-        if (config !== c) throw new SpotifyError(401, 'Spotify is not connected yet.');
-        await storeTokens(c, body);
+        if (!unchanged()) throw new SpotifyError(401, 'Spotify is not connected yet.');
+        await updateAccount(acc.id, tokensFrom(body, acc));
         return body.access_token;
       } finally {
-        refreshing = null;
+        refreshing.delete(acc.id);
       }
     })();
-    return refreshing;
+    refreshing.set(acc.id, p);
+    return p;
   }
 
   async function api(method, pathAndQuery, body) {
@@ -655,7 +746,8 @@ export function createSpotify({
     const [, section, action] = parts; // parts[0] is "spotify"
     if (!section && method === 'GET') return status();
     if (section === 'client' && (method === 'PUT' || method === 'POST')) return setClientId(body?.clientId ?? params.get('clientId'));
-    if (section === 'logout' && method === 'POST') return logout();
+    if (section === 'logout' && method === 'POST') return logout(body?.id ?? params.get('id'));
+    if (section === 'account' && (method === 'PUT' || method === 'POST')) return switchAccount(body?.id ?? params.get('id'));
     if (section === 'preferred' && (method === 'PUT' || method === 'POST')) return setPreferred(body);
     if (section === 'player' && !action && method === 'GET') return player();
     if (section === 'player' && action && method === 'POST') return control(action, body ?? {});
@@ -666,5 +758,5 @@ export function createSpotify({
     throw new SpotifyError(404, 'Not found');
   }
 
-  return { status, setClientId, setPreferred, logout, loginUrl, callback, player, control, playlists, liked, recent, search, handle };
+  return { status, setClientId, setPreferred, logout, switchAccount, loginUrl, callback, player, control, playlists, liked, recent, search, handle };
 }

@@ -3,9 +3,22 @@
 // watching: every few seconds while music plays, less often otherwise.
 import { call, onServerEvent } from '../../core/api';
 
+/** A Spotify account signed in on this display. */
+export interface Account {
+  id: string;
+  name: string;
+  /** False when Spotify signed it out and it needs to log in again. */
+  connected: boolean;
+  active?: boolean;
+}
+
 export interface SpotifyStatus {
   configured: boolean;
   connected: boolean;
+  /** Whose music the widget shows and controls. */
+  account?: Account | null;
+  /** Everyone signed in here, in sign-in order. */
+  accounts?: Account[];
   redirectUri: string;
   receiver: { name: string; signedIn: boolean };
   /** The speaker new music starts on when nothing is playing; null = this display. */
@@ -215,6 +228,32 @@ class SpotifyStore {
     this.generation++;
     window.setTimeout(() => void this.refresh(), 600);
     return ok;
+  }
+
+  /** The account a one-tap switch goes to: the next one along. */
+  nextAccount(): Account | null {
+    const list = this.status?.accounts ?? [];
+    const i = list.findIndex((a) => a.id === this.status?.account?.id);
+    return [...list.slice(i + 1), ...list.slice(0, i + 1)].find((a) => a.id !== this.status?.account?.id) ?? null;
+  }
+
+  /** Makes another signed-in account the active one (the next one when no id is given). */
+  async switchAccount(id?: string) {
+    const list = this.status?.accounts ?? [];
+    const next = id ? list.find((a) => a.id === id) : this.nextAccount();
+    if (!next || !this.status || next.id === this.status.account?.id) return;
+    // Show the change at once (the name on the switch button); their music arrives with the next poll.
+    this.generation++;
+    this.status = { ...this.status, connected: next.connected, account: next, accounts: list.map((a) => ({ ...a, active: a.id === next.id })) };
+    this.player = null;
+    this.devices = [];
+    try {
+      this.status = await call<SpotifyStatus>('POST', '/api/spotify/account', { id: next.id });
+    } catch (err) {
+      this.showError((err as Error).message);
+    }
+    this.generation++;
+    await this.refresh(true);
   }
 
   async setPreferred(device: { id: string; name: string; type: string } | null) {

@@ -803,9 +803,9 @@ export function createServer({
     }
     if (key === 'callback' && req.method === 'GET') {
       try {
-        const { returnTo } = await spotify.callback(url.searchParams);
+        const { returnTo, account } = await spotify.callback(url.searchParams);
         broadcast('spotify', { connected: true });
-        return sendPage(res, 200, 'Spotify connected', 'PiDisplay can now show and control your music.', returnTo);
+        return sendPage(res, 200, 'Spotify connected', `PiDisplay can now show and control ${account?.name ? `${account.name}'s` : 'your'} music.`, returnTo);
       } catch (err) {
         if (!(err instanceof SpotifyError)) throw err;
         return sendPage(res, err.status, 'Spotify sign-in failed', err.message, null);
@@ -813,7 +813,7 @@ export function createServer({
     }
     const body = req.method === 'GET' ? null : await readBody(req);
     const result = await spotify.handle(req.method, parts, body, url.searchParams);
-    if (key === 'client' || key === 'logout' || key === 'preferred') broadcast('spotify', { connected: Boolean(result.connected) });
+    if (key === 'client' || key === 'logout' || key === 'preferred' || key === 'account') broadcast('spotify', { connected: Boolean(result.connected) });
     return send(res, 200, result);
   }
 
