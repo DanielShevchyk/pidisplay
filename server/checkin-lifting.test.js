@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createCheckinLifting, matchPerson } from './checkin-lifting.js';
+import { createCheckinLifting, matchPerson, profileFor } from './checkin-lifting.js';
 import { createCheckin, toCsv } from './checkin.js';
 import { createServer } from './server.js';
 
@@ -38,6 +38,29 @@ test('matches a check-in person to a lifting person', () => {
   const me = { name: 'Me' };
   assert.equal(matchPerson(me, [me], [{ name: 'Dan' }]).name, 'Dan');
   assert.equal(matchPerson(me, [me, dan], [{ name: 'Alex' }]), null);
+});
+
+test('finds the check-in person for a lifting person, as matchPerson the other way round', () => {
+  const people = [{ name: 'Dan' }, { name: 'Alex' }];
+  const dan = { id: 'dan', name: 'dan' };
+  const sam = { id: 'sam', name: 'Sam' };
+  assert.equal(profileFor('Dan', [dan, sam], people), dan);
+  assert.equal(profileFor('Alex', [dan, sam], people), null);
+  // Naming a lifting person wins over the same name.
+  const samAsDan = { id: 'sam', name: 'Sam', lifting: 'dan' };
+  assert.equal(profileFor('Dan', [dan, samAsDan], people), samAsDan);
+  // '' is never matched; naming someone else takes the profile off its own name.
+  assert.equal(profileFor('Dan', [{ name: 'Dan', lifting: '' }], people), null);
+  assert.equal(profileFor('Dan', [{ name: 'Dan', lifting: 'Alex' }, sam], people), null);
+  // One person on each side go together whatever their names, but not with two lifting people.
+  const me = { id: 'me', name: 'Me' };
+  assert.equal(profileFor('Dan', [me], [{ name: 'Dan' }]), me);
+  assert.equal(profileFor('Dan', [me], people), null);
+  assert.equal(profileFor('Dan', [me, sam], [{ name: 'Dan' }]), null);
+  // Without the lifting people list only names count.
+  assert.equal(profileFor('Dan', [me], null), null);
+  assert.equal(profileFor('dan', [{ name: 'Dan' }], null).name, 'Dan');
+  assert.equal(profileFor('Alex', [samAsDan, { name: 'Pat', lifting: 'Alex' }], null).name, 'Pat');
 });
 
 test('reads lifting days for each profile and caches them for a minute', async () => {
@@ -79,6 +102,31 @@ test('a lifting service that is down or empty means no lifting data', async () =
   assert.ok(Date.now() - t < 1500);
 });
 
+test('morning weigh-ins for a lifting person, oldest first', async () => {
+  const entries = {
+    '2026-11-13': { answers: { weight: 181.4, sleep: 4 }, at: 0 },
+    '2026-11-11': { answers: { weight: 182 }, at: 0 },
+    '2026-11-12': { answers: { sleep: 3 }, at: 0 },
+  };
+  const profiles = [{ id: 'me', name: 'Me', entries }];
+  const fake = fakeLifting();
+  const lifting = createCheckinLifting({ liftingUrl: 'http://lift:8090', fetchJson: fake.fetchJson, now: () => NOW });
+  // The only person on each side: matched although the names differ.
+  assert.deepEqual(await lifting.weightsFor('Dan', profiles), {
+    person: 'Dan',
+    profile: 'Me',
+    weights: [{ date: '2026-11-11', value: 182 }, { date: '2026-11-13', value: 181.4 }],
+  });
+  assert.deepEqual(await lifting.weightsFor('Alex', profiles), { person: 'Alex', profile: null, weights: [] });
+  assert.deepEqual((await lifting.weightsFor('Dan', [{ id: 'me', name: 'Me', lifting: '', entries }])).weights, []);
+  // The people list is cached with the rest.
+  assert.equal(fake.calls.length, 1);
+  // With the lifting service unreadable only the same name matches.
+  const down = createCheckinLifting({ liftingUrl: 'http://lift:8090', fetchJson: fakeLifting({ fail: true }).fetchJson, now: () => NOW });
+  assert.equal((await down.weightsFor('Dan', profiles)).profile, null);
+  assert.equal((await down.weightsFor('me', profiles)).weights.length, 2);
+});
+
 test('the profile keeps its lifting choice', async () => {
   let stored = null;
   const checkin = createCheckin({ load: async () => null, save: async (v) => (stored = structuredClone(v)), broadcast: () => {}, now: () => NOW });
@@ -116,7 +164,7 @@ test('CSV adds lifting columns when there is lifting data', () => {
 
 test('GET /api/checkin/lifting and the export, with the lifting service up and down', async () => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'pidisplay-checkin-lifting-'));
-  await fs.writeFile(path.join(dataDir, 'checkin.json'), JSON.stringify({ version: 3, profiles: [{ id: 'dan', name: 'Dan', entries: { '2026-11-12': { answers: { sleep: 4 }, at: 0 } } }] }));
+  await fs.writeFile(path.join(dataDir, 'checkin.json'), JSON.stringify({ version: 3, profiles: [{ id: 'dan', name: 'Dan', entries: { '2026-11-12': { answers: { sleep: 4, weight: 180.5 }, at: 0 } } }] }));
   const make = (opts) =>
     createServer({
       dataDir,
@@ -137,6 +185,11 @@ test('GET /api/checkin/lifting and the export, with the lifting service up and d
     assert.equal(r.available, true);
     assert.equal(r.byProfile.dan.days['2026-11-12'].sets, 18);
     assert.match(await (await fetch(`${upBase}/api/checkin/export.csv`)).text(), /^person,date,.*,lifted,lifting sets,lifting volume lb,note/);
+    assert.deepEqual(await (await fetch(`${upBase}/api/checkin/weights?person=Dan`)).json(), { person: 'Dan', profile: 'Dan', weights: [{ date: '2026-11-12', value: 180.5 }] });
+    assert.deepEqual((await (await fetch(`${upBase}/api/checkin/weights?person=Alex`)).json()).weights, []);
+    assert.equal((await fetch(`${upBase}/api/checkin/weights`)).status, 400);
+    // The same name still matches with the lifting service down.
+    assert.equal((await (await fetch(`${downBase}/api/checkin/weights?person=dan`)).json()).weights.length, 1);
     const d = await fetch(`${downBase}/api/checkin/lifting`);
     assert.equal(d.status, 200);
     assert.deepEqual(await d.json(), { available: false, people: [], byProfile: {} });

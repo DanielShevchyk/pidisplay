@@ -166,6 +166,11 @@ label.check { display: inline-flex; gap: 10px; align-items: center; min-height: 
 
 .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 30px; padding: 14px 18px 8px; position: relative; }
 .chart-card h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; }
+/* A title with a short note at the right, on the title's baseline. */
+.chart-card h3.chart-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.chart-note { margin-left: auto; font-size: 15px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* The chart's open marker, which is what those points look like. */
+.chart-note .ring { display: inline-block; width: 10px; height: 10px; border: 2.5px solid var(--series-1); border-radius: 50%; margin-right: 8px; vertical-align: -1px; box-sizing: border-box; }
 .chart { position: relative; height: 420px; }
 .chart.short { height: 300px; }
 .chart svg { display: block; width: 100%; height: 100%; overflow: visible; }

@@ -45,7 +45,7 @@ but assume at most 2% e1RM gain per week, since early sessions jump a lot.
 - **Volume**: working sets per muscle group for each week (Monday start), with last week as a tick.
 - **PRs**: recent PRs; tap one to open that lift's trend.
 - **Month**: a calendar month next to the one before: sessions, working sets, weight moved (weight × reps), PRs, average effort, sets per muscle group, training-day calendar.
-- **Dunk goal**: standing and approach touch height against the rim (120 in) and rim + 6 in, box jump height (from measurements and logged box-jump sets), bodyweight, and a form to add a measurement.
+- **Dunk goal**: standing and approach touch height against the rim (120 in) and rim + 6 in, box jump height (from measurements and logged box-jump sets), bodyweight, and a form to add a measurement. The bodyweight chart also shows the morning check-in's weigh-ins (open dots, "Includes morning check-in weigh-ins" above it), see below.
 - **Log**: every set, filterable by date range and exercise, with inline edit and delete. Tabs for sessions (date, day, notes; deleting one deletes its sets), exercises (muscle group, the muscles it also works, equipment; Merge folds a duplicate into another exercise and keeps every set) and measurements.
 - **Import**: paste JSON (or pick a file) and import it.
 
@@ -81,6 +81,15 @@ with the most sets). Its trends then show lifting days next to sleep and mood (o
 never written; when the service is down the check-in just leaves them out). A check-in
 person is matched to the lifting person with the same name, or picked in the check-in
 settings under **Lifting data**.
+
+The other way round, the **bodyweight chart** reads the check-in's morning weight
+(`GET /api/checkin/weights?person=<lifting name>` on PiDisplay: `{ person, profile, weights: [{ date, value }] }`,
+pounds, oldest first; the same matching as above, so a check-in person set to no lifting
+data is never shown). Nothing is copied into `lifting.db`: the check-in owns those
+answers, they don't appear on Log › Measurements, and a bodyweight logged here wins on
+its date. `lifting/checkin.py` asks PiDisplay at `PIDISPLAY_URL` (default
+`http://127.0.0.1:8080`; empty turns it off) with a 2 s timeout and keeps the answer for
+a minute; when PiDisplay is down the chart shows only what was logged here.
 
 ## How the numbers work
 

@@ -483,6 +483,12 @@ export function createServer({
         if (key === 'lifting' && req.method === 'GET') {
           return send(res, 200, await checkinLifting.forProfiles(await checkin.profiles()));
         }
+        // Morning weigh-ins for the lifting tracker's bodyweight chart, by lifting person name.
+        if (key === 'weights' && req.method === 'GET') {
+          const person = (url.searchParams.get('person') ?? '').trim();
+          if (!person) throw new HttpError(400, 'person is required');
+          return send(res, 200, await checkinLifting.weightsFor(person, await checkin.profiles()));
+        }
         if (key === 'export.csv' && req.method === 'GET') {
           // Lifting columns when the lifting service answers; the export works without it.
           const csv = await checkin.exportCsv((profiles) => checkinLifting.forProfiles(profiles, { allTime: true }));

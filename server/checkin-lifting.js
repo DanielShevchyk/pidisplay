@@ -3,6 +3,8 @@
 // so the check-in trends can show workouts next to sleep and mood. The lifting service
 // owns that data; this only reads it. When it's down, slow or has nobody matching, the
 // answer is just "nothing" and the check-in works as before.
+// The other way round, the lifting tracker's bodyweight chart reads the check-in's
+// morning weigh-ins (weightsFor, GET /api/checkin/weights); the check-in owns those.
 
 import { dateKey } from './checkin.js';
 
@@ -21,6 +23,23 @@ export function matchPerson(profile, profiles, people) {
   if (profile.lifting === '') return null;
   if (typeof profile.lifting === 'string') return named(profile.lifting);
   return named(profile.name) ?? (profiles.length === 1 && people.length === 1 ? people[0] : null);
+}
+
+/**
+ * The check-in profile whose lifting person is `name`: matchPerson the other way round.
+ * A profile naming that person wins over an automatic match. people is the lifting
+ * service's list, or null when it can't be read (then only names count, not "the only
+ * person on each side").
+ */
+export function profileFor(name, profiles, people) {
+  const is = (person) => person?.name.toLowerCase() === name.toLowerCase();
+  const list = people ?? [{ name }];
+  const auto = people ? profiles : profiles.filter((p) => p.name.toLowerCase() === name.toLowerCase());
+  return (
+    profiles.find((p) => typeof p.lifting === 'string' && p.lifting !== '' && is(matchPerson(p, profiles, list))) ??
+    auto.find((p) => p.lifting === undefined && is(matchPerson(p, profiles, list))) ??
+    null
+  );
 }
 
 export function createCheckinLifting({ liftingUrl, fetchJson, now = Date.now, ttlMs = TTL_MS, timeoutMs = TIMEOUT_MS } = {}) {
@@ -84,5 +103,24 @@ export function createCheckinLifting({ liftingUrl, fetchJson, now = Date.now, tt
     return { available: true, people: list.map((x) => x.name), byProfile };
   }
 
-  return { forProfiles };
+  /**
+   * { person, profile, weights: [{ date, value }] } oldest first: the morning weigh-ins
+   * (the built-in weight question, pounds) of the check-in profile that goes with the
+   * lifting person `name`. Nobody matching is an empty list.
+   */
+  async function weightsFor(name, profiles) {
+    const people = await get('/api/people');
+    const list = people.ok && Array.isArray(people.data) ? people.data.filter((x) => x && typeof x.name === 'string') : null;
+    const p = profileFor(name, profiles, list);
+    const weights = [];
+    if (p) {
+      for (const date of Object.keys(p.entries).sort()) {
+        const v = p.entries[date].answers?.weight;
+        if (typeof v === 'number' && Number.isFinite(v)) weights.push({ date, value: v });
+      }
+    }
+    return { person: name, profile: p?.name ?? null, weights };
+  }
+
+  return { forProfiles, weightsFor };
 }

@@ -285,7 +285,18 @@ def _inches(value: float, unit: str) -> float:
     return value / CM_PER_IN if unit == "cm" else value
 
 
-def dunk(conn: sqlite3.Connection, pid: int) -> dict:
+def merge_bodyweight(own: list[dict], checkin: list[dict]) -> list[dict]:
+    """Bodyweight logged here plus the morning check-in's weigh-ins (pounds), oldest first.
+    A date with its own measurement keeps it; check-in points are marked source "checkin"."""
+    dates = {p["date"] for p in own}
+    extra = [{"date": w["date"], "value": w["value"], "unit": "lb", "approx": False, "notes": None, "source": "checkin"}
+             for w in checkin if w["date"] not in dates]
+    return sorted(own + extra, key=lambda p: p["date"])
+
+
+def dunk(conn: sqlite3.Connection, pid: int, checkin_weights: list[dict] | None = None) -> dict:
+    """Measurement series for the Dunk goal page. checkin_weights (from lifting/checkin.py)
+    are merged into the bodyweight series; they are only read, never stored."""
     series: dict[str, list[dict]] = {"standing_touch_height": [], "approach_touch_height": [], "box_jump_height": [], "bodyweight": []}
     for m in conn.execute("SELECT * FROM measurements WHERE person_id = ? ORDER BY date, id", (pid,)):
         if m["type"] not in series:
@@ -303,6 +314,11 @@ def dunk(conn: sqlite3.Connection, pid: int) -> dict:
     ):
         series["box_jump_height"].append({"date": r["date"], "value": r["h"], "unit": "in", "approx": False, "notes": r["variation"], "source": "sets"})
     series["box_jump_height"].sort(key=lambda p: p["date"])
+    if checkin_weights:
+        # One weigh-in a date, so a check-in day doesn't double up a logged one.
+        seen: set[str] = set()
+        unique = [w for w in checkin_weights if not (w["date"] in seen or seen.add(w["date"]))]
+        series["bodyweight"] = merge_bodyweight(series["bodyweight"], unique)
     return {"series": series, "rim_in": RIM_IN}
 
 

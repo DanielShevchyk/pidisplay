@@ -403,7 +403,10 @@ async function renderDunk(el) {
     h('div', { class: 'dunk-grid' },
       h('div', { class: 'chart-card wide' }, touchSeries.length > 1 ? legend(touchSeries) : h('h3', {}, touchSeries[0]?.name || 'Touch height'), touchEl),
       h('div', { class: 'chart-card' }, h('h3', {}, 'Box jump height'), boxEl),
-      h('div', { class: 'chart-card' }, h('h3', {}, 'Bodyweight'), bwEl),
+      h('div', { class: 'chart-card' },
+        h('h3', { class: 'chart-head' }, 'Bodyweight',
+          S.bodyweight.some((p) => p.source === 'checkin') ? h('span', { class: 'dim chart-note' }, h('i', { class: 'ring' }), 'Includes morning check-in weigh-ins') : null),
+        bwEl),
       addForm()),
   );
   charts.push(lineChart(touchEl, touchSeries, { format: (v) => num(v), refs: [{ y: rim, label: 'Rim 10′' }, { y: rim + 6, label: 'Dunk (rim + 6″)' }], empty: 'No touch heights yet. Add one below.' }));
@@ -412,7 +415,9 @@ async function renderDunk(el) {
 }
 
 function pt(p) {
-  return { x: p.date, y: p.value, label: `${num(p.value)} ${p.unit}${p.approx ? ' (approx.)' : ''}`, note: p.notes || '' };
+  // Check-in weigh-ins are only read from the morning check-in: open markers, not editable here.
+  const checkin = p.source === 'checkin';
+  return { x: p.date, y: p.value, label: `${num(p.value)} ${p.unit}${p.approx ? ' (approx.)' : ''}${checkin ? ' (check-in)' : ''}`, note: p.notes || '', hollow: checkin };
 }
 
 function addForm() {

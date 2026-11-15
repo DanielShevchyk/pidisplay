@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import metrics
+from .checkin import CheckinWeights, checkin_weights as checkin_reader
 from .catalog import clean_secondary
 from .db import LOAD_BASES, MEASUREMENT_TYPES, SET_TYPES, Tx, connect, default_person, find_person
 from .importer import ImportError_, _date, run_import
@@ -83,12 +84,18 @@ class MeasurementPatch(BaseModel):
     notes: Optional[str] = None
 
 
-def create_app(db_file: str | Path | None = None) -> FastAPI:
+_DEFAULT = object()
+
+
+def create_app(db_file: str | Path | None = None, checkin_weights: CheckinWeights | None | object = _DEFAULT) -> FastAPI:
+    """checkin_weights reads the morning check-in's weigh-ins for the bodyweight chart
+    (lifting/checkin.py; default: from PiDisplay at $PIDISPLAY_URL). None turns it off."""
     # Handlers are async on purpose: they then run one at a time on the event loop, so
     # the single SQLite connection is never used from two threads at once.
     app = FastAPI(title="PiDisplay lifting", docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
     conn = connect(db_file)
     app.state.conn = conn
+    weigh_ins = checkin_reader() if checkin_weights is _DEFAULT else checkin_weights
 
     # Pages name their scripts under static/v-<hash of the static files>/, so a deploy
     # that changes any script changes every URL and the kiosk browser can't run a copy
@@ -263,7 +270,13 @@ def create_app(db_file: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/dunk")
     async def dunk(pid: int = Person):
-        return metrics.dunk(conn, pid)
+        """Bodyweight includes the morning check-in's weigh-ins (source "checkin"), read
+        from PiDisplay each time and never stored; a measurement logged here wins on its date."""
+        checkin = []
+        if weigh_ins:
+            name = conn.execute("SELECT name FROM people WHERE id = ?", (pid,)).fetchone()["name"]
+            checkin = await weigh_ins(name)
+        return metrics.dunk(conn, pid, checkin)
 
     @app.get("/api/sessions")
     async def sessions(pid: int = Person):

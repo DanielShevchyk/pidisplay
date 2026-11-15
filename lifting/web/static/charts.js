@@ -27,7 +27,8 @@ function niceTicks(min, max, count = 5) {
 }
 
 /**
- * series: [{ name, color: 'var(--series-1)', dashed?, points: [{ x: 'YYYY-MM-DD', y, pr?, note? }] }]
+ * series: [{ name, color: 'var(--series-1)', dashed?, points: [{ x: 'YYYY-MM-DD', y, pr?, note?, hollow? }] }]
+ * (hollow: an open marker, for a point read from elsewhere)
  * opts: { unit: 'lb', format: (v) => string, refs: [{ y, label }], onTap(point, series) }
  */
 export function lineChart(el, series, opts = {}) {
@@ -100,7 +101,9 @@ export function lineChart(el, series, opts = {}) {
       }
       for (const p of pts) {
         // A surface ring keeps overlapping markers apart.
-        svg.append(s('circle', { cx: X(p.x), cy: Y(p.y), r: 6, fill: se.color, stroke: 'var(--surface)', 'stroke-width': 2 }));
+        svg.append(p.hollow
+          ? s('circle', { cx: X(p.x), cy: Y(p.y), r: 5, fill: 'var(--surface)', stroke: se.color, 'stroke-width': 2.5 })
+          : s('circle', { cx: X(p.x), cy: Y(p.y), r: 6, fill: se.color, stroke: 'var(--surface)', 'stroke-width': 2 }));
         if (p.pr) {
           svg.append(s('circle', { cx: X(p.x), cy: Y(p.y), r: 11, fill: 'none', stroke: 'var(--pr)', 'stroke-width': 2 }));
           svg.append(s('text', { x: X(p.x), y: Y(p.y) - 17, 'text-anchor': 'middle', fill: 'var(--pr)', 'font-size': 13, 'font-weight': 700 }, 'PR'));

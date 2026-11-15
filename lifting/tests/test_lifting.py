@@ -1,8 +1,10 @@
 """Run from the repo root: python3 -m pytest lifting/tests  (needs fastapi, httpx, pytest)."""
 from __future__ import annotations
 
+import asyncio
 import copy
 import sqlite3
+import urllib.error
 from datetime import date
 
 import pytest
@@ -11,6 +13,7 @@ from fastapi.testclient import TestClient
 from lifting import metrics
 from lifting.app import create_app
 from lifting.backup import backup
+from lifting.checkin import checkin_weights
 
 
 def s(exercise, n, w, reps, **kw):
@@ -444,3 +447,65 @@ def test_days_for_the_checkin(client):
     client.post("/api/people", json={"name": "Alex"})
     assert client.get("/api/days?person=Alex").json() == {"first_date": None, "days": []}
     assert client.get("/api/days?person=Nobody").status_code == 404
+
+
+def test_bodyweight_includes_checkin_weigh_ins(tmp_path):
+    asked: list[str] = []
+
+    async def weigh_ins(name):
+        asked.append(name)
+        if name != "Me":
+            return []  # nobody in the check-in goes with this person
+        return [{"date": "2026-11-01", "value": 182.0}, {"date": "2026-11-02", "value": 181.6}, {"date": "2026-11-03", "value": 181.2}]
+
+    with TestClient(create_app(tmp_path / "lifting.db", checkin_weights=weigh_ins)) as c:
+        c.post("/api/measurements", json={"date": "2026-11-02", "type": "bodyweight", "value": 180})
+        bw = c.get("/api/dunk").json()["series"]["bodyweight"]
+        # Logged here wins on its date; the rest come from the check-in, marked as such.
+        assert [(p["date"], p["value"], p["source"]) for p in bw] == [
+            ("2026-11-01", 182.0, "checkin"), ("2026-11-02", 180, "measurement"), ("2026-11-03", 181.2, "checkin")]
+        assert bw[0]["unit"] == "lb" and "id" not in bw[0]
+        assert asked == ["Me"]
+        # Nothing was copied in: the Log page's measurements are only the logged one.
+        assert [m["date"] for m in c.get("/api/measurements").json()] == ["2026-11-02"]
+        c.post("/api/people", json={"name": "Alex"})
+        assert c.get("/api/dunk", params={"person": "Alex"}).json()["series"]["bodyweight"] == []
+        assert asked[-1] == "Alex"
+
+
+def test_checkin_weigh_ins_reader(monkeypatch):
+    clock = {"t": 0.0}
+    calls: list[str] = []
+
+    def down(url, timeout):
+        calls.append(url)
+        assert timeout == 2.0
+        raise urllib.error.URLError("connection refused")
+
+    read = checkin_weights("http://pi:8080", fetch=down, clock=lambda: clock["t"])
+    assert asyncio.run(read("Dan")) == []
+    assert asyncio.run(read("dan")) == []  # failures are cached too
+    assert calls == ["http://pi:8080/api/checkin/weights?person=Dan"]
+    clock["t"] = 61
+    asyncio.run(read("Dan"))
+    assert len(calls) == 2
+
+    def up(url, timeout):
+        return {"person": "Dan", "profile": "Dan", "weights": [{"date": "2026-11-02", "value": 181}, {"date": "2026-11-01", "value": 182.4}, {"date": 3, "value": "x"}]}
+
+    read = checkin_weights("http://pi:8080/", fetch=up)
+    assert asyncio.run(read("Dan")) == [{"date": "2026-11-01", "value": 182.4}, {"date": "2026-11-02", "value": 181.0}]
+    assert checkin_weights(fetch=up) is None  # PIDISPLAY_URL is empty under test: off
+    monkeypatch.delenv("PIDISPLAY_URL")
+    assert checkin_weights(fetch=up) is not None  # the default: PiDisplay on this machine
+
+
+def test_service_down_leaves_bodyweight_as_logged(tmp_path):
+    def down(url, timeout):
+        raise TimeoutError()
+
+    with TestClient(create_app(tmp_path / "lifting.db", checkin_weights=checkin_weights("http://pi:8080", fetch=down))) as c:
+        c.post("/api/measurements", json={"date": "2026-11-02", "type": "bodyweight", "value": 180})
+        assert [p["source"] for p in c.get("/api/dunk").json()["series"]["bodyweight"]] == ["measurement"]
+    with TestClient(create_app(tmp_path / "lifting.db", checkin_weights=None)) as c:
+        assert len(c.get("/api/dunk").json()["series"]["bodyweight"]) == 1
